@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'lan_address_policy.dart';
 
 const lanDiscoveryPort = 43827;
 const lanProbePort = 43828;
@@ -108,6 +109,8 @@ class LanDiscovery extends ChangeNotifier {
   void refresh() => _announce();
 
   void _handlePacket(Datagram packet) {
+    // Discovery is never trusted; reject Internet/VPN public source addresses.
+    if (!isLocalLanIpv4(packet.address, allowLoopback: true)) return;
     if (packet.data.length > 1200 || packet.data.isEmpty) return;
     Object payload;
     try { payload = jsonDecode(utf8.decode(packet.data)); } catch (_) { return; }
@@ -192,8 +195,7 @@ class LanDiscovery extends ChangeNotifier {
     final parts = input.trim().split(':');
     if (parts.isEmpty || parts.length > 2) return false;
     final address = InternetAddress.tryParse(parts.first);
-    if (address == null || address.type != InternetAddressType.IPv4 ||
-        address.isMulticast || address.address == '255.255.255.255') {
+    if (!isLocalLanIpv4(address, allowLoopback: true)) {
       return false;
     }
     final port = parts.length == 2 ? int.tryParse(parts.last) : lanDiscoveryPort;
@@ -207,6 +209,10 @@ class LanDiscovery extends ChangeNotifier {
 
   /// Returns a TCP roundtrip timing, NOT display / input latency.
   Future<Duration?> ping(LanPeer peer) async {
+    // A forged LanPeer must not turn a reachability test into an Internet probe.
+    if (!isLocalLanIpv4(InternetAddress.tryParse(peer.address), allowLoopback: true)) {
+      return null;
+    }
     Socket? socket;
     try {
       final watch = Stopwatch()..start();
