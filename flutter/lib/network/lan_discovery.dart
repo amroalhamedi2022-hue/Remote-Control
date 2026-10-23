@@ -156,11 +156,23 @@ class LanDiscovery extends ChangeNotifier {
 
   void _handleProbe(Socket client) => respondToProbe(client);
 
+  /// This is a source-address filter, NOT an authenticated route or a trusted peer.
+  /// Keep loopback available for same-device diagnostics and unit tests.
+  @visibleForTesting
+  static bool isAllowedProbeSource(InternetAddress address) =>
+      isLocalLanIpv4(address, allowLoopback: true);
+
   /// Respond to one bounded, newline-terminated TCP reachability probe.
   /// TCP packets are arbitrary chunks: a split PING must not be rejected.
   /// This is deliberately NOT pairing, authentication, or device control.
   @visibleForTesting
   static void respondToProbe(Socket client) {
+    // TCP reachability is deliberately LAN-only, just like UDP discovery.
+    // A private source is not proof of physical LAN membership or pairing.
+    if (!isAllowedProbeSource(client.remoteAddress)) {
+      client.destroy();
+      return;
+    }
     final request = <int>[];
     var finished = false;
     late final Timer timeout;
