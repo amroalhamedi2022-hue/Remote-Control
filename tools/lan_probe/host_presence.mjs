@@ -4,7 +4,7 @@
 import dgram from 'node:dgram';
 import net from 'node:net';
 import os from 'node:os';
-import {randomId, payload, parsePacket, UDP_PORT, TCP_PORT} from './protocol.mjs';
+import {randomId, payload, parsePacket, isLanIpv4, UDP_PORT, TCP_PORT} from './protocol.mjs';
 
 const waitForUdp = (socket, port) => new Promise((resolve, reject) => {
   const error = e => {socket.off('error', error); reject(e);};
@@ -31,6 +31,8 @@ export async function startHostPresence({udpPort=UDP_PORT, tcpPort=TCP_PORT,
   const node = {id:randomId(),name,platform,tcpPort};
   const udp=dgram.createSocket({type:'udp4',reuseAddr:true});
   const tcp=net.createServer(socket=>{
+    // Never answer probes forwarded from public IPs.
+    if (!isLanIpv4(socket.remoteAddress)) { socket.destroy(); return; }
     // Probe is deliberately incapable of issuing screen/control commands.
     socket.setTimeout(3000,()=>socket.destroy());
     let command='';
@@ -53,6 +55,7 @@ export async function startHostPresence({udpPort=UDP_PORT, tcpPort=TCP_PORT,
       try {udp.send(payload(kind,node),port,address,()=>{});} catch {/* Interface unavailable */}
     };
     udp.on('message',(data,remote)=>{
+      if (!isLanIpv4(remote.address)) return;
       const peer=parsePacket(data);
       if(!peer || peer.id===node.id)return;
       if(peer.kind==='DISCOVER')send('ANNOUNCE',remote.address,remote.port);
