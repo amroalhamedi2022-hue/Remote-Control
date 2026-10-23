@@ -20,7 +20,10 @@ bool isSafeDiscoveryLabel(String value, int maxLength) {
   if (value.trim().isEmpty || value.length > maxLength) return false;
   for (final code in value.runes) {
     if (code < 0x20 || code >= 0x7f && code <= 0x9f ||
-        code == 0x061c || code >= 0x200e && code <= 0x200f ||
+        code == 0x00ad || code == 0x034f || code == 0x061c ||
+        code == 0x180e || code >= 0x200b && code <= 0x200f ||
+        code == 0x2060 || code == 0x3164 || code == 0xffa0 ||
+        code >= 0xe0000 && code <= 0xe007f ||
         code >= 0x2028 && code <= 0x202e ||
         code >= 0x2066 && code <= 0x206f ||
         code == 0xfeff || code >= 0xfff9 && code <= 0xfffb) {
@@ -60,7 +63,11 @@ class LanPeerCache {
   Iterable<LanPeer> get values => _entries.values;
 
   void remember(LanPeer peer) {
-    if (!_entries.containsKey(peer.id) && _entries.length >= maxPeers) {
+    // An older asynchronous sighting must not replace a fresher address or
+    // keep a peer alive with obsolete metadata. These are still UNTRUSTED IDs.
+    final current = _entries[peer.id];
+    if (current != null && peer.lastSeen.isBefore(current.lastSeen)) return;
+    if (current == null && _entries.length >= maxPeers) {
       String? oldestId;
       DateTime? oldestSeen;
       for (final entry in _entries.entries) {
