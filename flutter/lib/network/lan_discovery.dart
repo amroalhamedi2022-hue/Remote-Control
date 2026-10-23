@@ -42,6 +42,45 @@ class LanPeer {
     required this.address, required this.udpPort, required this.tcpPort, required this.lastSeen});
 }
 
+/// Bounded cache for untrusted LAN advertisements. A noisy or malicious LAN
+/// cannot grow the discovery list indefinitely by sending random device IDs.
+/// This is not a trust store: entries never authorize remote operations.
+@visibleForTesting
+class LanPeerCache {
+  final int maxPeers;
+  final Map<String, LanPeer> _entries = {};
+
+  LanPeerCache({this.maxPeers = 128}) {
+    if (maxPeers < 1 || maxPeers > 4096) {
+      throw ArgumentError.value(maxPeers, 'maxPeers');
+    }
+  }
+
+  int get length => _entries.length;
+  Iterable<LanPeer> get values => _entries.values;
+
+  void remember(LanPeer peer) {
+    if (!_entries.containsKey(peer.id) && _entries.length >= maxPeers) {
+      String? oldestId;
+      DateTime? oldestSeen;
+      for (final entry in _entries.entries) {
+        if (oldestSeen == null || entry.value.lastSeen.isBefore(oldestSeen)) {
+          oldestId = entry.key;
+          oldestSeen = entry.value.lastSeen;
+        }
+      }
+      if (oldestId != null) _entries.remove(oldestId);
+    }
+    _entries[peer.id] = peer;
+  }
+
+  int expireBefore(DateTime deadline) {
+    final before = _entries.length;
+    _entries.removeWhere((_, peer) => peer.lastSeen.isBefore(deadline));
+    return before - _entries.length;
+  }
+}
+
 class LanDiscovery extends ChangeNotifier {
   RawDatagramSocket? _udp;
   ServerSocket? _probeServer;
@@ -49,7 +88,7 @@ class LanDiscovery extends ChangeNotifier {
   StreamSubscription<Socket>? _serverSubscription;
   Timer? _announcer;
   Timer? _sweeper;
-  final Map<String, LanPeer> _peers = {};
+  final LanPeerCache _peers = LanPeerCache();
   final String nodeId = List<int>.generate(16, (_) => Random.secure().nextInt(256))
       .map((x) => x.toRadixString(16).padLeft(2, '0')).join();
   bool running = false;
@@ -93,9 +132,7 @@ class LanDiscovery extends ChangeNotifier {
       _announcer = Timer.periodic(const Duration(seconds: 5), (_) => _announce());
       _sweeper = Timer.periodic(const Duration(seconds: 4), (_) {
         final deadline = DateTime.now().subtract(const Duration(seconds: 20));
-        final before = _peers.length;
-        _peers.removeWhere((_, peer) => peer.lastSeen.isBefore(deadline));
-        if (_peers.length != before) notifyListeners();
+        if (_peers.expireBefore(deadline) > 0) notifyListeners();
       });
       notifyListeners();
     } catch (e) {
@@ -147,7 +184,7 @@ class LanDiscovery extends ChangeNotifier {
     final peer = LanPeer(id: id, name: name, platform: platform,
       address: packet.address.address, udpPort: packet.port,
       tcpPort: tcpPort, lastSeen: DateTime.now());
-    _peers[id] = peer;
+    _peers.remember(peer);
     notifyListeners();
     if (kind == 'DISCOVER') {
       _send('ANNOUNCE', packet.address, packet.port);
