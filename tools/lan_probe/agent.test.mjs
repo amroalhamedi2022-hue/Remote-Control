@@ -80,4 +80,29 @@ test('actual UDP manual-IP discovery + TCP probe exchange over loopback',async(t
   const closed=await new Promise(resolve=>{conn.on('connect',()=>conn.write('UNAUTHORIZED_COMMAND\n'));
     let data='';conn.on('data',b=>data+=b);conn.on('close',()=>resolve(data));conn.on('error',()=>resolve(data));});
   assert.equal(closed,''); // The probe endpoint never accepts control commands.
+  // TCP can split one valid PING across packets. The host must wait for a
+  // complete line rather than rejecting legitimate slow/fragmented clients.
+  const fragmented=await new Promise((resolve,reject)=>{
+    const socket=net.createConnection({host:'127.0.0.1',port:tcp});
+    let data='';
+    socket.setTimeout(1500,()=>socket.destroy(new Error('fragmented probe timed out')));
+    socket.on('connect',()=>{
+      socket.write('PI');
+      setTimeout(()=>socket.write('NG\\r\\n'),20);
+    });
+    socket.on('data',bytes=>data+=bytes.toString());
+    socket.on('end',()=>resolve(data));
+    socket.on('error',reject);
+  });
+  assert.equal(fragmented,'PONG\\n');
+  const oversized=await new Promise((resolve,reject)=>{
+    const socket=net.createConnection({host:'127.0.0.1',port:tcp});
+    let data='';
+    socket.setTimeout(1500,()=>socket.destroy(new Error('oversized probe timed out')));
+    socket.on('connect',()=>socket.write('P'.repeat(65)+'\\n'));
+    socket.on('data',bytes=>data+=bytes.toString());
+    socket.on('close',()=>resolve(data));
+    socket.on('error',reject);
+  });
+  assert.equal(oversized,'');
 });
