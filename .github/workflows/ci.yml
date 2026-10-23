@@ -1,6 +1,7 @@
 name: Remote Control - validation and build
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
