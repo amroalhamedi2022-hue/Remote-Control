@@ -96,30 +96,49 @@ function nonce(direction, seq) {
 }
 export class SecureEnvelope {
   constructor(lines, shared, transcriptHash, role) {
-    this.lines=lines;this.keys=secrets(shared,transcriptHash,role);this.sent=0;this.received=0;
+    this.lines=lines;this.keys=secrets(shared,transcriptHash,role);
+    this.sent=0;this.received=0;this.failed=false;
+  }
+  // A rejected frame is a terminal authentication failure, not a recoverable
+  // parsing error. Never accept later frames on a poisoned encrypted channel.
+  failClosed(error) {
+    this.failed=true;
+    this.lines.socket.destroy();
+    throw error;
   }
   send(message) {
-    if(this.sent>=Number.MAX_SAFE_INTEGER)throw new Error('Nonce counter exhausted');
-    const seq=this.sent++;
-    const cipher=crypto.createCipheriv('aes-256-gcm',this.keys.sendKey,nonce(this.keys.sendDir,seq));
-    cipher.setAAD(Buffer.from(`${PAIR_PROTOCOL}|${this.keys.sendDir}|${seq}`));
-    const payload=Buffer.concat([cipher.update(Buffer.from(json(message))),cipher.final(),cipher.getAuthTag()]);
-    this.lines.send({type:'SEALED',seq,data:b64(payload)});
+    if(this.failed)throw new Error('Encrypted session closed');
+    try {
+      if(this.sent>=Number.MAX_SAFE_INTEGER)throw new Error('Nonce counter exhausted');
+      const seq=this.sent;
+      const cipher=crypto.createCipheriv('aes-256-gcm',this.keys.sendKey,nonce(this.keys.sendDir,seq));
+      cipher.setAAD(Buffer.from(`${PAIR_PROTOCOL}|${this.keys.sendDir}|${seq}`));
+      const payload=Buffer.concat([cipher.update(Buffer.from(json(message))),cipher.final(),cipher.getAuthTag()]);
+      this.lines.send({type:'SEALED',seq,data:b64(payload)});
+      this.sent++;
+    } catch(error) {this.failClosed(error);}
   }
   async receive() {
-    const frame=await this.lines.receive();
-    if(frame.type!=='SEALED'||frame.seq!==this.received||typeof frame.data!=='string'||frame.data.length>10000||!(/^[A-Za-z0-9_-]+$/).test(frame.data))
-      throw new Error('Unexpected or replayed encrypted frame');
-    const bytes=unb64(frame.data);
-    if(bytes.length<16)throw new Error('Truncated encrypted frame');
-    const seq=this.received++;
-    const decipher=crypto.createDecipheriv('aes-256-gcm',this.keys.recvKey,nonce(this.keys.recvDir,seq));
-    decipher.setAAD(Buffer.from(`${PAIR_PROTOCOL}|${this.keys.recvDir}|${seq}`));
-    decipher.setAuthTag(bytes.subarray(-16));
-    let output;
-    try{output=Buffer.concat([decipher.update(bytes.subarray(0,-16)),decipher.final()]);}
-    catch{throw new Error('Unauthenticated ciphertext');}
-    try{return JSON.parse(output.toString('utf8'));}catch{throw new Error('Invalid encrypted payload');}
+    if(this.failed)throw new Error('Encrypted session closed');
+    try {
+      const frame=await this.lines.receive();
+      if(frame.type!=='SEALED'||frame.seq!==this.received||typeof frame.data!=='string'||frame.data.length>10000||!(/^[A-Za-z0-9_-]+$/).test(frame.data))
+        throw new Error('Unexpected or replayed encrypted frame');
+      const bytes=unb64(frame.data);
+      if(bytes.length<16)throw new Error('Truncated encrypted frame');
+      const seq=this.received;
+      const decipher=crypto.createDecipheriv('aes-256-gcm',this.keys.recvKey,nonce(this.keys.recvDir,seq));
+      decipher.setAAD(Buffer.from(`${PAIR_PROTOCOL}|${this.keys.recvDir}|${seq}`));
+      decipher.setAuthTag(bytes.subarray(-16));
+      let output;
+      try{output=Buffer.concat([decipher.update(bytes.subarray(0,-16)),decipher.final()]);}
+      catch{throw new Error('Unauthenticated ciphertext');}
+      let message;
+      try{message=JSON.parse(output.toString('utf8'));}
+      catch{throw new Error('Invalid encrypted payload');}
+      this.received++;
+      return message;
+    } catch(error) {this.failClosed(error);}
   }
 }
 
