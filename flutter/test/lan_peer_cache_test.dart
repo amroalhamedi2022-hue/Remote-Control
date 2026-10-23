@@ -40,6 +40,9 @@ void main() {
     expect(cache.expireBefore(now.subtract(const Duration(seconds: 20))), 1);
     expect(cache.values.map((p) => p.id).toSet(), {'edge', 'new'});
     expect(cache.expireBefore(now.subtract(const Duration(seconds: 20))), 0);
+    cache.clear();
+    expect(cache.length, 0);
+    expect(cache.values, isEmpty);
   });
 
   test('Cache capacity must be positive and bounded', () {
