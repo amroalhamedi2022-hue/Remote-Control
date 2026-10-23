@@ -44,6 +44,19 @@ void main() {
     expect(isLocalLanIpv4(null), isFalse);
   });
 
+  test('Inbound Flutter TCP responder rejects non-LAN sources', () {
+    for (final ip in ['8.8.8.8', '203.0.113.10', '100.64.1.2',
+      '224.0.0.1', '0.0.0.0', 'fe80::1']) {
+      expect(LanDiscovery.isAllowedProbeSource(InternetAddress(ip)),
+        isFalse, reason: ip);
+    }
+    for (final ip in ['192.168.1.5', '172.16.0.1',
+      '10.0.0.8', '169.254.1.2', '127.0.0.1']) {
+      expect(LanDiscovery.isAllowedProbeSource(InternetAddress(ip)),
+        isTrue, reason: ip);
+    }
+  });
+
   test('Loopback is permitted only when explicitly opted in for local tests', () {
     final loopback = InternetAddress.loopbackIPv4;
     expect(isLocalLanIpv4(loopback), isFalse);
