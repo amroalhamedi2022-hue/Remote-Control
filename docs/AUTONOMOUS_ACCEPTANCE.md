@@ -53,3 +53,10 @@ AUTOMATION_COMPLETE: BLOCKED
 - **PASS (previous baseline only):** CI run `39970427152` completed Node protocol, Android and Windows build jobs on previous SHA `49a826836f149587d821a8583968855a36cadb67`; it does **not** verify this lease patch.
 - **NOT TESTED (current lease SHA):** exact-SHA Flutter analyzer/widget tests and Android/Windows builds in run `39978184942` were pending at ledger edit. Physical Windows↔Pad 5 capture, QR pairing, audio/input/files/clipboard, per-operation permission consent and Liquid Fusion screenshot matching remain unverified.
 - **Next:** verify exact final SHA in CI; do a separate attended physical-device recheck only when complete, and replace/audit bespoke lab handshake before enabling privileged remote controls.
+
+### Exact-source CI result — PASS (2026-10-23)
+- **PASS** GitHub Actions run [39978267095](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/39978267095) completed successfully on exact source+regression+ledger SHA `ba589f3933ca3fd5dbbc7360067f908b4a4790a7`.
+- **PASS** Node protocol/lab tests, Flutter analyzer, new pairing-session TTL/revoke/eviction widget tests, Android Debug APK build + artifact structure/SHA validation, Windows Debug bundle build + PE/assets/SHA validation, per all three successful jobs.
+- **PASS** Android artifact ID `12512970711`, artifact ZIP SHA-256 `f8b45885b9dc81ab3cbe70a1674bb93a347e2e09c12160203d81f62199b385cd`; Windows artifact ID `12513305001`, artifact ZIP SHA-256 `2565118a335c7bfbac628f96ba71c1bf97f8c651ce8dedec3482048d071ba821`. These are archive digests, **not** real-device runtime proof.
+- **NOT TESTED:** physical Android↔Windows↔Android streaming and controls, Android MediaProjection/Accessibility consent, audio/files/clipboard/QR pairing, security audit of experimental pairing, multi-session and Liquid Fusion screenshot parity. PR #1 stays DRAFT; no main merge.
+- This acceptance-only documentation commit does not change the source tested above; a new CI run on the documentation SHA, if triggered, is a separate gate.
