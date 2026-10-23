@@ -1,3 +1,5 @@
+> Historical onboarding notes. Superseded: repository is now PUBLIC at https://github.com/amroalhamedi2022-hue/Remote-Control, managed from this chat. Do not create a second repository.
+
 # GitHub creation/import guide — Work setup ONLY
 
 **Target**: account `amroalhamedi2022-hue`, name `remote-control-liquid-fusion`, PRIVATE, default branch `main` where possible. Must not modify any other repositories. No public fallback.
