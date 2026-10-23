@@ -43,6 +43,44 @@ void main() {
     }
   }
 
+  Future<String> runInboundProbe(List<String> chunks) async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final subscription = server.listen(LanDiscovery.respondToProbe);
+    final socket = await Socket.connect(InternetAddress.loopbackIPv4, server.port);
+    try {
+      final response = socket.cast<List<int>>().transform(utf8.decoder)
+          .join().timeout(const Duration(seconds: 4));
+      for (final chunk in chunks) {
+        socket.add(utf8.encode(chunk));
+        await socket.flush();
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+      try {
+        return await response;
+      } catch (_) {
+        return '';
+      }
+    } finally {
+      socket.destroy();
+      await subscription.cancel();
+      await server.close();
+    }
+  }
+
+  test('Inbound TCP PING accepts fragments split across packets', () async {
+    expect(await runInboundProbe(['PI', 'NG\n']), 'PONG\n');
+  });
+
+  test('Inbound TCP PING accepts CRLF line endings', () async {
+    expect(await runInboundProbe(['PING\r\n']), 'PONG\n');
+  });
+
+  test('Inbound TCP probe rejects malformed and oversized commands', () async {
+    expect(await runInboundProbe(['PONG\n']), isEmpty);
+    expect(await runInboundProbe(['X' * 70]), isEmpty);
+    expect(await runInboundProbe(['PING\nPONG\n']), isEmpty);
+  });
+
   test('TCP reachability accepts a PONG fragmented across packets', () async {
     expect(await runProbe(['PO', 'NG\n']), isNotNull);
   });
