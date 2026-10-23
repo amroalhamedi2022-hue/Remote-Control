@@ -12,6 +12,7 @@ import { sendPreview, PreviewAssembler } from '../stream_lab/preview_stream.mjs'
 import { sendH264, H264Assembler } from '../video_lab/h264_transport.mjs';
 import { H264LiveViewer } from '../video_lab/h264_live_viewer.mjs';
 import { startHostPresence } from './host_presence.mjs';
+import { isLanIpv4 } from './protocol.mjs';
 
 const options=process.argv.slice(2);
 const flag = name => options.includes(`--${name}`);
@@ -162,6 +163,7 @@ if(flag('listen')) {
   const server=net.createServer();
   let busy=false;
   server.on('connection',socket=>{
+    if(!isLanIpv4(socket.remoteAddress)){socket.destroy();return;}
     if(busy){socket.destroy();return;}
     busy=true;
     interact(socket,'server').finally(()=>{busy=false;});
@@ -189,6 +191,7 @@ if(flag('listen')) {
   const [host,rawPort]=endpoint.split(':');
   const connectPort=rawPort?Number(rawPort):port;
   if(!host||!Number.isInteger(connectPort)||connectPort<1||connectPort>65535)throw new Error('Usage: --connect=192.168.1.10[:port] [--view-screen --max-frames=2 --output=frame.jpg]');
+  if(!isLanIpv4(host))throw new Error('LAN-only pairing requires a private or loopback IPv4 address');
   const socket=net.createConnection({host,port:connectPort});
   await interact(socket,'client');rl.close();
 } else {
