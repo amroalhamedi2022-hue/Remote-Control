@@ -1,9 +1,22 @@
 import crypto from 'node:crypto';
+import net from 'node:net';
 
 export const PROTOCOL = 'liquid-remote.discovery.v1';
 export const UDP_PORT = 43827;
 export const TCP_PORT = 43828;
 const idPattern = /^[0-9a-f]{32}$/;
+
+// Local-only IPv4 policy shared by the Node Windows host and manual probes.
+// Private RFC1918, IPv4 link-local (RFC3927), and loopback (same-machine QA).
+// This is not proof of a trusted peer; cryptographic pairing + consent remain required.
+export function isLanIpv4(value) {
+  if (typeof value !== 'string' || net.isIP(value) !== 4) return false;
+  const [a, b] = value.split('.').map(Number);
+  return a === 127 || a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254);
+}
 
 export const randomId = () => crypto.randomBytes(16).toString('hex');
 export function payload(kind, { id, name, platform, tcpPort }) {
@@ -26,8 +39,7 @@ export function parseEndpoint(text, defaultPort = UDP_PORT) {
   const match = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$/.exec(text);
   if (!match) throw new Error('Expected IPv4 address[:port]');
   const ip = match[1];
-  if (ip.split('.').some(x => Number(x) > 255) || ip === '255.255.255.255')
-    throw new Error('Invalid IPv4 address');
+  if (!isLanIpv4(ip)) throw new Error('Expected a local LAN IPv4 address');
   const port = match[2] ? Number(match[2]) : defaultPort;
   if (port < 1 || port > 65535) throw new Error('Port out of range');
   return { ip, port };
