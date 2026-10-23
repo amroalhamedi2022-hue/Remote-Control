@@ -5,7 +5,7 @@ import net from 'node:net';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { parsePacket, parseEndpoint, payload, randomId } from './protocol.mjs';
+import { parsePacket, parseEndpoint, isLanIpv4, payload, randomId } from './protocol.mjs';
 
 const run=promisify(execFile);
 const path=fileURLToPath(new URL('./agent.mjs',import.meta.url));
@@ -28,6 +28,18 @@ test('parser rejects malformed, forged names and oversized packets',()=>{
   assert.deepEqual(parseEndpoint('192.168.1.10:44000'),{ip:'192.168.1.10',port:44000});
   assert.throws(()=>parseEndpoint('256.1.2.3'));
 });
+test('LAN-only Node address policy rejects public/CGNAT and permits private, link-local and loopback',()=>{
+  for(const ip of ['10.1.2.3','172.16.0.1','172.31.255.254','192.168.1.20','169.254.12.4','127.0.0.1']){
+    assert.equal(isLanIpv4(ip),true,ip);
+  }
+  for(const ip of ['8.8.8.8','203.0.113.5','172.15.1.1','172.32.0.1','100.64.0.1',
+    '0.0.0.0','224.0.0.1','255.255.255.255','fe80::1','localhost','010.1.1.1']){
+    assert.equal(isLanIpv4(ip),false,ip);
+    assert.throws(()=>parseEndpoint(ip),/IPv4/);
+  }
+  assert.deepEqual(parseEndpoint('127.0.0.1:43827'),{ip:'127.0.0.1',port:43827});
+});
+
 test('actual UDP manual-IP discovery + TCP probe exchange over loopback',async(t)=>{
   const udp=await port('udp'),tcp=await port('tcp');
   const child=spawn(process.execPath,[path,'--serve',`--udp-port=${udp}`,`--tcp-port=${tcp}`],{stdio:['ignore','pipe','pipe']});
