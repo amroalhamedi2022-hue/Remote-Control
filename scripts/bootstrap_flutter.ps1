@@ -18,6 +18,18 @@ Copy-Item -Path (Join-Path $root 'flutter\lib\*') -Destination (Join-Path $appDi
 $generatedTest = Join-Path $appDir 'test\widget_test.dart'
 if (Test-Path $generatedTest) { Remove-Item $generatedTest -Force }
 Copy-Item -Path (Join-Path $root 'flutter\test\*') -Destination (Join-Path $appDir 'test') -Recurse -Force
+# Replace only generated native launcher artwork (Android + Windows).
+foreach ($density in @('mdpi','hdpi','xhdpi','xxhdpi','xxxhdpi')) {
+  $source = Join-Path $root ("flutter\assets\icons\ic_launcher_" + $density + ".png")
+  $dest = Join-Path $appDir ("android\app\src\main\res\mipmap-" + $density + "\ic_launcher.png")
+  if (-not (Test-Path $source) -or -not (Test-Path (Split-Path $dest))) {
+    throw "Missing Remote Control launcher image or destination: $source -> $dest"
+  }
+  Copy-Item -Path $source -Destination $dest -Force
+}
+$windowsIcon = Join-Path $appDir 'windows\runner\resources\app_icon.ico'
+if (-not (Test-Path (Split-Path $windowsIcon))) { throw 'Missing Windows runner icon directory' }
+Copy-Item -Path (Join-Path $root 'flutter\assets\icons\app_icon.ico') -Destination $windowsIcon -Force
 $manifestPath = Join-Path $appDir 'android\app\src\main\AndroidManifest.xml'
 $manifest = Get-Content -Path $manifestPath -Raw -Encoding UTF8
 if ($manifest -notmatch 'android.permission.INTERNET') {

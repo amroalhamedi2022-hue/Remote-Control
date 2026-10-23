@@ -12,6 +12,17 @@ cp "$ROOT/flutter/pubspec.yaml" "$APP/pubspec.yaml"
 cp -R "$ROOT/flutter/lib/." "$APP/lib/"
 rm -f "$APP/test/widget_test.dart"
 cp -R "$ROOT/flutter/test/." "$APP/test/"
+# Install the approved Remote Control launcher artwork in the Flutter-generated
+# Android scaffold. Only branding resources are changed (no APK build).
+for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+    source="$ROOT/flutter/assets/icons/ic_launcher_${density}.png"
+    destination="$APP/android/app/src/main/res/mipmap-${density}/ic_launcher.png"
+    [[ -f "$source" && -d "$(dirname "$destination")" ]] || {
+        echo >&2 "Missing approved launcher icon or destination: $source -> $destination"
+        exit 4
+    }
+    cp "$source" "$destination"
+done
 python3 - "$APP/android/app/src/main/AndroidManifest.xml" <<'PY'
 from pathlib import Path
 import sys
