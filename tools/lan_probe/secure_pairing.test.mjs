@@ -76,6 +76,10 @@ test('ciphertext manipulation fails authentication',async t=>{
   client.channel.send({type:'PING'});
   await assert.rejects(server.channel.receive(),/Unauthenticated ciphertext/);
   assert.equal(changed,true);
+  // Authentication failure must poison the session and close the socket:
+  // a caller must never resume after catching an invalid frame.
+  assert.throws(()=>server.channel.send({type:'PONG'}),/Encrypted session closed/);
+  await assert.rejects(server.channel.receive(),/Encrypted session closed/);
 });
 
 test('replayed encrypted frame rejected by sequence counter',async t=>{
@@ -93,6 +97,8 @@ test('replayed encrypted frame rejected by sequence counter',async t=>{
   assert.ok(captured);
   rawWrite(captured);
   await assert.rejects(server.channel.receive(),/Unexpected or replayed/);
+  assert.throws(()=>server.channel.send({type:'PONG'}),/Encrypted session closed/);
+  await assert.rejects(server.channel.receive(),/Encrypted session closed/);
 });
 
 test('trusted identity is recognized on later sessions with the same key',async t=>{
