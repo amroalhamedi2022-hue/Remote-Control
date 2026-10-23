@@ -1,0 +1,9 @@
+{
+  "archive": "/mnt/data/Remote_Control_Liquid_Fusion_v0.8_AutoDiscovery_Viewer_Ready.zip",
+  "files": 65,
+  "design_sha256": "5e0770c3c716ae7489a09c1942080d9c1f06c984d72d7eeffd9211c91fa6ca7c",
+  "zip_integrity": "pass",
+  "node_tests": "31/31 pass",
+  "flutter_build": "not available",
+  "note": "archive checked after creation; manifest describes release inputs"
+}

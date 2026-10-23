@@ -1,0 +1,10 @@
+v22.16.0
+ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers
+openjdk version "21.0.12.1" 2026-08-18
+Flutter SDK: unavailable in execution container
+Android SDK: unavailable in execution container
+APK built: NO
+Windows Flutter executable built: NO
+H264 Test Source: FFmpeg-generated synthetic pattern (not actual desktop capture)
+Test Device: loopback TCP between distinct Node processes (not physical Android or Windows machine)
+Node test result: 24 passed, 0 failed, 0 skipped (see qa/NODE_TESTS_v0.6.tap)

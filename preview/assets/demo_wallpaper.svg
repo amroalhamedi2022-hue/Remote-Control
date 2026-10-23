@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" preserveAspectRatio="xMidYMid slice">
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d1ecff"/><stop offset=".55" stop-color="#67a5ec"/><stop offset="1" stop-color="#dbe8fb"/></linearGradient>
+ <linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0a68f6"/><stop offset=".45" stop-color="#62c7ff"/><stop offset="1" stop-color="#082eaf"/></linearGradient>
+ <linearGradient id="b" x1=".2" y1="0" x2=".8" y2="1"><stop stop-color="#0c2c9e"/><stop offset=".4" stop-color="#1768ea"/><stop offset="1" stop-color="#071a65"/></linearGradient>
+ <linearGradient id="c" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#b7efff"/><stop offset=".48" stop-color="#3387ff"/><stop offset="1" stop-color="#0f35ac"/></linearGradient>
+ <filter id="sh"><feGaussianBlur stdDeviation="18"/></filter>
+</defs>
+<rect width="1200" height="675" fill="url(#bg)"/>
+<ellipse cx="735" cy="347" rx="300" ry="210" fill="#285bd5" opacity=".28" filter="url(#sh)"/>
+<g transform="translate(135,-65) rotate(-12 630 340)">
+<path d="M294 406C396 115 911 75 952 218 982 344 506 296 522 458c12 125 283 62 441-33-163 208-580 239-669 103-26-40-28-79 0-122Z" fill="url(#b)"/>
+<path d="M300 420c44-209 471-303 599-201 84 66-101 153-307 142-162-9-232 96-136 171 125 98 391-7 519-128-91 220-468 290-601 177-59-52-91-100-74-161Z" fill="url(#a)"/>
+<path d="M411 413c38-165 346-221 462-162 90 46-71 113-197 119-167 8-212 95-125 150 99 62 290-14 380-92-123 161-393 214-489 109-30-33-41-74-31-124Z" fill="url(#c)"/>
+<path d="M519 416c40-97 246-143 317-111 76 35-93 78-159 93-112 26-65 89 14 106-138 5-214-12-172-88Z" fill="#70d5ff" opacity=".88"/>
+</g>
+<rect x="0" y="633" width="1200" height="42" fill="#eef8ff" opacity=".94"/>
+<g fill="#3c70ae" opacity=".9"><circle cx="500" cy="654" r="9"/><circle cx="532" cy="654" r="9"/><circle cx="564" cy="654" r="9"/><circle cx="596" cy="654" r="9"/><circle cx="628" cy="654" r="9"/></g>
+<g font-family="Arial" fill="#174478" font-size="16"><text x="27" y="36">Demo Windows desktop · illustrative screen</text></g>
+</svg>

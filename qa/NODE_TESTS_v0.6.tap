@@ -1,0 +1,154 @@
+TAP version 13
+# Subtest: parser rejects malformed, forged names and oversized packets
+ok 1 - parser rejects malformed, forged names and oversized packets
+  ---
+  duration_ms: 2.86346
+  type: 'test'
+  ...
+# Subtest: actual UDP manual-IP discovery + TCP probe exchange over loopback
+ok 2 - actual UDP manual-IP discovery + TCP probe exchange over loopback
+  ---
+  duration_ms: 128.958058
+  type: 'test'
+  ...
+# Subtest: pairing agent persists pinned fingerprints only after two manual approvals
+ok 3 - pairing agent persists pinned fingerprints only after two manual approvals
+  ---
+  duration_ms: 165.508253
+  type: 'test'
+  ...
+# Subtest: mutual consent, matching SAS, pinned key identity and authenticated encryption
+ok 4 - mutual consent, matching SAS, pinned key identity and authenticated encryption
+  ---
+  duration_ms: 71.834083
+  type: 'test'
+  ...
+# Subtest: a user rejection prevents trust creation and an encrypted session
+ok 5 - a user rejection prevents trust creation and an encrypted session
+  ---
+  duration_ms: 11.652062
+  type: 'test'
+  ...
+# Subtest: tampered server identity signature is rejected before trust
+ok 6 - tampered server identity signature is rejected before trust
+  ---
+  duration_ms: 4.747275
+  type: 'test'
+  ...
+# Subtest: ciphertext manipulation fails authentication
+ok 7 - ciphertext manipulation fails authentication
+  ---
+  duration_ms: 49.713443
+  type: 'test'
+  ...
+# Subtest: replayed encrypted frame rejected by sequence counter
+ok 8 - replayed encrypted frame rejected by sequence counter
+  ---
+  duration_ms: 52.441733
+  type: 'test'
+  ...
+# Subtest: trusted identity is recognized on later sessions with the same key
+ok 9 - trusted identity is recognized on later sessions with the same key
+  ---
+  duration_ms: 13.846007
+  type: 'test'
+  ...
+# Subtest: real CLI agent: manual pair consent + screen consent + encrypted JPEG received
+ok 10 - real CLI agent: manual pair consent + screen consent + encrypted JPEG received
+  ---
+  duration_ms: 263.343797
+  type: 'test'
+  ...
+# Subtest: host refuses screen consent: client receives no preview
+ok 11 - host refuses screen consent: client receives no preview
+  ---
+  duration_ms: 164.618079
+  type: 'test'
+  ...
+# Subtest: authenticated pairing + separate host approval + encrypted JPEG test pattern across TCP
+ok 12 - authenticated pairing + separate host approval + encrypted JPEG test pattern across TCP
+  ---
+  duration_ms: 146.713956
+  type: 'test'
+  ...
+# Subtest: disallowed remote input is rejected by view-only host allowlist
+ok 13 - disallowed remote input is rejected by view-only host allowlist
+  ---
+  duration_ms: 0.700792
+  type: 'test'
+  ...
+# Subtest: fragmented JPEG stream and two concatenated frames
+ok 14 - fragmented JPEG stream and two concatenated frames
+  ---
+  duration_ms: 1.25354
+  type: 'test'
+  ...
+# Subtest: chunks reconstruct exact JPEG, reject replay & offsets
+ok 15 - chunks reconstruct exact JPEG, reject replay & offsets
+  ---
+  duration_ms: 1.060537
+  type: 'test'
+  ...
+# Subtest: reject malformed capture profiles, oversized JPEG
+ok 16 - reject malformed capture profiles, oversized JPEG
+  ---
+  duration_ms: 0.319915
+  type: 'test'
+  ...
+# Subtest: FFmpeg test pattern produces actual encrypted-ready frames (local-only)
+ok 17 - FFmpeg test pattern produces actual encrypted-ready frames (local-only)
+  ---
+  duration_ms: 149.905304
+  type: 'test'
+  ...
+# Subtest: Node CLIs: local consent -> encrypted H.264 MPEG-TS file -> FFprobe
+ok 18 - Node CLIs: local consent -> encrypted H.264 MPEG-TS file -> FFprobe
+  ---
+  duration_ms: 333.306293
+  type: 'test'
+  ...
+# Subtest: pair -> approve H.264 preview -> FFmpeg encode -> encrypted TCP -> decode to frames
+ok 19 - pair -> approve H.264 preview -> FFmpeg encode -> encrypted TCP -> decode to frames
+  ---
+  duration_ms: 332.595159
+  type: 'test'
+  ...
+# Subtest: after pairing, host refuses H.264 access separately; no video bytes
+ok 20 - after pairing, host refuses H.264 access separately; no video bytes
+  ---
+  duration_ms: 51.318155
+  type: 'test'
+  ...
+# Subtest: H264 args enforce allowlisted codec/capture profiles (no shell interpolation)
+ok 21 - H264 args enforce allowlisted codec/capture profiles (no shell interpolation)
+  ---
+  duration_ms: 1.097083
+  type: 'test'
+  ...
+# Subtest: H.264 assembler reconstructs ordered MPEG-TS packets with SHA-256 and completion
+ok 22 - H.264 assembler reconstructs ordered MPEG-TS packets with SHA-256 and completion
+  ---
+  duration_ms: 1.413933
+  type: 'test'
+  ...
+# Subtest: H264 receiver fails closed on offsets, corrupted TS, and unauthorized messages
+ok 23 - H264 receiver fails closed on offsets, corrupted TS, and unauthorized messages
+  ---
+  duration_ms: 0.282027
+  type: 'test'
+  ...
+# Subtest: H264 receiver rejects wrong digest, missing packets, duplicate chunks
+ok 24 - H264 receiver rejects wrong digest, missing packets, duplicate chunks
+  ---
+  duration_ms: 0.569623
+  type: 'test'
+  ...
+1..24
+# tests 24
+# suites 0
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2354.204204

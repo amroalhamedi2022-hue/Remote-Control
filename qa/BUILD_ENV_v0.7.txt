@@ -1,0 +1,13 @@
+# Verified build environment for v0.7; 2026-10-18
+Node: installed; tests 28/28 pass (see NODE_TESTS_v0.7.tap)
+FFmpeg + FFprobe + FFplay: installed in the test runtime
+Flutter SDK: NOT INSTALLED (checked PATH and common local tool paths)
+Android SDK: NOT INSTALLED
+ADB: NOT INSTALLED
+Windows 11 desktop: NOT PRESENT
+Physical Android devices: NOT CONNECTED
+GitHub Actions: definition present; NOT EXECUTED against a new private repository
+Flutter bootstrap contract test: passed with synthetic Flutter stub; NOT compilation
+Built Android APK: NONE
+Built Windows EXE: NONE
+H.264 player runtime: Node child stream tested with fake FFplay sink, NOT visible desktop playback

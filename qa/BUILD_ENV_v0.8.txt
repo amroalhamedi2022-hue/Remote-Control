@@ -1,0 +1,13 @@
+# Remote Control v0.8 — actual environment check (2026-10-18)
+Node.js 22: AVAILABLE
+FFmpeg, FFprobe, FFplay: AVAILABLE
+Flutter SDK: UNAVAILABLE on PATH and installed tool paths
+Android SDK, ADB: UNAVAILABLE
+Internet access for toolchain download: FAILED (DNS resolution of Flutter/GitHub hosts)
+Windows desktop/physical Android hardware: NOT CONNECTED
+Node LAN/crypto/media/CI-contract tests: 31/31 PASS (see NODE_TESTS_v0.8.tap)
+Windows host auto-discovery: implemented; tested with actual local UDP and TCP sockets
+Flutter analyzer, widget test and native build: NOT RUN
+GitHub Actions: configuration updated, NOT TRIGGERED
+Built APK / Windows executable: NONE
+Remote screen access: still view-only laboratory; no input injection implemented

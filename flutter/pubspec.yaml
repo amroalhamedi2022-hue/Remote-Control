@@ -1,0 +1,17 @@
+name: liquid_remote_control
+version: 0.8.0+8
+publish_to: none
+description: Liquid Fusion UI, LAN discovery and experimental secure pairing and view-only MJPEG client; discoverable Windows H.264 host lab
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  cryptography: ^2.9.0
+  flutter_secure_storage: ^11.2.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+flutter:
+  uses-material-design: true

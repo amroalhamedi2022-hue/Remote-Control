@@ -1,0 +1,23 @@
+# Flutter/Dart build cache
+.dart_tool/
+.packages
+.pub/
+build/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.metadata
+# IDE
+.idea/
+.vscode/
+*.iml
+# Secrets / device logs
+.env
+.env.*
+*.pem
+*.key
+**/credentials/
+**/private_device_logs/
+**/pairing_secrets/
+# Generated environment-specific files
+*.log
+.DS_Store
