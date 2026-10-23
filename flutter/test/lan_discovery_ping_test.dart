@@ -87,14 +87,14 @@ void main() {
 
   test('TCP probe accepts CRLF and packet boundaries', () async {
     final bytes = Stream<List<int>>.fromIterable([
-      utf8.encode('PO'), utf8.encode('NG\\r'), utf8.encode('\\n'),
+      utf8.encode('PO'), utf8.encode('NG\r'), utf8.encode('\n'),
     ]);
     expect(await LanDiscovery.readProbeReply(bytes), isTrue);
   });
 
   test('TCP probe rejects excess bytes after a valid line', () async {
     expect(await LanDiscovery.readProbeReply(
-      Stream<List<int>>.value(utf8.encode('PONG\\nEXTRA'))), isFalse);
+      Stream<List<int>>.value(utf8.encode('PONG\nEXTRA'))), isFalse);
   });
 
   test('TCP probe rejects unbounded no-newline payloads promptly', () async {
