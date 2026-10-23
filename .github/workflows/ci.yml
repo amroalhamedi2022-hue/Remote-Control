@@ -10,6 +10,11 @@ on:
         required: true
         type: boolean
         default: false
+      media_lab_approved:
+        description: 'Optional FFmpeg encode/decode integration run; never creates APK or EXE'
+        required: false
+        type: boolean
+        default: false
 
 # Avoid spending runner time on obsolete revisions while preserving explicit artifacts.
 concurrency:
@@ -35,11 +40,23 @@ jobs:
         run: python -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Fast LAN discovery and pairing tests (no media tool install)
         run: node --test tools/lan_probe/*.test.mjs
-      - name: Install FFmpeg if missing (bounded to avoid stuck runner)
+      # GitHub Ubuntu runners can take many minutes downloading ~100 MB of
+      # FFmpeg dependencies. Do not block every source-only PR on apt mirrors.
+      # The two real-codec integration tests self-report SKIP if FFmpeg is absent.
+      - name: Install FFmpeg for explicitly requested media integration only
+        if: github.event_name == 'workflow_dispatch' && inputs.media_lab_approved == true
         run: |
+          set -euo pipefail
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            timeout 150s sudo apt-get update
-            timeout 150s sudo apt-get install -y ffmpeg
+            timeout 180s sudo apt-get update
+            timeout 600s sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+      - name: Record FFmpeg integration coverage without claiming a pass
+        run: |
+          if command -v ffmpeg >/dev/null && command -v ffprobe >/dev/null; then
+            echo "FFmpeg/FFprobe present: real-codec media integration tests enabled." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "NOT TESTED: real-codec FFmpeg integration tests self-skip on this runner. Use manual media_lab_approved dispatch to run them." >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Secure streaming and video transport lab tests
         run: node --test tools/stream_lab/*.test.mjs tools/video_lab/*.test.mjs
