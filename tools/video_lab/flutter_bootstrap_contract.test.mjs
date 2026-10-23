@@ -23,6 +23,10 @@ set -euo pipefail
 if [[ "\${1}" == 'create' ]]; then
   app="\${!#}"
   mkdir -p "$app/android/app/src/main" "$app/android/app" "$app/lib" "$app/test"
+  # Flutter's real Android template includes density-specific mipmap directories.
+  for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+    mkdir -p "$app/android/app/src/main/res/mipmap-$density"
+  done
   cat > "$app/android/app/src/main/AndroidManifest.xml" <<'MANIFEST'
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"><application android:label="Lab" /></manifest>
 MANIFEST
