@@ -178,7 +178,7 @@ class LanDiscovery extends ChangeNotifier {
         }
         finished = true;
         timeout.cancel();
-        client.write('PONG\\n');
+        client.write('PONG\n');
         client.flush().then((_) => client.destroy(),
             onError: (Object _) => client.destroy());
         return;
