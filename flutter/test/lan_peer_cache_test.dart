@@ -32,6 +32,20 @@ void main() {
     expect(cache.values.map((p) => p.id).toSet(), {'a', 'c'});
   });
 
+  test('Late stale sightings cannot overwrite a fresher peer address', () {
+    final cache = LanPeerCache(maxPeers: 2);
+    cache.remember(peer('same', now));
+    final late = LanPeer(id: 'same', name: 'Stale spoof', platform: 'Windows',
+      address: '192.168.1.99', udpPort: lanDiscoveryPort,
+      tcpPort: lanProbePort, lastSeen: now.subtract(const Duration(seconds: 3)));
+    cache.remember(late);
+    expect(cache.length, 1);
+    expect(cache.values.single.address, '192.168.1.2');
+    expect(cache.values.single.name, 'جهاز same');
+    cache.remember(peer('new', now));
+    expect(cache.values.map((p) => p.id).toSet(), {'same', 'new'});
+  });
+
   test('Expiry removes stale entries and keeps recent peers', () {
     final cache = LanPeerCache(maxPeers: 3);
     cache.remember(peer('old', now.subtract(const Duration(seconds: 21))));
