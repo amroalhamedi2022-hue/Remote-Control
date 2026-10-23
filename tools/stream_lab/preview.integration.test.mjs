@@ -1,13 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import {spawnSync} from 'node:child_process';
 import {generateIdentity,pairSocket} from '../lan_probe/secure_pairing.mjs';
 import {sendPreview,PreviewAssembler} from './preview_stream.mjs';
 
 /** End-to-end Node↔Node over real TCP with the experimental encrypted channel.
  * This DOES NOT establish Dart/Flutter interoperability or hardware screen capture.
  */
-test('authenticated pairing + separate host approval + encrypted JPEG test pattern across TCP', {timeout:20000}, async () => {
+test('authenticated pairing + separate host approval + encrypted JPEG test pattern across TCP', {timeout:20000}, async t => {
+  if (spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status !== 0) {
+    t.skip('NOT TESTED: FFmpeg executable unavailable on source-only CI runner');
+    return;
+  }
   const serverIdentity=generateIdentity(), clientIdentity=generateIdentity();
   let serverSas,clientSas;
   const host=net.createServer(async socket=>{
