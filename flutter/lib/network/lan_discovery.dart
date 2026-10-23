@@ -74,6 +74,12 @@ class LanPeerCache {
     _entries[peer.id] = peer;
   }
 
+  /// A manual probe succeeds only on a fresh advertisement from that address.
+  /// Cached discovery alone is not evidence that a host replied to this probe.
+  bool wasSeenSince(String address, DateTime startedAt) =>
+      _entries.values.any((peer) =>
+          peer.address == address && peer.lastSeen.isAfter(startedAt));
+
   int expireBefore(DateTime deadline) {
     final before = _entries.length;
     _entries.removeWhere((_, peer) => peer.lastSeen.isBefore(deadline));
@@ -271,9 +277,12 @@ class LanDiscovery extends ChangeNotifier {
     if (port == null || port < 1 || port > 65535) {
       return false;
     }
+    // Do not claim a successful manual probe if discovery was never started.
+    if (!running || _udp == null) return false;
+    final startedAt = DateTime.now();
     _send('DISCOVER', address, port);
     await Future<void>.delayed(const Duration(milliseconds: 1200));
-    return _peers.values.any((p) => p.address == address.address);
+    return _peers.wasSeenSince(address.address, startedAt);
   }
 
   /// Returns a TCP roundtrip timing, NOT display / input latency.
