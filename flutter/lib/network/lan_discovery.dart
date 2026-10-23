@@ -219,17 +219,54 @@ class LanDiscovery extends ChangeNotifier {
       socket = await Socket.connect(peer.address, peer.tcpPort,
           timeout: const Duration(seconds: 2));
       socket.write('PING\n');
-      // Socket is Stream<Uint8List>, while Utf8Decoder accepts List<int>.
-      // Read a full line: a valid PONG may arrive split across TCP packets.
-      final response = await socket.cast<List<int>>()
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .first
-          .timeout(const Duration(seconds: 2));
+      // Never feed untrusted TCP data to an unbounded UTF-8 line decoder.
+      // A malicious LAN peer can stream megabytes without a newline.
+      final valid = await readProbeReply(socket.cast<List<int>>());
       watch.stop();
-      return response.trim() == 'PONG' ? watch.elapsed : null;
+      return valid ? watch.elapsed : null;
     } catch (_) { return null; }
     finally { socket?.destroy(); }
+  }
+
+  /// Parse one small TCP probe response with a strict byte and time budget.
+  /// This is only reachability, never authentication or control authorization.
+  /// Both PONG\\n and PONG\\r\\n are accepted, including fragmented packets.
+  @visibleForTesting
+  static Future<bool> readProbeReply(Stream<List<int>> bytes,
+      {Duration timeout = const Duration(seconds: 2)}) async {
+    final done = Completer<bool>();
+    final received = <int>[];
+    final subscription = bytes.listen((chunk) {
+      if (done.isCompleted) return;
+      for (var i = 0; i < chunk.length; i++) {
+        if (received.length >= 6) {
+          done.complete(false);
+          return;
+        }
+        final byte = chunk[i];
+        received.add(byte);
+        if (byte == 10) {
+          final isPong = received.length == 5 &&
+              received[0] == 80 && received[1] == 79 &&
+              received[2] == 78 && received[3] == 71 ||
+              received.length == 6 &&
+              received[0] == 80 && received[1] == 79 &&
+              received[2] == 78 && received[3] == 71 &&
+              received[4] == 13;
+          done.complete(isPong && i == chunk.length - 1);
+          return;
+        }
+      }
+    }, onError: (Object _) {
+      if (!done.isCompleted) done.complete(false);
+    }, onDone: () {
+      if (!done.isCompleted) done.complete(false);
+    });
+    try {
+      return await done.future.timeout(timeout, onTimeout: () => false);
+    } finally {
+      await subscription.cancel();
+    }
   }
 
   Future<void> stop() async {
