@@ -133,20 +133,57 @@ class LanDiscovery extends ChangeNotifier {
     }
   }
 
-  void _handleProbe(Socket client) {
-    // Connectivity test only. No device access is granted by this listener.
-    final timeout = Timer(const Duration(seconds: 3), () => client.destroy());
-    var used = false;
-    client.listen((bytes) {
-      if (used || bytes.length > 64) { client.destroy(); return; }
-      used = true;
-      if (utf8.decode(bytes, allowMalformed: true).trim() == 'PING') {
-        client.write('PONG\n');
-        client.flush().then((_) => client.destroy());
-      } else {
-        client.destroy();
+  void _handleProbe(Socket client) => respondToProbe(client);
+
+  /// Respond to one bounded, newline-terminated TCP reachability probe.
+  /// TCP packets are arbitrary chunks: a split PING must not be rejected.
+  /// This is deliberately NOT pairing, authentication, or device control.
+  @visibleForTesting
+  static void respondToProbe(Socket client) {
+    final request = <int>[];
+    var finished = false;
+    late final Timer timeout;
+    void close() {
+      if (finished) return;
+      finished = true;
+      timeout.cancel();
+      client.destroy();
+    }
+
+    timeout = Timer(const Duration(seconds: 3), close);
+    client.listen((chunk) {
+      if (finished) return;
+      for (var index = 0; index < chunk.length; index++) {
+        if (request.length >= 64) {
+          close();
+          return;
+        }
+        final byte = chunk[index];
+        if (byte != 10) {
+          request.add(byte);
+          continue;
+        }
+        // Reject pipelined commands and bytes after the first line.
+        if (index != chunk.length - 1) {
+          close();
+          return;
+        }
+        final hasCr = request.length == 5 && request.last == 13;
+        final validLength = request.length == 4 || hasCr;
+        final isPing = validLength && request[0] == 80 &&
+            request[1] == 73 && request[2] == 78 && request[3] == 71;
+        if (!isPing) {
+          close();
+          return;
+        }
+        finished = true;
+        timeout.cancel();
+        client.write('PONG\\n');
+        client.flush().then((_) => client.destroy(),
+            onError: (Object _) => client.destroy());
+        return;
       }
-    }, onError: (_) => client.destroy(), onDone: () => timeout.cancel());
+    }, onError: (_) => close(), onDone: close);
   }
 
   /// Manual IP discovers a LAN agent via UDP. Use 192.168.x.x or IPv4:UDP-port.
