@@ -4,6 +4,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_approved:
+        description: 'Explicit final-build approval after all source acceptance gates pass'
+        required: true
+        type: boolean
+        default: false
 
 # Avoid spending runner time on obsolete revisions while preserving explicit artifacts.
 concurrency:
@@ -36,7 +42,27 @@ jobs:
       - name: Discovery, secure pairing and video transport lab tests
         run: node --test tools/lan_probe/*.test.mjs tools/stream_lab/*.test.mjs tools/video_lab/*.test.mjs
 
+  flutter-source-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Flutter scaffold, static analyzer and widget tests (NO APK/EXE)
+        run: bash ./scripts/bootstrap_flutter.sh
+
   android-debug-apk:
+    if: github.event_name == 'workflow_dispatch' && inputs.release_approved == true
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: node-protocol-tests
@@ -74,6 +100,7 @@ jobs:
           retention-days: 14
 
   windows-debug-bundle:
+    if: github.event_name == 'workflow_dispatch' && inputs.release_approved == true
     runs-on: windows-latest
     timeout-minutes: 60
     needs: node-protocol-tests
