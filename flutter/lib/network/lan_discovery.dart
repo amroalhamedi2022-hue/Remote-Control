@@ -195,7 +195,7 @@ class LanDiscovery extends ChangeNotifier {
     final parts = input.trim().split(':');
     if (parts.isEmpty || parts.length > 2) return false;
     final address = InternetAddress.tryParse(parts.first);
-    if (!isLocalLanIpv4(address, allowLoopback: true)) {
+    if (address == null || !isLocalLanIpv4(address, allowLoopback: true)) {
       return false;
     }
     final port = parts.length == 2 ? int.tryParse(parts.last) : lanDiscoveryPort;
