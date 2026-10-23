@@ -12,6 +12,24 @@ const lanDiscoveryPort = 43827;
 const lanProbePort = 43828;
 const lanProtocol = 'liquid-remote.discovery.v1';
 
+// UDP device labels are untrusted until pairing. Reject invisible direction
+// controls and line separators that can impersonate another device in the UI.
+// This does not authorize a peer or replace authenticated pairing.
+@visibleForTesting
+bool isSafeDiscoveryLabel(String value, int maxLength) {
+  if (value.trim().isEmpty || value.length > maxLength) return false;
+  for (final code in value.runes) {
+    if (code < 0x20 || code >= 0x7f && code <= 0x9f ||
+        code == 0x061c || code >= 0x200e && code <= 0x200f ||
+        code >= 0x2028 && code <= 0x202e ||
+        code >= 0x2066 && code <= 0x206f ||
+        code == 0xfeff || code >= 0xfff9 && code <= 0xfffb) {
+      return false;
+    }
+  }
+  return true;
+}
+
 class LanPeer {
   final String id;
   final String name;
@@ -120,8 +138,8 @@ class LanDiscovery extends ChangeNotifier {
     final id = payload['id'], name = payload['name'], platform = payload['platform'];
     final tcpPort = payload['tcpPort'];
     if (id is! String || !RegExp(r'^[0-9a-f]{32}$').hasMatch(id) || id == nodeId ||
-        name is! String || name.isEmpty || name.length > 64 ||
-        platform is! String || platform.length > 32 ||
+        name is! String || !isSafeDiscoveryLabel(name, 64) ||
+        platform is! String || !isSafeDiscoveryLabel(platform, 32) ||
         tcpPort is! int || tcpPort < 1 || tcpPort > 65535) {
       return;
     }
