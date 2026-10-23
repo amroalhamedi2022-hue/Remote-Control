@@ -88,18 +88,18 @@ test('actual UDP manual-IP discovery + TCP probe exchange over loopback',async(t
     socket.setTimeout(1500,()=>socket.destroy(new Error('fragmented probe timed out')));
     socket.on('connect',()=>{
       socket.write('PI');
-      setTimeout(()=>socket.write('NG\\r\\n'),20);
+      setTimeout(()=>socket.write('NG\r\n'),20);
     });
     socket.on('data',bytes=>data+=bytes.toString());
     socket.on('end',()=>resolve(data));
     socket.on('error',reject);
   });
-  assert.equal(fragmented,'PONG\\n');
+  assert.equal(fragmented,'PONG\n');
   const oversized=await new Promise((resolve,reject)=>{
     const socket=net.createConnection({host:'127.0.0.1',port:tcp});
     let data='';
     socket.setTimeout(1500,()=>socket.destroy(new Error('oversized probe timed out')));
-    socket.on('connect',()=>socket.write('P'.repeat(65)+'\\n'));
+    socket.on('connect',()=>socket.write('P'.repeat(65)+'\n'));
     socket.on('data',bytes=>data+=bytes.toString());
     socket.on('close',()=>resolve(data));
     socket.on('error',reject);
