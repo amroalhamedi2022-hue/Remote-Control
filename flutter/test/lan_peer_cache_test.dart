@@ -45,6 +45,20 @@ void main() {
     expect(cache.values, isEmpty);
   });
 
+  test('Manual IP requires a fresh sighting from the requested address', () {
+    final cache = LanPeerCache();
+    final requestedAt = now;
+    cache.remember(peer('old', now.subtract(const Duration(seconds: 1))));
+    expect(cache.wasSeenSince('192.168.1.2', requestedAt), isFalse,
+      reason: 'A cached peer must not make a new probe appear successful');
+    cache.remember(peer('new', now.add(const Duration(milliseconds: 1))));
+    expect(cache.wasSeenSince('192.168.1.2', requestedAt), isTrue);
+    expect(cache.wasSeenSince('192.168.1.3', requestedAt), isFalse);
+    expect(cache.wasSeenSince('192.168.1.2', now.add(const Duration(seconds: 2))), isFalse);
+    cache.clear();
+    expect(cache.wasSeenSince('192.168.1.2', requestedAt), isFalse);
+  });
+
   test('Cache capacity must be positive and bounded', () {
     expect(() => LanPeerCache(maxPeers: 0), throwsArgumentError);
     expect(() => LanPeerCache(maxPeers: 4097), throwsArgumentError);
