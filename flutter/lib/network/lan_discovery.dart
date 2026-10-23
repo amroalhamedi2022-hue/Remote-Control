@@ -119,7 +119,9 @@ class LanDiscovery extends ChangeNotifier {
     if (id is! String || !RegExp(r'^[0-9a-f]{32}$').hasMatch(id) || id == nodeId ||
         name is! String || name.isEmpty || name.length > 64 ||
         platform is! String || platform.length > 32 ||
-        tcpPort is! int || tcpPort < 1 || tcpPort > 65535) return;
+        tcpPort is! int || tcpPort < 1 || tcpPort > 65535) {
+      return;
+    }
     // Address comes from datagram source, never from an untrusted JSON field.
     final peer = LanPeer(id: id, name: name, platform: platform,
       address: packet.address.address, udpPort: packet.port,
@@ -154,7 +156,9 @@ class LanDiscovery extends ChangeNotifier {
     if (parts.isEmpty || parts.length > 2) return false;
     final address = InternetAddress.tryParse(parts.first);
     if (address == null || address.type != InternetAddressType.IPv4 ||
-        address.isMulticast || address.address == '255.255.255.255') return false;
+        address.isMulticast || address.address == '255.255.255.255') {
+      return false;
+    }
     final port = parts.length == 2 ? int.tryParse(parts.last) : lanDiscoveryPort;
     if (port == null || port < 1 || port > 65535) {
       return false;
