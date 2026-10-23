@@ -12,6 +12,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../network/lan_address_policy.dart';
+import 'pair_session_ledger.dart';
 
 const pairingPort = 43829;
 const _protocol = 'liquidremote.pair.v1';
@@ -76,7 +77,7 @@ class PairingLab {
   bool _previewCancelled = false;
   bool _busy = false;
   final Map<String, String> _trust = {};
-  final Map<String, String> _sessionAddresses = {};
+  final PairSessionLedger _sessionAddresses = PairSessionLedger();
   SimpleKeyPair? _identity;
   List<int>? _identitySpki;
   final signature = Ed25519();
@@ -84,7 +85,7 @@ class PairingLab {
   String? error;
   void Function()? onChange;
   bool get listening => _server != null;
-  bool isPairedInThisSession(String address) => _sessionAddresses.containsKey(address);
+  bool isPairedInThisSession(String address) => _sessionAddresses.contains(address);
   int get trustedCount => _trust.length;
   String? get localFingerprint => _localFingerprint;
   String? _localFingerprint;
@@ -197,7 +198,7 @@ class PairingLab {
 
   Future<void> revoke(String fingerprint) async {
     if (_trust.remove(fingerprint) == null) return;
-    _sessionAddresses.removeWhere((_, f) => f == fingerprint);
+    _sessionAddresses.revokeFingerprint(fingerprint);
     await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
     onChange?.call();
   }
@@ -283,7 +284,7 @@ class PairingLab {
           // Pairing identity is pinned after authenticated PING, before view-only request.
           _trust[fingerprint] = remotePublic;
           await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
-          _sessionAddresses[socket.remoteAddress.address] = fingerprint;
+          _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
           onChange?.call();
           await channel.send({'type':'STREAM_START', 'mode':'view-only'});
           final status = await channel.receive();
@@ -300,7 +301,7 @@ class PairingLab {
       // Trust is recorded ONLY after a successful authenticated round trip.
       _trust[fingerprint] = remotePublic;
       await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
-      _sessionAddresses[socket.remoteAddress.address] = fingerprint;
+      _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
       onChange?.call();
       return PairResult(fingerprint, pinned == remotePublic, socket.remoteAddress.address);
     } finally { await io.close(); ephemeral.destroy(); }
