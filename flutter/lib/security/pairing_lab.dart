@@ -11,6 +11,7 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../network/lan_address_policy.dart';
 
 const pairingPort = 43829;
 const _protocol = 'liquidremote.pair.v1';
@@ -127,6 +128,12 @@ class PairingLab {
       final server = await ServerSocket.bind(InternetAddress.anyIPv4, pairingPort);
       _server = server;
       server.listen((socket) async {
+        // Binding on all interfaces is needed for LAN reachability, but a
+        // forwarded public connection must never reach the pairing UI.
+        if (!isLocalLanIpv4(socket.remoteAddress, allowLoopback: true)) {
+          socket.destroy();
+          return;
+        }
         if (_busy) { socket.destroy(); return; }
         _busy = true;
         try { await _pair(socket, isClient: false, ask: ask); }
@@ -142,8 +149,7 @@ class PairingLab {
     await _init();
     if (_busy) throw StateError('Already pairing another device');
     final parsed = InternetAddress.tryParse(ip);
-    if (parsed == null || parsed.type != InternetAddressType.IPv4 || parsed.isMulticast ||
-        parsed.isLoopback || parsed.address == '255.255.255.255') {
+    if (!isLocalLanIpv4(parsed)) {
       throw const FormatException('Enter a valid LAN IPv4 address');
     }
     _busy = true;
@@ -164,8 +170,7 @@ class PairingLab {
     await _init();
     if (_busy || _previewSocket != null) throw StateError('Pairing or preview already active');
     final parsed = InternetAddress.tryParse(ip);
-    if (parsed == null || parsed.type != InternetAddressType.IPv4 || parsed.isMulticast ||
-        parsed.isLoopback || parsed.address == '255.255.255.255') {
+    if (!isLocalLanIpv4(parsed)) {
       throw const FormatException('Enter a valid LAN IPv4 address');
     }
     _busy = true;
