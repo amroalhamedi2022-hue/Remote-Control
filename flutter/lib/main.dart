@@ -414,18 +414,26 @@ void _showManualIpDialog(BuildContext context,PrototypeState app,ValueChanged<St
         final ip=controller.text.trim(); Navigator.pop(dialogContext);
         try {
           final result=await app.pairing.connect(ip, (challenge)=>_pairDialog(context, challenge));
-          if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:Text('Encrypted PING OK · ${result.fingerprint.substring(0,12)}… · no remote control granted')));
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:Text('Encrypted PING OK · ${result.fingerprint.substring(0,12)}… · no remote control granted')));
+          }
         }catch(e){
-          if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:Text('Could not pair by IP: $e')));
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:Text('Could not pair by IP: $e')));
+          }
         }
       },child:const Text('Pair IP')),
       TextButton(onPressed:() async {
         final ip=controller.text.trim();Navigator.pop(dialogContext);
         try { await app.previewIp(ip, (challenge)=>_pairDialog(context,challenge)); }
-        catch(e) { if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content:Text('Preview ended: $e'))); }
+        catch(e) {
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content:Text('Preview ended: $e')));
+          }
+        }
       },child:const Text('View IP (lab)'))],
   )).then((_)=>controller.dispose());
 }
@@ -585,9 +593,11 @@ class _SecondaryPanels extends StatelessWidget {
   final ValueChanged<String> onDemo;
   const _SecondaryPanels({required this.app,required this.tablet,required this.onDemo});
   @override Widget build(BuildContext context) {
-    if(tablet)return Column(children:[_ConnectionCard(app:app,onDemo:onDemo),const SizedBox(height:11),
-      Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:_FileCard(onDemo:onDemo)),
-        const SizedBox(width:11),Expanded(child:_ClipboardCard(app:app,onDemo:onDemo))])]);
+    if(tablet) {
+      return Column(children:[_ConnectionCard(app:app,onDemo:onDemo),const SizedBox(height:11),
+        Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:_FileCard(onDemo:onDemo)),
+          const SizedBox(width:11),Expanded(child:_ClipboardCard(app:app,onDemo:onDemo))])]);
+    }
     return Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
       Expanded(flex:12,child:_ConnectionCard(app:app,onDemo:onDemo)),const SizedBox(width:11),
       Expanded(flex:10,child:_FileCard(onDemo:onDemo)),const SizedBox(width:11),

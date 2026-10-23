@@ -1,6 +1,6 @@
-/// Phase 1 LAN presence/probe protocol. NOT an authenticated remote session.
-/// Peers and names obtained here are UNTRUSTED until pairing is implemented.
-/// No screen capture, input, file, or clipboard data is exchanged.
+// Phase 1 LAN presence/probe protocol. NOT an authenticated remote session.
+// Peers and names obtained here are UNTRUSTED until pairing is implemented.
+// No screen capture, input, file, or clipboard data is exchanged.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -126,7 +126,9 @@ class LanDiscovery extends ChangeNotifier {
       tcpPort: tcpPort, lastSeen: DateTime.now());
     _peers[id] = peer;
     notifyListeners();
-    if (kind == 'DISCOVER') _send('ANNOUNCE', packet.address, packet.port);
+    if (kind == 'DISCOVER') {
+      _send('ANNOUNCE', packet.address, packet.port);
+    }
   }
 
   void _handleProbe(Socket client) {
@@ -154,7 +156,9 @@ class LanDiscovery extends ChangeNotifier {
     if (address == null || address.type != InternetAddressType.IPv4 ||
         address.isMulticast || address.address == '255.255.255.255') return false;
     final port = parts.length == 2 ? int.tryParse(parts.last) : lanDiscoveryPort;
-    if (port == null || port < 1 || port > 65535) return false;
+    if (port == null || port < 1 || port > 65535) {
+      return false;
+    }
     _send('DISCOVER', address, port);
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     return _peers.values.any((p) => p.address == address.address);
@@ -168,8 +172,13 @@ class LanDiscovery extends ChangeNotifier {
       socket = await Socket.connect(peer.address, peer.tcpPort,
           timeout: const Duration(seconds: 2));
       socket.write('PING\n');
-      final response = await socket.transform(utf8.decoder).first
-        .timeout(const Duration(seconds: 2));
+      // Socket is Stream<Uint8List>, while Utf8Decoder accepts List<int>.
+      // Read a full line: a valid PONG may arrive split across TCP packets.
+      final response = await socket.cast<List<int>>()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .first
+          .timeout(const Duration(seconds: 2));
       watch.stop();
       return response.trim() == 'PONG' ? watch.elapsed : null;
     } catch (_) { return null; }

@@ -53,7 +53,7 @@ jobs:
           channel: stable
           cache: true
       - name: Flutter scaffold, analyzer and widget tests
-        run: ./scripts/bootstrap_flutter.sh
+        run: bash ./scripts/bootstrap_flutter.sh
       - name: Produce real Android Debug APK
         working-directory: app
         run: flutter build apk --debug

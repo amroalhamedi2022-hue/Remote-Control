@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'dart:typed_data';
 import '../network/lan_discovery.dart';
 import '../security/pairing_lab.dart';
 

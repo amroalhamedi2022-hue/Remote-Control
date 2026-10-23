@@ -1,7 +1,7 @@
-/// v0.5 experimental signed pairing and view-only MJPEG LAN preview.
-/// All screen sharing requires an extra LOCAL host approval (SHARE on Node agent).
-/// No remote input, files, clipboard or unattended access is authorized.
-/// The bespoke handshake MUST be replaced/audited before product release.
+// v0.5 experimental signed pairing and view-only MJPEG LAN preview.
+// All screen sharing requires an extra LOCAL host approval (SHARE on Node agent).
+// No remote input, files, clipboard or unattended access is authorized.
+// The bespoke handshake MUST be replaced/audited before product release.
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
