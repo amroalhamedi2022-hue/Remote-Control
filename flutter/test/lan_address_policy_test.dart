@@ -5,6 +5,19 @@ import 'package:liquid_remote_control/network/lan_address_policy.dart';
 import 'package:liquid_remote_control/network/lan_discovery.dart';
 
 void main() {
+  test('UDP labels reject bidi spoofing, controls and invisible separators', () {
+    for (final code in [0x061c, 0x200e, 0x200f, 0x202a, 0x202e,
+      0x2066, 0x206f, 0x0085, 0x2028, 0xfeff, 0xfff9, 0x000a]) {
+      final deceptive = 'Host' + String.fromCharCode(code) + 'Fake';
+      expect(isSafeDiscoveryLabel(deceptive, 64), isFalse, reason: code.toString());
+    }
+    expect(isSafeDiscoveryLabel(' ', 64), isFalse);
+    expect(isSafeDiscoveryLabel('', 64), isFalse);
+    expect(isSafeDiscoveryLabel('X' * 65, 64), isFalse);
+    expect(isSafeDiscoveryLabel('جهاز أندرويد', 64), isTrue);
+    expect(isSafeDiscoveryLabel('Windows Host', 32), isTrue);
+  });
+
   test('Private RFC1918 and link-local IPv4 addresses are permitted', () {
     for (final ip in [
       '10.0.0.1', '10.255.255.254',
