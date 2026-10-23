@@ -79,6 +79,8 @@ class LanPeerCache {
     _entries.removeWhere((_, peer) => peer.lastSeen.isBefore(deadline));
     return before - _entries.length;
   }
+
+  void clear() => _entries.clear();
 }
 
 class LanDiscovery extends ChangeNotifier {
@@ -344,6 +346,7 @@ class LanDiscovery extends ChangeNotifier {
     await _probeServer?.close();
     _udp = null; _probeServer = null;
     running = false;
+    _peers.clear();
     notifyListeners();
   }
 
@@ -352,6 +355,7 @@ class LanDiscovery extends ChangeNotifier {
     _announcer?.cancel(); _sweeper?.cancel();
     _udpSubscription?.cancel(); _serverSubscription?.cancel();
     _udp?.close(); _probeServer?.close();
+    _peers.clear();
     super.dispose();
   }
 }
