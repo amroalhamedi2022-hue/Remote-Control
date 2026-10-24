@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {sendFileOnce,receiveFileOnce} from './file_transfer.mjs';
-import {pairSocket, generateIdentity, identityFingerprint} from './secure_pairing.mjs';
+import {pairSocket, generateIdentity, identityFingerprint, requireSignedIntent} from './secure_pairing.mjs';
 
 async function fixture(clientOpts={},serverOpts={}) {
   const clientIdentity=clientOpts.identity??generateIdentity();
@@ -230,4 +230,25 @@ test('unsupported client intent is rejected before a network connection', async 
   const socket=new net.Socket();
   await assert.rejects(pairSocket(socket,{role:'client',identity:generateIdentity(),
     onCode:async()=>true,intent:'remote-input'}),/Unsupported client session intent/);
+});
+
+test('privileged file/clipboard actions require the exact authenticated session intent', async t => {
+  for (const intent of [null, undefined, 'file', 'clipboard', 'remote-input', {}, '']) {
+    for (const capability of ['file', 'clipboard']) {
+      if (intent === capability) {
+        assert.equal(requireSignedIntent(intent, capability), true);
+      } else {
+        assert.throws(() => requireSignedIntent(intent, capability),
+          /Signed (file|clipboard) intent required/);
+      }
+    }
+  }
+  assert.throws(() => requireSignedIntent('file', 'remote-input'),
+    /Unsupported privileged session capability/);
+  const f = await fixture({intent:'clipboard'});
+  t.after(() => {f.clientSocket.destroy();f.listener.close();});
+  const [, server] = await Promise.all([f.clientSide, f.serverSide]);
+  assert.equal(requireSignedIntent(server.peerIntent, 'clipboard'), true);
+  assert.throws(() => requireSignedIntent(server.peerIntent, 'file'),
+    /Signed file intent required/);
 });
