@@ -5,7 +5,7 @@ class ClipboardPolicy {
   static const maxBytes = 2048;
 
   static int validate(String text) {
-    if (text.isEmpty) throw const FormatException('Clipboard text is empty');
+    if (text.isEmpty) { throw const FormatException('Clipboard text is empty'); }
     final units = text.codeUnits;
     for (var i = 0; i < units.length; i++) {
       final c = units[i];
@@ -23,7 +23,7 @@ class ClipboardPolicy {
       }
     }
     final bytes = utf8.encode(text).length;
-    if (bytes > maxBytes) throw const FormatException('Clipboard exceeds 2048 UTF-8 bytes');
+    if (bytes > maxBytes) { throw const FormatException('Clipboard exceeds 2048 UTF-8 bytes'); }
     return bytes;
   }
 }

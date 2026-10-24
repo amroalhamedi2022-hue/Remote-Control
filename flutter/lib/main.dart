@@ -641,12 +641,12 @@ class _SecondaryPanels extends StatelessWidget {
     if(tablet) {
       return Column(children:[_ConnectionCard(app:app,onDemo:onDemo),const SizedBox(height:11),
         Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:_FileCard(onDemo:onDemo)),
-          const SizedBox(width:11),Expanded(child:_ClipboardCard(app:app,onDemo:onDemo))])]);
+          const SizedBox(width:11),Expanded(child:_ClipboardCard(app:app))])]);
     }
     return Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
       Expanded(flex:12,child:_ConnectionCard(app:app,onDemo:onDemo)),const SizedBox(width:11),
       Expanded(flex:10,child:_FileCard(onDemo:onDemo)),const SizedBox(width:11),
-      Expanded(flex:10,child:_ClipboardCard(app:app,onDemo:onDemo)),
+      Expanded(flex:10,child:_ClipboardCard(app:app)),
     ]);
   }
 }

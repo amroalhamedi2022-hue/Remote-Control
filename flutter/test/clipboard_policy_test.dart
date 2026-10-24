@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/security/clipboard_policy.dart';
+import 'package:liquid_remote_control/security/clipboard_policy.dart';
 
 void main() {
   test('Arabic and emoji count UTF-8 bytes', () {
