@@ -38,6 +38,8 @@ jobs:
           python-version: '3.12'
       - name: Validate artifact verifier (positive and rejection tests)
         run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Parse every Node LAN and media module (source only)
+        run: find tools -name '*.mjs' -print0 | xargs -0 -n1 node --check
       - name: Fast LAN discovery and pairing tests (no media tool install)
         run: node --test tools/lan_probe/*.test.mjs
       # GitHub Ubuntu runners can take many minutes downloading ~100 MB of
