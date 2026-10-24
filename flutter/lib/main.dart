@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:file_selector/file_selector.dart';
 import 'models/app_state.dart';
 import 'ui/liquid_theme.dart';
 import 'security/pairing_lab.dart';
@@ -341,7 +342,7 @@ class _Body extends StatelessWidget {
       ],
       if(devicePage && !mobile)
         _SecondaryPanels(app:app,tablet:tablet,onDemo:onDemo),
-      if(section==AppSection.files) _FileCard(onDemo:onDemo),
+      if(section==AppSection.files) _FileCard(app:app),
       if(section==AppSection.clipboard) _ClipboardCard(app:app),
       if(section==AppSection.settings) _SettingsCard(app:app),
       if(section==AppSection.multiDevice)GlassPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
@@ -782,20 +783,65 @@ class _DemoQrPainter extends CustomPainter {
   @override bool shouldRepaint(covariant _DemoQrPainter oldDelegate)=>false;
 }
 class _FileCard extends StatelessWidget {
-  final ValueChanged<String> onDemo;
-  const _FileCard({required this.onDemo});
-  @override Widget build(BuildContext context){
-    final c=LiquidColors(Theme.of(context).brightness==Brightness.light);
-    return GlassPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-      const _PanelHeading(title:'File Transfer',subtitle:'No file is transferred in UI demo',icon:Icons.folder_copy_outlined),
-      Container(height:115,decoration:BoxDecoration(color:c.panel,borderRadius:BorderRadius.circular(10),
-        border:Border.all(color:c.border,style:BorderStyle.solid)),child:Column(mainAxisAlignment:MainAxisAlignment.center,children:[
-        Icon(Icons.upload_file_outlined,color:c.text,size:27),const SizedBox(height:6),
-        Text('Choose a file',style:TextStyle(color:c.text,fontWeight:FontWeight.w600)),
-        Text('File picker and transfer pending',style:TextStyle(color:c.muted,fontSize:10)),
-      ])),const SizedBox(height:10),Align(alignment:Alignment.centerLeft,child:LiquidAction(
-        label:'Send (not connected)',gradient:true,onTap:()=>onDemo('File transfer is not implemented yet'))),
-    ]));
+  final PrototypeState app;
+  const _FileCard({required this.app});
+  @override Widget build(BuildContext context) {
+    final c = LiquidColors(app.lightMode);
+    final active = app.fileTransferActive;
+    final total = app.fileTotalBytes;
+    final sent = app.fileTransferredBytes;
+    return GlassPanel(child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _PanelHeading(title:'File Transfer',
+          subtitle:'Android → Windows · one-shot encrypted lab',
+          icon:Icons.folder_copy_outlined),
+        Container(
+          padding:const EdgeInsets.all(14),
+          decoration:BoxDecoration(color:c.panel,
+            borderRadius:BorderRadius.circular(10),
+            border:Border.all(color:c.border)),
+          child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+            Text(active ? 'Transferring: $sent / $total bytes' :
+              app.fileTransferVerified ? 'Last transfer verified by receiver' :
+              'Choose a file with the Android system picker',
+              style:TextStyle(color:c.text,fontWeight:FontWeight.w600)),
+            const SizedBox(height:10),
+            LinearProgressIndicator(value:total > 0 ? (sent/total).clamp(0.0,1.0) : null,
+              minHeight:5),
+            const SizedBox(height:8),
+            Text('Maximum 64 MiB. Select a discovered Windows host running the Node lab with --listen --receive-file=<folder>. Verify six-digit pairing on both devices; the Windows receiver must type FILE to approve.',
+              style:TextStyle(color:c.muted,fontSize:11)),
+            const SizedBox(height:6),
+            Text('No background file access, no Android receiver yet. The custom lab handshake is not approved for production.',
+              style:TextStyle(color:c.muted,fontSize:10)),
+          ]),
+        ),
+        const SizedBox(height:10),
+        Align(alignment:Alignment.centerLeft,child:LiquidAction(
+          label:active ? 'Transfer in progress' : 'Choose file and send',
+          gradient:true,
+          onTap:() async {
+            if (app.fileTransferActive) return;
+            try {
+              final file = await openFile();
+              if (file == null) return;
+              final result = await app.sendFileSelected(
+                (challenge) => _pairDialog(context, challenge), file);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content:Text('Windows verified ${result.bytes} bytes · SHA-256 ${result.sha256.substring(0,16)}…')));
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content:Text('File was NOT transferred: $e')));
+              }
+            }
+          },
+        )),
+      ],
+    ));
   }
 }
 class _ClipboardCard extends StatelessWidget {
