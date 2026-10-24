@@ -10,6 +10,41 @@ export const FILE_CHUNK_BYTES = 3072; // base64 fits the 8 KiB secure frame limi
 const sha256 = () => crypto.createHash('sha256');
 const hex = h => h.digest('hex');
 
+// An explicit local cancel must unblock a peer waiting for a network frame.
+// The production SecureEnvelope owns a socket; closing it also cancels its
+// outstanding receive. The Promise fallback covers in-memory QA peers.
+function cancellationError() {
+  const error = new Error('File transfer cancelled');
+  error.name = 'AbortError';
+  return error;
+}
+function checkCancelled(signal) {
+  if (signal?.aborted) throw cancellationError();
+}
+async function receiveWithCancel(channel, signal) {
+  checkCancelled(signal);
+  if (!signal) return channel.receive();
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      fn(value);
+    };
+    const onAbort = () => {
+      channel.lines?.socket?.destroy();
+      finish(reject, cancellationError());
+    };
+    signal.addEventListener('abort', onAbort, {once: true});
+    if (signal.aborted) {onAbort(); return;}
+    Promise.resolve().then(() => channel.receive()).then(
+      value => finish(resolve, value),
+      error => finish(reject, error),
+    );
+  });
+}
+
 export function safeTransferName(name) {
   if (typeof name !== 'string' || !name || name.length > 180 ||
       name === '.' || name === '..' || name.endsWith('.') || name.endsWith(' ') ||
@@ -29,45 +64,50 @@ function validateOffer(offer) {
       typeof offer.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(offer.sha256))
     throw new Error('Invalid file offer');
 }
-async function hashHandle(handle, size) {
+async function hashHandle(handle, size, signal) {
   const h=sha256(), buf=Buffer.alloc(FILE_CHUNK_BYTES);
   let pos=0;
   while(pos<size) {
+    checkCancelled(signal);
     const {bytesRead}=await handle.read(buf,0,Math.min(buf.length,size-pos),pos);
     if(bytesRead<=0) throw new Error('Source file changed while hashing');
     h.update(buf.subarray(0,bytesRead));pos+=bytesRead;
   }
   return hex(h);
 }
-export async function sendFileOnce(channel, filePath, {onProgress = () => {}} = {}) {
+export async function sendFileOnce(channel, filePath, {onProgress = () => {}, signal} = {}) {
   if (typeof onProgress !== 'function') throw new TypeError('Progress callback must be a function');
+  checkCancelled(signal);
   // Do not follow symlinks; reject directory, pipe and changing-size sources.
   const handle=await fsp.open(filePath,constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
   try {
     const st=await handle.stat();
     if(!st.isFile() || st.size>MAX_FILE_BYTES)throw new Error('Unsupported source file');
     const name=safeTransferName(path.basename(filePath));
-    const digest=await hashHandle(handle,st.size);
+    const digest=await hashHandle(handle,st.size,signal);
+    checkCancelled(signal);
     channel.send({type:'FILE_OFFER',name,bytes:st.size,sha256:digest});
-    const ready=await channel.receive();
+    const ready=await receiveWithCancel(channel,signal);
     if(ready?.type==='FILE_DENIED')throw new Error('Receiver denied file transfer');
     if(ready?.type!=='FILE_READY')throw new Error('Invalid file transfer approval');
     const buf=Buffer.alloc(FILE_CHUNK_BYTES);
     let offset=0,seq=0;
     while(offset<st.size) {
+      checkCancelled(signal);
       const {bytesRead}=await handle.read(buf,0,Math.min(buf.length,st.size-offset),offset);
       if(bytesRead<=0)throw new Error('Source file changed during transfer');
       channel.send({type:'FILE_CHUNK',seq,data:buf.subarray(0,bytesRead).toString('base64')});
-      const ack=await channel.receive();
+      const ack=await receiveWithCancel(channel,signal);
       if(ack?.type!=='FILE_ACK'||ack.seq!==seq)throw new Error('Invalid file chunk acknowledgement');
       offset+=bytesRead;seq++;
       onProgress({bytes:offset,total:st.size,verified:false});
     }
     // Re-read the source to reject in-place changes even if its length stayed the same.
-    if((await handle.stat()).size!==st.size || await hashHandle(handle,st.size)!==digest)
+    if((await handle.stat()).size!==st.size || await hashHandle(handle,st.size,signal)!==digest)
       throw new Error('Source file changed during transfer');
+    checkCancelled(signal);
     channel.send({type:'FILE_END',bytes:offset,sha256:digest});
-    const done=await channel.receive();
+    const done=await receiveWithCancel(channel,signal);
     if(done?.type!=='FILE_OK'||done.bytes!==offset||done.sha256!==digest)
       throw new Error('Invalid file completion acknowledgement');
     onProgress({bytes:offset,total:st.size,verified:true});
@@ -75,17 +115,21 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}} = 
   } finally {await handle.close();}
 }
 
-export async function receiveFileOnce(channel, offer, {approve,directory,onProgress=()=>{}}) {
+export async function receiveFileOnce(channel, offer, {approve,directory,onProgress=()=>{},signal}) {
   if (typeof onProgress !== 'function') throw new TypeError('Progress callback must be a function');
+  checkCancelled(signal);
   validateOffer(offer);
   if(typeof approve!=='function'||typeof directory!=='string')
     throw new Error('Explicit file receiver approval required');
-  if(await approve(offer)!==true) {
+  const approved=await approve(offer);
+  checkCancelled(signal);
+  if(approved!==true) {
     channel.send({type:'FILE_DENIED'});
     return null;
   }
   const destDir=await fsp.realpath(directory);
   if(!(await fsp.stat(destDir)).isDirectory())throw new Error('Destination must be a directory');
+  checkCancelled(signal);
   const tmp=path.join(destDir,`.liquidremote-${crypto.randomUUID()}.part`);
   const file=await fsp.open(tmp,'wx',0o600);
   let saved=false;
@@ -93,12 +137,14 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
     const h=sha256();let count=0,seq=0;
     channel.send({type:'FILE_READY'});
     while(true) {
-      const packet=await channel.receive();
+      const packet=await receiveWithCancel(channel,signal);
+      checkCancelled(signal);
       if(packet?.type==='FILE_END') {
         const digest=hex(h);
         if(count!==offer.bytes||packet.bytes!==count||packet.sha256!==digest||
             digest!==offer.sha256)throw new Error('File size or SHA-256 mismatch');
         await file.sync();await file.close();
+        checkCancelled(signal);
         // Hard-link is atomic and fails if a destination already exists.
         // Never overwrite an existing file, including case-insensitive aliases.
         const ext=path.extname(offer.name),stem=offer.name.slice(0,offer.name.length-ext.length);
@@ -124,6 +170,7 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
         throw new Error('File transfer exceeds approved size');
       let written=0;
       while(written<data.length) {
+        checkCancelled(signal);
         const result=await file.write(data,written,data.length-written,count+written);
         if(result.bytesWritten<=0)throw new Error('Destination write stalled');
         written+=result.bytesWritten;
