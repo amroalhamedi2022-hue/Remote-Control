@@ -75,6 +75,9 @@ class JsonLines {
   }
   close(err) {this.dead=true;this.reason=err;if(this.waiter){this.waiter.reject(err);this.waiter=null;}}
   async receive() {
+    // A second waiter previously replaced the first one, leaving the first
+    // receive promise unresolved forever. Fail closed on concurrent reads.
+    if(this.waiter) throw new Error('Concurrent frame reads are not allowed');
     if(this.queue.length) return this.parse(this.queue.shift());
     if(this.dead) throw this.reason || new Error('Closed');
     const line=await new Promise((resolve,reject)=>this.waiter={resolve,reject});
@@ -109,6 +112,8 @@ export class SecureEnvelope {
   send(message) {
     if(this.failed)throw new Error('Encrypted session closed');
     try {
+      if(!message || typeof message!=='object' || Array.isArray(message))
+        throw new Error('Encrypted payload must be an object');
       if(this.sent>=Number.MAX_SAFE_INTEGER)throw new Error('Nonce counter exhausted');
       const seq=this.sent;
       const cipher=crypto.createCipheriv('aes-256-gcm',this.keys.sendKey,nonce(this.keys.sendDir,seq));
@@ -136,6 +141,8 @@ export class SecureEnvelope {
       let message;
       try{message=JSON.parse(output.toString('utf8'));}
       catch{throw new Error('Invalid encrypted payload');}
+      if(!message || typeof message!=='object' || Array.isArray(message))
+        throw new Error('Encrypted payload must be an object');
       this.received++;
       return message;
     } catch(error) {this.failClosed(error);}
