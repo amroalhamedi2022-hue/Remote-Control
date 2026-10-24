@@ -46,8 +46,11 @@ Future<FileSendResult> sendLabFile(
   FileTransferChannel channel,
   XFile file, {
   void Function(int bytes, int total, bool verified)? onProgress,
+  // CrossFile.fromData ignores its 'name' argument on Dart IO; this override
+  // lets in-memory protocol tests provide the original picker filename.
+  String? selectedName,
 }) async {
-  final name = validateLabFileName(file.name);
+  final name = validateLabFileName(selectedName ?? file.name);
   final size = await file.length();
   if (size < 0 || size > maxLabFileBytes) {
     throw const FormatException('Selected file exceeds 64 MiB lab limit');
