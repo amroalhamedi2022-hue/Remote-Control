@@ -72,6 +72,20 @@ function fileProgress(label) {
   };
 }
 
+// Ctrl+C during a one-shot transfer cancels the encrypted read and lets the
+// receiver remove its temporary .part file instead of exiting mid-write.
+async function withTransferCancellation(run) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.on('SIGINT', cancel);
+  process.on('SIGTERM', cancel);
+  try { return await run(controller.signal); }
+  finally {
+    process.off('SIGINT', cancel);
+    process.off('SIGTERM', cancel);
+  }
+}
+
 async function interact(socket,role) {
   try {
     const {fingerprint,channel,known,peerIntent}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve,
@@ -84,7 +98,8 @@ async function interact(socket,role) {
       if(response?.type!=='PONG')throw new Error('Unexpected secure response');
       console.log('SECURE_PONG received; no remote access permission was granted');
       if(opt('send-file')) {
-        const sent=await sendFileOnce(channel,opt('send-file'),{onProgress:fileProgress('SEND')});
+        const sent=await withTransferCancellation(signal=>sendFileOnce(channel,opt('send-file'),
+          {onProgress:fileProgress('SEND'),signal}));
         console.log('FILE_TRANSFER_VERIFIED',sent.bytes,sent.sha256);
         return;
       }
@@ -158,8 +173,9 @@ async function interact(socket,role) {
       if(opt('receive-file')) {
         requireSignedIntent(peerIntent, 'file');
         const offer=await channel.receive();
-        const received=await receiveFileOnce(channel,offer,{
+        const received=await withTransferCancellation(signal=>receiveFileOnce(channel,offer,{
           directory:opt('receive-file'),
+          signal,
           onProgress:fileProgress('RECEIVE'),
           approve:async ({name,bytes})=>{
             console.log('One-shot file offer from',fingerprint.slice(0,20),name,bytes,'bytes');
@@ -167,7 +183,7 @@ async function interact(socket,role) {
               'To receive this file into the selected folder, type FILE: (45s) ');
             return answer==='FILE';
           }
-        });
+        }));
         console.log(received ? 'FILE_RECEIVED_VERIFIED' : 'FILE_DENIED',received?.bytes ?? 0);
         return;
       }
