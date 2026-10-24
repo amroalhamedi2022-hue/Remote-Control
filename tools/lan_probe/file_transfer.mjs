@@ -26,7 +26,7 @@ function cancellationError() {
 function checkCancelled(signal) {
   if (signal?.aborted) throw cancellationError();
 }
-async function receiveWithCancel(channel, signal, idleTimeoutMs) {
+export async function receiveWithCancel(channel, signal, idleTimeoutMs) {
   checkCancelled(signal);
   return new Promise((resolve, reject) => {
     let settled = false;

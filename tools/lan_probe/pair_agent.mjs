@@ -16,6 +16,7 @@ import { isLanIpv4 } from './protocol.mjs';
 import { askWithDeadline } from './consent_prompt.mjs';
 import { acceptClipboardRequest, writeWindowsClipboard, clipboardByteLength } from './clipboard_transfer.mjs';
 import { sendFileOnce, receiveFileOnce } from './file_transfer.mjs';
+import { sendFolderOnce, receiveFolderOnce } from './file_batch.mjs';
 
 const options=process.argv.slice(2);
 const flag = name => options.includes(`--${name}`);
@@ -89,7 +90,7 @@ async function withTransferCancellation(run) {
 async function interact(socket,role) {
   try {
     const {fingerprint,channel,known,peerIntent}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve,
-      intent:role==='client' ? (opt('send-file') ? 'file' : flag('send-clipboard') ? 'clipboard' : null) : null});
+      intent:role==='client' ? ((opt('send-file') || opt('send-folder')) ? 'file' : flag('send-clipboard') ? 'clipboard' : null) : null});
     saveTrust();
     console.log(`PAIR_OK ${fingerprint.slice(0,20)} (${known?'recognized':'new'}) — encrypted channel active`);
     if(role==='client') {
@@ -101,6 +102,12 @@ async function interact(socket,role) {
         const sent=await withTransferCancellation(signal=>sendFileOnce(channel,opt('send-file'),
           {onProgress:fileProgress('SEND'),signal}));
         console.log('FILE_TRANSFER_VERIFIED',sent.bytes,sent.sha256);
+        return;
+      }
+      if(opt('send-folder')) {
+        const sent=await withTransferCancellation(signal=>sendFolderOnce(channel,opt('send-folder'),
+          {signal,onProgress:p=>console.log('FOLDER_SEND_PROGRESS',p.files,p.totalFiles,p.bytes,p.totalBytes)}));
+        console.log('FOLDER_TRANSFER_VERIFIED',sent.count,sent.bytes);
         return;
       }
       if(flag('send-clipboard')) {
@@ -170,6 +177,22 @@ async function interact(socket,role) {
       const request=await channel.receive();
       if(request?.type==='PING')channel.send({type:'PONG'});
       else throw new Error('Action prohibited: Only encrypted PING is allowed');
+      if(opt('receive-folder')) {
+        requireSignedIntent(peerIntent,'file');
+        const begin=await channel.receive();
+        const received=await withTransferCancellation(signal=>receiveFolderOnce(channel,begin,{
+          directory:opt('receive-folder'),signal,
+          onProgress:p=>console.log('FOLDER_RECEIVE_PROGRESS',p.files,p.totalFiles,p.bytes,p.totalBytes),
+          approve:async ({folder,count,bytes})=>{
+            console.log('Folder offer',folder,count,'files',bytes,'bytes from',fingerprint.slice(0,20));
+            const answer=await askWithDeadline(rl.question.bind(rl),
+              'To receive this entire folder (max 64 files, 256 MiB), type FOLDER: (45s) ');
+            return answer==='FOLDER';
+          }
+        }));
+        console.log(received?'FOLDER_RECEIVED_VERIFIED':'FOLDER_DENIED',received?.count??0);
+        return;
+      }
       if(opt('receive-file')) {
         requireSignedIntent(peerIntent, 'file');
         const offer=await channel.receive();
@@ -243,10 +266,14 @@ async function interact(socket,role) {
     if(!socket.destroyed){socket.end();socket.setTimeout(500,()=>socket.destroy());}
   }
 }
-if(opt('send-file') && (flag('send-clipboard') || flag('view-screen') || flag('view-h264') || flag('watch-h264') || flag('listen'))) {
+if((opt('send-file') || opt('send-folder')) &&
+   (Boolean(opt('send-file')) === Boolean(opt('send-folder')) || flag('send-clipboard') ||
+    flag('view-screen') || flag('view-h264') || flag('watch-h264') || flag('listen'))) {
   throw new Error('One-shot file sending requires a separate client session');
 }
-if(opt('receive-file') && (flag('receive-clipboard') || flag('share-screen') || flag('share-h264') || !flag('listen'))) {
+if((opt('receive-file') || opt('receive-folder')) &&
+   (Boolean(opt('receive-file')) === Boolean(opt('receive-folder')) || flag('receive-clipboard') ||
+    flag('share-screen') || flag('share-h264') || !flag('listen'))) {
   throw new Error('One-shot file receiving requires a separate host session');
 }
 if(flag('send-clipboard') && (flag('view-screen') || flag('view-h264') || flag('watch-h264') || flag('listen'))) {
@@ -291,6 +318,6 @@ if(flag('listen')) {
   const socket=net.createConnection({host,port:connectPort});
   await interact(socket,'client');rl.close();
 } else {
-  console.log('Usage: node pair_agent.mjs --listen [--no-discovery] [--share-screen] [--share-h264] [--receive-clipboard] [--encoder=libx264|h264_nvenc] [--test-pattern] [--port=43829] | --connect=IP[:port] [--view-screen --max-frames=2 --output=frame.jpg] | --connect=IP[:port] --send-clipboard | --connect=IP[:port] --view-h264 [--watch-h264] --max-seconds=3 [--output=clip.ts] | --listen --receive-file=EXISTING_FOLDER | --connect=IP[:port] --send-file=FILE | --list | --revoke=<fingerprint>');
+  console.log('Usage: node pair_agent.mjs --listen [--no-discovery] [--share-screen] [--share-h264] [--receive-clipboard] [--encoder=libx264|h264_nvenc] [--test-pattern] [--port=43829] | --connect=IP[:port] [--view-screen --max-frames=2 --output=frame.jpg] | --connect=IP[:port] --send-clipboard | --connect=IP[:port] --view-h264 [--watch-h264] --max-seconds=3 [--output=clip.ts] | --listen --receive-file=EXISTING_FOLDER | --connect=IP[:port] --send-file=FILE | --listen --receive-folder=EXISTING_FOLDER | --connect=IP[:port] --send-folder=FOLDER | --list | --revoke=<fingerprint>');
   rl.close();process.exitCode=1;
 }
