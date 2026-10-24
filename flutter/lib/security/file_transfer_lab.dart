@@ -108,3 +108,115 @@ Future<FileSendResult> sendLabFile(
   onProgress?.call(sent, size, true);
   return FileSendResult(sent, digest);
 }
+
+
+/// One explicitly approved incoming file. The platform adapter MUST stage
+/// privately and publish atomically only from commit(), never from write().
+/// Android SAF and Windows destination adapters are separate acceptance work.
+abstract class LabReceiveStaging {
+  Future<void> write(List<int> bytes);
+  Future<void> commit({required String name, required int bytes,
+    required String sha256});
+  Future<void> abort();
+}
+
+class LabIncomingOffer {
+  final String name;
+  final int bytes;
+  final String sha256;
+  const LabIncomingOffer(this.name, this.bytes, this.sha256);
+}
+
+/// Dart/Node FILE_OFFER interoperability. Caller must supply a paired,
+/// signed-file-intent AEAD channel and a platform-specific transactional sink.
+/// No file is published on denial, truncation, bad framing or hash mismatch.
+Future<FileSendResult?> receiveLabFile(
+  FileTransferChannel channel,
+  Map<String, dynamic> offer, {
+  required Future<bool> Function(LabIncomingOffer) approve,
+  required Future<LabReceiveStaging> Function(LabIncomingOffer) createStaging,
+  void Function(int bytes, int total, bool verified)? onProgress,
+}) async {
+  if (offer['type'] != 'FILE_OFFER' ||
+      offer['name'] is! String ||
+      offer['bytes'] is! int ||
+      offer['sha256'] is! String) {
+    throw const FormatException('Invalid incoming file offer');
+  }
+  final name = validateLabFileName(offer['name'] as String);
+  final size = offer['bytes'] as int;
+  final expected = offer['sha256'] as String;
+  if (size < 0 || size > maxLabFileBytes ||
+      !RegExp(r'^[0-9a-f]{64}$').hasMatch(expected)) {
+    throw const FormatException('Invalid incoming file size or digest');
+  }
+  final request = LabIncomingOffer(name, size, expected);
+  final accepted = await approve(request).timeout(fileResponseTimeout);
+  if (!accepted) {
+    await channel.send({'type': 'FILE_DENIED'});
+    return null;
+  }
+
+  // Never acknowledge readiness until a private staging target exists.
+  final staging = await createStaging(request).timeout(fileResponseTimeout);
+  var committed = false;
+  final sink = _LabDigestSink();
+  final hasher = crypto.sha256.startChunkedConversion(sink);
+  var count = 0;
+  var sequence = 0;
+  try {
+    await channel.send({'type': 'FILE_READY'});
+    while (true) {
+      final frame = await channel.receive().timeout(fileResponseTimeout);
+      if (frame['type'] == 'FILE_END') {
+        hasher.close();
+        final actual = sink.value?.toString();
+        if (count != size || frame['bytes'] != count ||
+            frame['sha256'] != expected || actual != expected) {
+          throw StateError('Incoming file size or SHA-256 mismatch');
+        }
+        // Commit is the only operation allowed to make the file visible.
+        await staging.commit(name: name, bytes: count, sha256: expected);
+        committed = true;
+        await channel.send({
+          'type': 'FILE_OK', 'bytes': count, 'sha256': expected,
+        });
+        onProgress?.call(count, size, true);
+        return FileSendResult(count, expected);
+      }
+      final encoded = frame['data'];
+      if (frame['type'] != 'FILE_CHUNK' ||
+          frame['seq'] is! int || frame['seq'] != sequence ||
+          encoded is! String || encoded.isEmpty ||
+          encoded.length > ((labFileChunkBytes + 2) ~/ 3) * 4 ||
+          !_canonicalLabBase64.hasMatch(encoded)) {
+        throw const FormatException('Invalid incoming file chunk');
+      }
+      final bytes = base64.decode(encoded);
+      if (bytes.isEmpty || bytes.length > labFileChunkBytes ||
+          bytes.length > size - count) {
+        throw StateError('Incoming file exceeds approved byte budget');
+      }
+      await staging.write(bytes);
+      hasher.add(bytes);
+      count += bytes.length;
+      await channel.send({'type': 'FILE_ACK', 'seq': sequence});
+      sequence++;
+      onProgress?.call(count, size, false);
+    }
+  } finally {
+    if (!committed) await staging.abort();
+  }
+}
+
+final RegExp _canonicalLabBase64 = RegExp(
+  r'^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$',
+);
+
+class _LabDigestSink implements Sink<crypto.Digest> {
+  crypto.Digest? value;
+  @override
+  void add(crypto.Digest data) { value = data; }
+  @override
+  void close() {}
+}
