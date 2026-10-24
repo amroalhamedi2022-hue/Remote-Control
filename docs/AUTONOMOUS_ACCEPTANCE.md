@@ -70,3 +70,21 @@ AUTOMATION_COMPLETE: BLOCKED
 - **Artifact links:** https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/39996298757/artifacts/12519932244 and https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/39996298757/artifacts/12520141566 .
 - **NOT TESTED / BLOCKED:** physical Windows/Pad 5/phone installation or execution; genuine screen capture/codec/audio/input/clipboard/file transfer; authenticated production pairing, QR, explicit MediaProjection/Accessibility consent and session revocation; LAN/VPN interface isolation, multi-session, Liquid Fusion screenshot parity, measured performance and independent physical-device acceptance. Do not label the project complete, merge PR #1 or disable the automation. No main writes, no paid APIs.
 - **CI nuance:** Actions checks out GitHub's PR merge ref, combining the stated head with the base; the tested head is recorded above, not a claim that a standalone device build was independently installed. This ledger-only commit is newer than the verified code SHA.
+
+## 2026-10-24 — Milestone R15-A: Android SAF picker → Windows Node receiver
+
+**Scope and implementation:** `flutter/lib/security/file_transfer_lab.dart` implements bounded one-shot `FILE_OFFER / FILE_READY / FILE_CHUNK / FILE_ACK / FILE_END / FILE_OK` over the existing SAS-confirmed AES-GCM channel. Signed CLIENT_HELLO intent is `file` (separate from clipboard), and the Windows `pair_agent.mjs --listen --receive-file=<folder>` must independently ask for FILE approval. The Flutter File Transfer card now invokes the native Android picker, streams chunks with per-chunk acknowledgement, rehashes source and requires final receiver SHA-256 acknowledgement. Maximum file size 64 MiB, raw chunk size 3072 bytes. No broad Android storage permission and no unattended access. This does NOT implement Android receiving, folders via Flutter, screen/audio/control, or production security.
+
+**Acceptance gates (exact-SHA evidence required):**
+
+| Gate | State | Evidence / acceptance question |
+| --- | --- | --- |
+| R15-A1: signed file intent + scoped picker + sender protocol wired to actual UI | CODE COMPLETE — CI PENDING | `flutter/lib/main.dart`, `models/app_state.dart`, `security/pairing_lab.dart`, `security/file_transfer_lab.dart` |
+| R15-A2: bounded chunk, SHA-256, refusal, wrong ACK, zero-byte regression | CODE COMPLETE — CI PENDING | `flutter/test/file_transfer_lab_test.dart`; `flutter test` and analyzer on exact head SHA |
+| R15-A3: Node receiver contract and explicit local consent | CODE EXISTS — DEVICE NOT TESTED | `tools/lan_probe/file_transfer.mjs`, `pair_agent.mjs`, Node tests; run attended Android→Windows LAN |
+| R15-A4: real Android SAF picker and Windows received file hash equality | NOT TESTED | Xiaomi Pad 5 and Windows 11, zero-byte, Arabic name, 64 MiB, revoke/deny/disconnect; independently compare SHA-256 |
+| R15-A5: security, cross-platform integration, error/recovery and usability acceptance | NOT TESTED | independent crypto review, actual device/permission tests, benchmark and Liquid Fusion screenshots |
+
+**Evidence summary at documentation time:** 0/5 accepted on hardware; source implementation present but new Flutter tests and CI are **PENDING** (never infer PASS from a previous SHA). Existing Windows Node lab already supports file receiving, but Android interoperability remains unproven. No APK/Windows build in this milestone: the next efficient gate is Flutter analyzer/unit CI; request a milestone build only if source checks pass and an attended cross-device test can follow.
+
+**Licensing:** file_selector and crypto are Flutter/Dart-maintained BSD-3-Clause packages (see `docs/LICENSE_LEDGER.md`). No merge, main edits, paid services or external storage reads without picker consent.
