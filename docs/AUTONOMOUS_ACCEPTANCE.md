@@ -88,3 +88,21 @@ AUTOMATION_COMPLETE: BLOCKED
 **Evidence summary at documentation time:** 0/5 accepted on hardware; source implementation present but new Flutter tests and CI are **PENDING** (never infer PASS from a previous SHA). Existing Windows Node lab already supports file receiving, but Android interoperability remains unproven. No APK/Windows build in this milestone: the next efficient gate is Flutter analyzer/unit CI; request a milestone build only if source checks pass and an attended cross-device test can follow.
 
 **Licensing:** file_selector and crypto are Flutter/Dart-maintained BSD-3-Clause packages (see `docs/LICENSE_LEDGER.md`). No merge, main edits, paid services or external storage reads without picker consent.
+
+
+## 2026-10-25 — M7 laboratory milestone: Dart receives encrypted Node file frames transactionally
+
+**Scope:** PR #1 only; no main/NetKit edits.
+**Functional outcome:** Dart now has the receiver half of the Node `FILE_OFFER → FILE_READY → FILE_CHUNK/ACK → FILE_END/FILE_OK` protocol. User consent precedes staging; strict filename/size/SHA-256/base64/sequence/budget checks precede acknowledgement; chunks hash incrementally and go to a **private transactional sink**. The sink commits only after the final digest matches; rejection and failures abort staging. The caller must supply an already authenticated SAS-confirmed file-intent channel and an OS-specific atomic staging adapter. No unapproved disk writes are performed by this module.
+
+**Source:** `flutter/lib/security/file_transfer_lab.dart`, `flutter/test/file_transfer_lab_test.dart`. New tests cover valid bytes, denial, wrong sequence, oversized chunk, malformed base64, bad digest, failed commit, and invalid offer.
+
+**Acceptance gate (6 checks):**
+1. Receiver state machine and streaming SHA implemented: **PASS (source inspection)**.
+2. Denial/negative-path regression scenarios committed: **PASS (source inspection)**.
+3. Flutter analyzer and tests on exact SHA: **NOT TESTED** until https://github.com/amroalhamedi2022-hue/Remote-Control/actions completes.
+4. Native Windows atomic file staging adapter: **NOT TESTED / not integrated**.
+5. Android SAF destination/commit adapter and Flutter UI wiring: **NOT TESTED / not integrated**.
+6. Physical Android↔Windows LAN transfer, signed consent, file hashes: **NOT TESTED**.
+
+**Boundary:** This is protocol/transport **lab interoperability**, not production remote access. Never infer actual Android SAF/Windows file transfer or audited encryption from passing Dart tests. No APK/EXE build was requested for this source-only gate.
