@@ -15,6 +15,7 @@ import '../network/lan_address_policy.dart';
 import 'pair_session_ledger.dart';
 import 'pair_consent_policy.dart';
 import 'pairing_lifecycle.dart';
+import 'clipboard_policy.dart';
 
 const pairingPort = 43829;
 const _protocol = 'liquidremote.pair.v1';
@@ -194,6 +195,31 @@ class PairingLab {
     }
   }
 
+  /// User-entered text only; Windows host requires explicit CLIP consent.
+  Future<void> sendClipboard(String ip, AskForPairConsent ask, String text) async {
+    ClipboardPolicy.validate(text);
+    final ticket = _lifecycle.ticket;
+    await _init();
+    _lifecycle.requireCurrent(ticket);
+    if (_busy || _previewSocket != null) throw StateError('Pairing or preview already active');
+    if (!isLocalLanIpv4(InternetAddress.tryParse(ip))) {
+      throw const FormatException('Enter a valid LAN IPv4 address');
+    }
+    _busy = true;
+    Socket? socket;
+    try {
+      socket = await Socket.connect(ip, pairingPort, timeout: const Duration(seconds: 4));
+      _lifecycle.requireCurrent(ticket);
+      _activePairSocket = socket;
+      await _pair(socket, isClient: true, ask: ask, ticket: ticket, clipboardText: text);
+    } finally {
+      socket?.destroy();
+      if (identical(_activePairSocket, socket)) _activePairSocket = null;
+      _busy = false;
+      onChange?.call();
+    }
+  }
+
   /// This is a diagnostic MJPEG proof, NOT production streaming. Connect only to
   /// a manually approved Node Windows host started with --share-screen.
   Future<void> preview(String ip, AskForPairConsent ask,
@@ -276,7 +302,7 @@ class PairingLab {
 
   Future<PairResult> _pair(Socket socket, {required bool isClient,
       required AskForPairConsent ask, required int ticket,
-      void Function(Uint8List frame)? previewReceiver}) async {
+      void Function(Uint8List frame)? previewReceiver, String? clipboardText}) async {
     final io = _JsonLines(socket);
     final ephemeral = await keyExchange.newKeyPair();
     try {
@@ -321,6 +347,16 @@ class PairingLab {
         await channel.send({'type': 'PING', 'sentAt': DateTime.now().millisecondsSinceEpoch});
         final pong = await channel.receive();
         if (pong['type'] != 'PONG') throw StateError('Encrypted PING failed');
+        if (clipboardText != null) {
+          _lifecycle.requireCurrent(ticket);
+          final bytes = ClipboardPolicy.validate(clipboardText);
+          await channel.send({'type':'CLIPBOARD_PUT', 'text':clipboardText});
+          final reply = await channel.receive().timeout(const Duration(seconds: 55));
+          if (reply['type'] != 'CLIPBOARD_OK' || reply['bytes'] != bytes) {
+            throw StateError('Windows host did not approve clipboard transfer');
+          }
+          _lifecycle.requireCurrent(ticket);
+        }
         if (previewReceiver != null) {
           // Stopping a listener must not allow a pending pairing to grant trust.
           _lifecycle.requireCurrent(ticket);

@@ -14,6 +14,7 @@ import { H264LiveViewer } from '../video_lab/h264_live_viewer.mjs';
 import { startHostPresence } from './host_presence.mjs';
 import { isLanIpv4 } from './protocol.mjs';
 import { askWithDeadline } from './consent_prompt.mjs';
+import { acceptClipboardRequest, writeWindowsClipboard } from './clipboard_transfer.mjs';
 
 const options=process.argv.slice(2);
 const flag = name => options.includes(`--${name}`);
@@ -123,6 +124,20 @@ async function interact(socket,role) {
       const request=await channel.receive();
       if(request?.type==='PING')channel.send({type:'PONG'});
       else throw new Error('Action prohibited: Only encrypted PING is allowed');
+      if(flag('receive-clipboard')) {
+        const req = await channel.receive();
+        const accepted = await acceptClipboardRequest(channel, req, {
+          approve: async () => {
+            console.log('One-shot clipboard request from paired peer', fingerprint.slice(0, 20));
+            const answer = await askWithDeadline(rl.question.bind(rl),
+              'To replace THIS Windows clipboard once, type CLIP: (45s) ');
+            return answer === 'CLIP';
+          },
+          writeClipboard: writeWindowsClipboard,
+        });
+        console.log(accepted ? 'CLIPBOARD_WRITTEN_WITH_CONSENT' : 'CLIPBOARD_DENIED');
+        return;
+      }
       if(flag('share-screen') || flag('share-h264')) {
         const req=await channel.receive();
         if(req?.type==='H264_START') {
@@ -163,6 +178,9 @@ async function interact(socket,role) {
     if(!socket.destroyed){socket.end();socket.setTimeout(500,()=>socket.destroy());}
   }
 }
+if(flag('receive-clipboard') && (flag('share-screen') || flag('share-h264'))) {
+  throw new Error('Clipboard and screen sharing require separate host sessions');
+}
 if(flag('listen')) {
   const server=net.createServer();
   let busy=false;
@@ -174,7 +192,7 @@ if(flag('listen')) {
   });
   let presence;
   server.listen(port,'0.0.0.0',async()=>{
-    console.log(`PAIR_AGENT_READY ${port}; local consent required on both devices${flag('share-screen') ? '; MJPEG sharing requires SHARE' : ''}${flag('share-h264') ? '; H.264 sharing requires H264' : ''}`);
+    console.log(`PAIR_AGENT_READY ${port}; local consent required on both devices${flag('share-screen') ? '; MJPEG sharing requires SHARE' : ''}${flag('share-h264') ? '; H.264 sharing requires H264' : ''}${flag('receive-clipboard') ? '; clipboard requires CLIP' : ''}`);
     // Announce the Windows host through the same discovery format as Flutter.
     // A failed discovery bind must not silently masquerade as success.
     if (!flag('no-discovery')) {
@@ -199,6 +217,6 @@ if(flag('listen')) {
   const socket=net.createConnection({host,port:connectPort});
   await interact(socket,'client');rl.close();
 } else {
-  console.log('Usage: node pair_agent.mjs --listen [--no-discovery] [--share-screen] [--share-h264] [--encoder=libx264|h264_nvenc] [--test-pattern] [--port=43829] | --connect=IP[:port] [--view-screen --max-frames=2 --output=frame.jpg] | --connect=IP[:port] --view-h264 [--watch-h264] --max-seconds=3 [--output=clip.ts] | --list | --revoke=<fingerprint>');
+  console.log('Usage: node pair_agent.mjs --listen [--no-discovery] [--share-screen] [--share-h264] [--receive-clipboard] [--encoder=libx264|h264_nvenc] [--test-pattern] [--port=43829] | --connect=IP[:port] [--view-screen --max-frames=2 --output=frame.jpg] | --connect=IP[:port] --view-h264 [--watch-h264] --max-seconds=3 [--output=clip.ts] | --list | --revoke=<fingerprint>');
   rl.close();process.exitCode=1;
 }

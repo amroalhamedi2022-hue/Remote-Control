@@ -34,6 +34,15 @@ class PrototypeState extends ChangeNotifier {
     return pairing.connect(matches.single.address, ask);
   }
 
+  Future<void> sendClipboardSelected(AskForPairConsent ask) async {
+    final matches = lan.peers.where((p) => p.id == selectedPeerId).toList();
+    if (matches.length != 1) throw StateError('Select a discovered Windows host first');
+    if (matches.single.platform != 'Windows') {
+      throw StateError('Clipboard receiver currently supports Windows only');
+    }
+    await pairing.sendClipboard(matches.single.address, ask, clipboardText);
+  }
+
   Uint8List? previewImage;
   bool previewActive = false;
   String? previewError;

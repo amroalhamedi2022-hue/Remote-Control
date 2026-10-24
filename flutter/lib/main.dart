@@ -268,7 +268,9 @@ class _Body extends StatelessWidget {
     return ListView(padding:EdgeInsets.fromLTRB(mobile?13:18,13,mobile?13:18,20),children:[
       Text(_sections[section]!.$1,style:TextStyle(fontWeight:FontWeight.bold,fontSize:17,color:c.text)),
       const SizedBox(height:4),Text(devicePage?'Discover and connect to your devices on the local network.':
-        'Liquid Fusion · ${_sections[section]!.$1} · UI demonstration only',
+        section==AppSection.clipboard
+          ? 'Opt-in Android → Windows text transfer; Windows host approves each request.'
+          : 'Liquid Fusion · ${_sections[section]!.$1} · UI demonstration only',
         style:TextStyle(fontSize:11,color:c.muted)),
       const SizedBox(height:7),Text('LIVE LAN DISCOVERY · REMOTE CONTROL NOT CONNECTED',
         style:TextStyle(fontSize:10,color:c.muted,fontWeight:FontWeight.w700)),
@@ -282,7 +284,7 @@ class _Body extends StatelessWidget {
       if(devicePage && !mobile)
         _SecondaryPanels(app:app,tablet:tablet,onDemo:onDemo),
       if(section==AppSection.files) _FileCard(onDemo:onDemo),
-      if(section==AppSection.clipboard) _ClipboardCard(app:app,onDemo:onDemo),
+      if(section==AppSection.clipboard) _ClipboardCard(app:app),
       if(section==AppSection.settings) _SettingsCard(app:app),
       if(section==AppSection.multiDevice)GlassPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text('Multi-device control',style:TextStyle(fontSize:17,fontWeight:FontWeight.bold,color:c.text)),
@@ -724,12 +726,11 @@ class _FileCard extends StatelessWidget {
 }
 class _ClipboardCard extends StatelessWidget {
   final PrototypeState app;
-  final ValueChanged<String> onDemo;
-  const _ClipboardCard({required this.app,required this.onDemo});
+  const _ClipboardCard({required this.app});
   @override Widget build(BuildContext context) {
     final c=LiquidColors(app.lightMode);
     return GlassPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-      const _PanelHeading(title:'Shared Clipboard',subtitle:'Local demo text — not synced',icon:Icons.content_paste_outlined),
+      const _PanelHeading(title:'Shared Clipboard',subtitle:'Android → Windows · manual text · host approval required',icon:Icons.content_paste_outlined),
       Container(height:115,padding:const EdgeInsets.all(9),decoration:BoxDecoration(color:c.panel,borderRadius:BorderRadius.circular(10),border:Border.all(color:c.border)),
         child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
           const Text('Windows ↔ Android',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700,color:LiquidColors.aqua)),
@@ -737,8 +738,21 @@ class _ClipboardCard extends StatelessWidget {
             maxLines:2,style:TextStyle(fontSize:11,color:c.text),
             decoration:InputDecoration(contentPadding:const EdgeInsets.all(7),filled:true,fillColor:c.panelDark,
               border:const OutlineInputBorder(borderSide:BorderSide.none)))),
-        ])),const SizedBox(height:10),Align(alignment:Alignment.centerLeft,child:LiquidAction(label:'Preview clipboard',gradient:true,
-          onTap:()=>onDemo('Demo text saved in this UI only'))),
+        ])),const SizedBox(height:10),
+       Text('Select a discovered Windows host. Run the paired LAN agent on Windows with --listen --receive-clipboard. Host must approve CLIP for every transfer.',
+         style:TextStyle(color:c.muted,fontSize:11)),
+       const SizedBox(height:10),
+       Align(alignment:Alignment.centerLeft,child:LiquidAction(label:'Send text to Windows',gradient:true,
+         onTap:() async {
+           try {
+             await app.sendClipboardSelected((challenge) => _pairDialog(context, challenge));
+             if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+               const SnackBar(content:Text('Windows host approved and wrote clipboard text')));
+           } catch (e) {
+             if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+               SnackBar(content:Text('Clipboard not transferred: $e')));
+           }
+         })),
     ]));
   }
 }
