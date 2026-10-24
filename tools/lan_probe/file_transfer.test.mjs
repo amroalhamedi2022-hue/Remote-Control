@@ -26,7 +26,7 @@ async function sandbox(fn) {
 }
 test('reject spoofed names, paths and reserved Windows filenames',()=>{
   for(const name of ['../secret','a\\b','CON.txt','COM¹.log','NUL','report.','report ',
-    'invoice\u202Egpj.exe','hidden\u2066name','bad\u0000name','x\uFFFD','x\uD800','']) {
+    'invoice\u202Egpj.exe','hidden\u2066name','line\u2028break','line\u2029break','bad\u0000name','x\uFFFD','x\uD800','']) {
     assert.throws(()=>safeTransferName(name),/Unsafe/);
   }
   assert.equal(safeTransferName('ملف 🫧.pdf'),'ملف 🫧.pdf');
