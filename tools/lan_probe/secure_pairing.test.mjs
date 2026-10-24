@@ -178,6 +178,25 @@ test('one-shot clipboard intent is authenticated and visible only to receiver', 
   assert.equal((await client.channel.receive()).type,'CLIPBOARD_OK');
 });
 
+test('file-transfer intent is signed, bound to the peer and not a generic control grant', async t => {
+  const f=await fixture({intent:'file'});
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  const [client,server]=await Promise.all([f.clientSide,f.serverSide]);
+  assert.equal(server.peerIntent,'file');
+  assert.equal(client.peerIntent,null);
+  client.channel.send({type:'FILE_OFFER',name:'ملف.txt',bytes:0,sha256:'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'});
+  assert.equal((await server.channel.receive()).type,'FILE_OFFER');
+});
+
+test('tampering with signed file intent prevents trust creation',async t=>{
+  const f=await fixture({intent:'file',debugHooks:{mutateHello:h=>({...h,intent:'clipboard'})}});
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  await assert.rejects(f.serverSide,/Invalid identity signature/);
+  await assert.rejects(f.clientSide);
+  assert.equal(f.clientTrust.size,0);
+  assert.equal(f.serverTrust.size,0);
+});
+
 test('ordinary pairing does not request clipboard privileges', async t => {
   const f=await fixture();
   t.after(()=>{f.clientSocket.destroy();f.listener.close();});
