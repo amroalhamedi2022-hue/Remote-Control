@@ -140,6 +140,23 @@ test('concurrent encrypted receives fail closed instead of orphaning a pending w
   assert.throws(()=>server.channel.send({type:'PING'}),/Encrypted session closed/);
 });
 
+test('concurrent reads of already-buffered sealed frames also fail closed',async t=>{
+  const f=await fixture();
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  const [client,server]=await Promise.all([f.clientSide,f.serverSide]);
+  // Both encrypted messages are queued before the server starts receiving.
+  // JsonLines' single-waiter guard alone cannot protect this path.
+  client.channel.send({type:'FIRST'});
+  client.channel.send({type:'SECOND'});
+  await new Promise(resolve=>setTimeout(resolve,30));
+  const outcomes=await Promise.allSettled([server.channel.receive(),server.channel.receive()]);
+  assert.equal(outcomes[0].status,'rejected');
+  assert.equal(outcomes[1].status,'rejected');
+  assert.match(outcomes[1].reason.message,/Concurrent frame reads/);
+  assert.throws(()=>server.channel.send({type:'AFTER'}),/Encrypted session closed/);
+  await assert.rejects(server.channel.receive(),/Encrypted session closed/);
+});
+
 test('non-object encrypted outbound payload poisons the session before transmission',async t=>{
   const f=await fixture();
   t.after(()=>{f.clientSocket.destroy();f.listener.close();});
