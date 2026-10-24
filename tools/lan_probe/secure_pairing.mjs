@@ -4,6 +4,20 @@
 import crypto from 'node:crypto';
 
 export const PAIR_PROTOCOL = 'liquidremote.pair.v1';
+
+/**
+ * Signed session intent is a separate capability gate from trust and consent.
+ * A normal authenticated PING session must never be promoted to clipboard or
+ * file access simply because the receiving host enabled that feature.
+ * Caller must ALSO require local one-shot human approval for the action.
+ */
+export function requireSignedIntent(peerIntent, capability) {
+  if (!['clipboard', 'file'].includes(capability))
+    throw new Error('Unsupported privileged session capability');
+  if (peerIntent !== capability)
+    throw new Error(`Signed ${capability} intent required`);
+  return true;
+}
 const MAX_LINE = 8192;
 const MAX_TIMEOUT_MS = 120_000;
 const b64 = b => Buffer.from(b).toString('base64url');
