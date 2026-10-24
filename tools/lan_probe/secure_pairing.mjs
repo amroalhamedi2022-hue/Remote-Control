@@ -28,6 +28,8 @@ function privateIdentity(identity) {
   return key;
 }
 function validateHello(h, kind) {
+  if (h?.intent !== undefined && (kind !== 'CLIENT_HELLO' || h.intent !== 'clipboard'))
+    throw new Error('Unsupported signed session intent');
   if (!h || typeof h !== 'object' || Array.isArray(h) || h.v !== PAIR_PROTOCOL || h.type !== kind ||
       !safeB64(h.identity) || !safeB64(h.ephemeral) || !safeB64(h.nonce) || !safeB64(h.sig))
     throw new Error('Bad signed hello');
@@ -43,12 +45,13 @@ function validateHello(h, kind) {
     throw new Error('Invalid identity signature');
   return ephemeral;
 }
-function createHello(kind, identity, ephemeralPublic, clientHash) {
+function createHello(kind, identity, ephemeralPublic, clientHash, intent) {
   const unsigned = {
     v: PAIR_PROTOCOL, type:kind, identity:identity.publicKey,
     ephemeral:b64(ephemeralPublic.export({type:'spki',format:'der'})),
     nonce:b64(crypto.randomBytes(24)),
     ...(clientHash ? {clientHash} : {}),
+    ...(intent ? {intent} : {}),
   };
   return {...unsigned, sig:b64(crypto.sign(null,Buffer.from(json(unsigned)),privateIdentity(identity)))};
 }
@@ -160,8 +163,10 @@ export class SecureEnvelope {
  * The callback must represent local human consent. Never use remote-provided approval alone.
  * trustStore: optional Map<fingerprint, publicKey>; written only after both confirmations.
  */
-export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map(),debugHooks={},consentTimeoutMs=MAX_TIMEOUT_MS}) {
+export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map(),debugHooks={},consentTimeoutMs=MAX_TIMEOUT_MS,intent=null}) {
   if(!['client','server'].includes(role))throw new Error('Invalid role');
+  if (intent !== null && (role !== 'client' || intent !== 'clipboard'))
+    throw new Error('Unsupported client session intent');
   if(typeof onCode!=='function')throw new Error('Local consent callback required');
   if(!Number.isSafeInteger(consentTimeoutMs) || consentTimeoutMs < 1 || consentTimeoutMs > MAX_TIMEOUT_MS)
     throw new Error('Invalid pairing consent timeout');
@@ -170,7 +175,7 @@ export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map
   let hello, reply, otherPub;
   try {
     if(role==='client') {
-      hello=createHello('CLIENT_HELLO',identity,keys.publicKey);
+      hello=createHello('CLIENT_HELLO',identity,keys.publicKey,null,intent);
       io.send(debugHooks.mutateHello?.(hello)??hello);
       reply=await io.receive();
       otherPub=validateHello(reply,'SERVER_HELLO');
@@ -208,6 +213,6 @@ export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map
     if(confirmation?.type!=='CONFIRM')throw new Error('Remote peer did not confirm');
     const wasKnown=trustStore.get(fingerprint)===otherIdentity;
     trustStore.set(fingerprint,otherIdentity);
-    return {fingerprint, sas, channel, known:wasKnown};
+    return {fingerprint, sas, channel, known:wasKnown, peerIntent:role==='server' ? (hello.intent ?? null) : null};
   }catch(err){socket.destroy();throw err;}
 }
