@@ -195,3 +195,29 @@ test('reject invalid idle timeout before sending or requesting consent',async()=
     directory:'unused',approve:async()=>true,idleTimeoutMs:120001
   }),/Invalid file transfer idle timeout/);
 });
+
+test('receiver consent dialog is bounded by idle timeout before creating files',()=>sandbox(async dir=>{
+  const offer={type:'FILE_OFFER',name:'consent.txt',bytes:0,
+    sha256:crypto.createHash('sha256').update('').digest('hex')};
+  const [sender,receiver]=channels();
+  const waiting=receiveFileOnce(receiver,offer,{directory:dir,
+    approve:()=>new Promise(()=>{}),idleTimeoutMs:25});
+  await assert.rejects(waiting,{name:'TimeoutError',message:'File transfer timed out waiting for peer'});
+  assert.deepEqual(await fs.readdir(dir),[]);
+}));
+
+test('cancelling pending receiver consent does not create or acknowledge a file',()=>sandbox(async dir=>{
+  const offer={type:'FILE_OFFER',name:'consent.txt',bytes:0,
+    sha256:crypto.createHash('sha256').update('').digest('hex')};
+  const [sender,receiver]=channels(),controller=new AbortController();
+  let release;
+  const waiting=receiveFileOnce(receiver,offer,{directory:dir,signal:controller.signal,
+    approve:()=>new Promise(resolve=>{release=resolve;})});
+  // Await the microtask that enters the consent callback.
+  await new Promise(resolve=>setImmediate(resolve));
+  controller.abort();
+  await assert.rejects(waiting,{name:'AbortError',message:'File transfer cancelled'});
+  release(true); // Late UI approval must not resurrect the cancelled transfer.
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(await fs.readdir(dir),[]);
+}));
