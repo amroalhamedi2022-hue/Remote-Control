@@ -114,6 +114,31 @@ test('sender rejects a nested directory replaced with an outside symlink',()=>sa
   receiver.send({type:'FOLDER_READY'});
   await assert.rejects(sending,/Source changed|Source directory changed/);
 }));
+test('sender detects file path replacement after acknowledged payload',()=>sandbox(async root=>{
+  const src=path.join(root,'source'),dest=path.join(root,'destination');
+  await fs.mkdir(src);await fs.mkdir(dest);
+  const original=path.join(src,'safe.txt');
+  await fs.writeFile(original,'original bytes');
+  const [rawSender,receiver]=channels();
+  const sender={
+    send:rawSender.send,
+    receive:async()=>{
+      const msg=await rawSender.receive();
+      if(msg?.type==='FILE_OK') {
+        await fs.rename(original,path.join(root,'old-file.txt'));
+        await fs.writeFile(original,'original bytes');
+      }
+      return msg;
+    }
+  };
+  const receiving=(async()=>receiveFolderOnce(receiver,await receiver.receive(),{
+    directory:dest,approve:async()=>true,idleTimeoutMs:150
+  }))();
+  await assert.rejects(sendFolderOnce(sender,src,{idleTimeoutMs:1000}),
+    /Source changed/);
+  await assert.rejects(receiving,/timed out|disconnected/i);
+  assert.deepEqual(await fs.readdir(dest),[]);
+}));
 test('receiver rejects traversal before writing a file',()=>sandbox(async root=>{
   const [sender,receiver]=channels();
   const incoming=receiveFolderOnce(receiver,{type:'FOLDER_BEGIN',folder:'photos',count:1,bytes:1},
