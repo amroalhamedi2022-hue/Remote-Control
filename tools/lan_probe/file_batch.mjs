@@ -24,6 +24,9 @@ export function safeRelativeFile(value) {
   for (const part of parts) safeTransferName(part);
   return parts;
 }
+// Use a conservative cross-platform collision key. Windows and macOS can
+// resolve names that differ only in case or Unicode normalization to one file.
+const canonicalRelative = parts => parts.join('/').normalize('NFC').toLowerCase();
 function validBegin(msg) {
   if (msg?.type !== 'FOLDER_BEGIN' || !Number.isSafeInteger(msg.count) ||
       msg.count < 0 || msg.count > MAX_FOLDER_FILES ||
@@ -39,7 +42,7 @@ function validBegin(msg) {
   return directories.map(relative => {
     const parts = safeRelativeFile(relative);
     if (parts.length > MAX_FOLDER_DEPTH) throw new Error('Folder nesting limit exceeded');
-    const canonical = parts.join('/').toLowerCase();
+    const canonical = canonicalRelative(parts);
     if (seen.has(canonical)) throw new Error('Duplicate folder directory');
     seen.add(canonical);
     return parts;
@@ -139,6 +142,12 @@ export async function receiveFolderOnce(channel, begin,
   const root=await fs.realpath(directory);
   if (!(await fs.lstat(root)).isDirectory()) throw new Error('Destination must be a directory');
   const seen=new Set();
+  const fileParents=new Set();
+  const reservedDirectories=new Set();
+  for (const components of directories) {
+    for (let depth=1;depth<=components.length;depth++)
+      reservedDirectories.add(canonicalRelative(components.slice(0,depth)));
+  }
   let total=0;
   // All directory paths were validated before consent. Never create a folder
   // on a denied request; verify each existing component is not a symlink.
@@ -149,12 +158,24 @@ export async function receiveFolderOnce(channel, begin,
     if (entry?.type!=='FOLDER_ENTRY'||entry.index!==i)
       throw new Error('Invalid folder entry order');
     const parts=safeRelativeFile(entry.path);
-    const canonical=parts.join('/').toLowerCase();
+    const canonical=canonicalRelative(parts);
     if (seen.has(canonical)) throw new Error('Duplicate folder entry');
+    if (reservedDirectories.has(canonical) || fileParents.has(canonical))
+      throw new Error('Folder file conflicts with a directory');
+    for (let depth=1;depth<parts.length;depth++) {
+      const parent=canonicalRelative(parts.slice(0,depth));
+      if (seen.has(parent)) throw new Error('Folder file conflicts with a parent file');
+      fileParents.add(parent);
+    }
     seen.add(canonical);
     const target=await ensureSafeDirectory(root,parts.slice(0,-1));
     const offer=await receiveWithCancel(channel,signal,idleTimeoutMs);
     if (offer?.name!==parts.at(-1)) throw new Error('Folder entry filename mismatch');
+    // Reject a forged offer before writing any bytes. The sender must stay
+    // inside the total size approved by the receiving user.
+    if (!Number.isSafeInteger(offer.bytes) || offer.bytes<0 ||
+        offer.bytes>begin.bytes-total)
+      throw new Error('Folder entry exceeds approved remaining byte budget');
     const result=await receiveFileOnce(channel,offer,{
       directory:target,approve:async()=>true,signal,idleTimeoutMs
     });
