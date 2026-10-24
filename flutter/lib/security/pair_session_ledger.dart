@@ -36,6 +36,13 @@ class PairSessionLedger {
     return _entries.containsKey(address);
   }
 
+  /// A recent IP alone is never proof that the same cryptographic peer returned.
+  /// The caller must check this fingerprint against its currently trusted pins.
+  String? fingerprintFor(String address) {
+    _purge(_clock());
+    return _entries[address]?.fingerprint;
+  }
+
   void revokeFingerprint(String fingerprint) {
     _entries.removeWhere((_, lease) => lease.fingerprint == fingerprint);
   }
