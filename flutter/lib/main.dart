@@ -60,7 +60,7 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
           const SizedBox(height: 6),
           SelectableText('Identity: ${challenge.fingerprint}', style: const TextStyle(fontSize: 11)),
           const SizedBox(height: 8),
-          const Text('Only an encrypted connectivity test will be allowed. No screen, input or file access.'),
+          const Text('Pairing grants no unattended access. Clipboard requires a separate local approval; screen, input and files are not granted.'),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Reject')),
