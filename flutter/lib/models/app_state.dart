@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:file_selector/file_selector.dart';
 import '../network/lan_discovery.dart';
 import '../security/pairing_lab.dart';
+import '../security/file_transfer_lab.dart';
 import '../security/clipboard_peer_policy.dart';
 
 enum AppSection { devices, control, files, clipboard, multiDevice, settings }
