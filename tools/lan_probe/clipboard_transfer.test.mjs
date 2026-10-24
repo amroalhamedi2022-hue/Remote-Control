@@ -10,7 +10,8 @@ test('Unicode clipboard size uses UTF-8 bytes, not JS code units', () => {
 test('reject unsafe clipboard payloads before prompting or writing', async () => {
   let prompted=0, written=0;
   const ops={approve:async()=>{prompted++;return true;},writeClipboard:async()=>{written++;}};
-  for (const text of ['', '\u0000', 'a\u0007b', 'a\uFFFD', '\uD800', 'x'.repeat(2049), 99]) {
+  for (const text of ['', '\u0000', 'a\u0007b', 'a\uFFFD', '\uD800', 'x'.repeat(2049), 'invoice\u202Egpj.exe', 'hidden\u2066text',
+    'x\u200by', 'a\u061cb', 99]) {
     await assert.rejects(acceptClipboardRequest({send(){}},{type:'CLIPBOARD_PUT',text},ops));
   }
   await assert.rejects(acceptClipboardRequest({send(){}},{type:'INPUT',text:'abc'},ops));
