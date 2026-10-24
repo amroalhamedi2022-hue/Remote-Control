@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import {sendFileOnce} from './file_transfer.mjs';
 import {safeRelativeFile,sendFolderOnce,receiveFolderOnce,
   MAX_FOLDER_FILES,MAX_FOLDER_BYTES,MAX_FOLDER_DIRECTORIES} from './file_batch.mjs';
 function channels() {
@@ -38,12 +39,15 @@ test('nested folder sends all files over encrypted-channel contract with exact h
   const [sent,received]=await Promise.all([sending,receiving]);
   assert.deepEqual(sent,received);
   assert.equal(sent.count,2);
-  assert.deepEqual(await fs.readFile(path.join(dest,'hello.txt')),
+  const published=(await fs.readdir(dest)).filter(n=>n.startsWith('source (received '));
+  assert.equal(published.length,1);
+  const receivedRoot=path.join(dest,published[0]);
+  assert.deepEqual(await fs.readFile(path.join(receivedRoot,'hello.txt')),
     await fs.readFile(path.join(src,'hello.txt')));
-  assert.deepEqual(await fs.readFile(path.join(dest,'الصور','photo.bin')),
+  assert.deepEqual(await fs.readFile(path.join(receivedRoot,'الصور','photo.bin')),
     await fs.readFile(path.join(src,'الصور','photo.bin')));
   assert.equal(progress.at(-1).bytes,sent.bytes);
-  assert.deepEqual((await fs.readdir(dest)).sort(),['hello.txt','الصور'].sort());
+  assert.deepEqual((await fs.readdir(receivedRoot)).sort(),['hello.txt','الصور'].sort());
 }));
 test('folder consent denied before any destination files or subfolders exist',()=>sandbox(async root=>{
   const src=path.join(root,'src'),dest=path.join(root,'dest');
@@ -97,9 +101,12 @@ test('preserves nested empty folders and mixed content after explicit approval',
   const [sent,received]=await Promise.all([sendFolderOnce(a,src),receiving]);
   assert.deepEqual(sent,received);
   assert.deepEqual(sent,{count:1,bytes:11});
-  assert.ok((await fs.stat(path.join(dest,'فارغ','متداخل'))).isDirectory());
-  assert.ok((await fs.stat(path.join(dest,'other-empty'))).isDirectory());
-  assert.equal(await fs.readFile(path.join(dest,'note.txt'),'utf8'),'folder test');
+  const published=(await fs.readdir(dest)).filter(n=>n.startsWith('src (received '));
+  assert.equal(published.length,1);
+  const receivedRoot=path.join(dest,published[0]);
+  assert.ok((await fs.stat(path.join(receivedRoot,'فارغ','متداخل'))).isDirectory());
+  assert.ok((await fs.stat(path.join(receivedRoot,'other-empty'))).isDirectory());
+  assert.equal(await fs.readFile(path.join(receivedRoot,'note.txt'),'utf8'),'folder test');
 }));
 test('rejects unsafe, duplicate or oversized directory manifests before approval',()=>sandbox(async root=>{
   const bad=[['../escape'],['a\\b'],['a','A'],Array(MAX_FOLDER_DIRECTORIES+1).fill('x')];
@@ -149,6 +156,39 @@ test('receiver rejects file/directory collisions even when casing differs',()=>s
   assert.equal((await sender.receive()).type,'FOLDER_READY');
   sender.send({type:'FOLDER_ENTRY',index:0,path:'pictures'});
   await assert.rejects(incoming,/conflicts with a directory/);
-  assert.deepEqual(await fs.readdir(root),['Pictures']);
-  assert.deepEqual(await fs.readdir(path.join(root,'Pictures')),['Empty']);
+  assert.deepEqual(await fs.readdir(root),[]); // no partial directories published
+}));
+
+test('transactional folder receive removes verified first file after later forged entry',()=>sandbox(async root=>{
+  const source=path.join(root,'ok.txt');
+  const dest=path.join(root,'dest');
+  await fs.mkdir(dest);
+  await fs.writeFile(source,'hello');
+  const [sender,receiver]=channels();
+  const incoming=receiveFolderOnce(receiver,{
+    type:'FOLDER_BEGIN',folder:'safe',count:2,bytes:5
+  },{directory:dest,approve:async()=>true,idleTimeoutMs:1000});
+  assert.equal((await sender.receive()).type,'FOLDER_READY');
+  sender.send({type:'FOLDER_ENTRY',index:0,path:'ok.txt'});
+  await sendFileOnce(sender,source,{idleTimeoutMs:1000});
+  sender.send({type:'FOLDER_ENTRY',index:1,path:'../forged.txt'});
+  await assert.rejects(incoming,/Unsafe transferred filename|Unsafe relative file path/);
+  assert.deepEqual(await fs.readdir(dest),[]);
+}));
+test('folder receive never overwrites existing folder of same name',()=>sandbox(async root=>{
+  const src=path.join(root,'src'),dest=path.join(root,'dest');
+  await fs.mkdir(src);await fs.mkdir(path.join(dest,'src'),{recursive:true});
+  await fs.writeFile(path.join(src,'file.txt'),'new');
+  await fs.writeFile(path.join(dest,'src','file.txt'),'original');
+  const [sender,receiver]=channels();
+  const incoming=(async()=>receiveFolderOnce(receiver,await receiver.receive(),{
+    directory:dest,approve:async()=>true
+  }))();
+  await Promise.all([sendFolderOnce(sender,src),incoming]);
+  assert.equal(await fs.readFile(path.join(dest,'src','file.txt'),'utf8'),'original');
+  const names=await fs.readdir(dest);
+  assert.equal(names.length,2);
+  const published=names.find(name=>name.startsWith('src (received '));
+  assert.ok(published);
+  assert.equal(await fs.readFile(path.join(dest,published,'file.txt'),'utf8'),'new');
 }));
