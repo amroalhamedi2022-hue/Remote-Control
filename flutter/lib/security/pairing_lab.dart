@@ -576,6 +576,7 @@ class _JsonLines {
     _closed = true;
     if (_waiter != null) { _waiter!.completeError(StateError('Peer disconnected')); _waiter = null; }
   }
+  @override
   Future<Map<String, dynamic>> receive() async {
     if (_closed && _lines.isEmpty) throw StateError('Peer disconnected');
     String text;
@@ -633,6 +634,7 @@ class _SealedChannel implements FileTransferChannel {
     io.socket.destroy();
   }
 
+  @override
   Future<void> send(Map<String, dynamic> message) async {
     if (_terminal) throw StateError('Encrypted channel closed');
     // Async encryption can complete out of order. Never reuse/reorder sequence
