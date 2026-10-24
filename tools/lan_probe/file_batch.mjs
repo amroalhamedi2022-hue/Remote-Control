@@ -13,6 +13,70 @@ export const MAX_FOLDER_DIRECTORIES = 64;
 export const MAX_FOLDER_BYTES = 256 * 1024 * 1024;
 export const MAX_FOLDER_DEPTH = 8;
 
+// A private recovery marker lives outside the payload that is eventually
+// published. Only our own marked, old staging directories may be cleaned.
+const STAGING_PREFIX = '.liquidremote-batch-';
+const RECOVERY_MARKER = '.liquidremote-batch-recovery.json';
+const RECOVERY_VERSION = 1;
+export const STAGING_RECOVERY_MIN_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Startup-only maintenance: invoke before accepting transfers, never while
+ * another receiver may be writing to this directory. This is a bounded,
+ * fail-closed recovery tool, not a general-purpose directory cleaner.
+ * Unmarked/invalid/recent directories and symlinks are never removed.
+ */
+export async function cleanupStaleFolderTransfers(directory, {
+  now=Date.now(), minAgeMs=STAGING_RECOVERY_MIN_AGE_MS, maxCandidates=128
+}={}) {
+  if (typeof directory !== 'string' || !directory ||
+      !Number.isSafeInteger(now) || now < 0 ||
+      !Number.isSafeInteger(minAgeMs) || minAgeMs < STAGING_RECOVERY_MIN_AGE_MS ||
+      !Number.isSafeInteger(maxCandidates) || maxCandidates < 1 || maxCandidates > 1024)
+    throw new TypeError('Invalid folder recovery options');
+  const root=await fs.realpath(directory);
+  if (!(await fs.lstat(root)).isDirectory()) throw new Error('Recovery root is not a directory');
+  let inspected=0,removed=0,skipped=0;
+  for (const entry of await fs.readdir(root,{withFileTypes:true})) {
+    if (!entry.name.startsWith(STAGING_PREFIX)) continue;
+    if (++inspected>maxCandidates) throw new Error('Folder recovery scan limit exceeded');
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {skipped++;continue;}
+    const candidate=path.join(root,entry.name);
+    const markerPath=path.join(candidate,RECOVERY_MARKER);
+    try {
+      const dirInfo=await fs.lstat(candidate);
+      const markerInfo=await fs.lstat(markerPath);
+      if (!dirInfo.isDirectory() || dirInfo.isSymbolicLink() ||
+          !markerInfo.isFile() || markerInfo.isSymbolicLink() ||
+          markerInfo.size>512 || markerInfo.size<2) {skipped++;continue;}
+      const marker=JSON.parse(await fs.readFile(markerPath,'utf8'));
+      const id=entry.name.slice(STAGING_PREFIX.length);
+      if (!/^[0-9A-Za-z_-]{6,32}$/.test(id) ||
+          marker?.version!==RECOVERY_VERSION || marker?.id!==id ||
+          !Number.isSafeInteger(marker.createdAt) || marker.createdAt<0 ||
+          marker.createdAt>now ||
+          now-marker.createdAt<minAgeMs ||
+          now-markerInfo.mtimeMs<minAgeMs ||
+          now-dirInfo.mtimeMs<minAgeMs) {skipped++;continue;}
+      // Never follow an attacker-supplied top-level symlink. A concurrent
+      // directory swap remains a native openat/handle-based production gap.
+      const finalInfo=await fs.lstat(candidate);
+      if (!finalInfo.isDirectory() || finalInfo.isSymbolicLink() ||
+          finalInfo.ino!==dirInfo.ino || finalInfo.dev!==dirInfo.dev) {
+        skipped++;continue;
+      }
+      await fs.rm(candidate,{recursive:true,force:false});
+      removed++;
+    } catch (error) {
+      // Unmarked/invalid entries are not ours. Propagate filesystem failures
+      // on a verified candidate rather than claiming successful cleanup.
+      if (error.code==='ENOENT' || error instanceof SyntaxError) {skipped++;continue;}
+      throw error;
+    }
+  }
+  return {inspected,removed,skipped};
+}
+
 function validateLimit(timeout) {
   if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 120000)
     throw new RangeError('Invalid folder transfer idle timeout');
@@ -147,9 +211,17 @@ export async function receiveFolderOnce(channel, begin,
   // writes in a private sibling and publish only after FOLDER_END validates.
   // A crash can leave a hidden staging directory; startup cleanup is still
   // required before treating this Node fixture as production-ready.
-  const staging=await fs.mkdtemp(path.join(root,'.liquidremote-batch-'));
+  const staging=await fs.mkdtemp(path.join(root,STAGING_PREFIX));
   let published=false;
   try {
+  const id=path.basename(staging).slice(STAGING_PREFIX.length);
+  await fs.writeFile(path.join(staging,RECOVERY_MARKER),
+    JSON.stringify({version:RECOVERY_VERSION,id,createdAt:Date.now()}),
+    {flag:'wx',mode:0o600});
+  // Keep the marker out of the user-visible published folder. Moving only
+  // payload makes both success and post-crash cleanup unambiguous.
+  const payload=path.join(staging,'payload');
+  await fs.mkdir(payload,{mode:0o700});
   const seen=new Set();
   const fileParents=new Set();
   const reservedDirectories=new Set();
@@ -160,7 +232,7 @@ export async function receiveFolderOnce(channel, begin,
   let total=0;
   // All directory paths were validated before consent. Never create a folder
   // on a denied request; verify each existing component is not a symlink.
-  for (const components of directories) await ensureSafeDirectory(staging,components);
+  for (const components of directories) await ensureSafeDirectory(payload,components);
   channel.send({type:'FOLDER_READY'});
   for (let i=0;i<begin.count;i++) {
     const entry=await receiveWithCancel(channel,signal,idleTimeoutMs);
@@ -177,7 +249,7 @@ export async function receiveFolderOnce(channel, begin,
       fileParents.add(parent);
     }
     seen.add(canonical);
-    const target=await ensureSafeDirectory(staging,parts.slice(0,-1));
+    const target=await ensureSafeDirectory(payload,parts.slice(0,-1));
     const offer=await receiveWithCancel(channel,signal,idleTimeoutMs);
     if (offer?.name!==parts.at(-1)) throw new Error('Folder entry filename mismatch');
     // Reject a forged offer before writing any bytes. The sender must stay
@@ -202,11 +274,11 @@ export async function receiveFolderOnce(channel, begin,
   // The original folder label remains visible. No destination overwrite is
   // attempted, and a collision is rejected instead of retried unsafely.
   const destinationName=`${begin.folder} (received ${crypto.randomUUID()})`;
-  await fs.rename(staging,path.join(root,destinationName));
+  await fs.rename(payload,path.join(root,destinationName));
   published=true;
   channel.send({type:'FOLDER_OK',count:begin.count,bytes:total});
   return {count:begin.count,bytes:total};
   } finally {
-    if (!published) await fs.rm(staging,{recursive:true,force:true});
+    await fs.rm(staging,{recursive:true,force:true});
   }
 }
