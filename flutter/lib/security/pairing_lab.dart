@@ -12,6 +12,8 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:file_selector/file_selector.dart';
+import 'file_transfer_lab.dart';
 import '../network/lan_address_policy.dart';
 import 'pair_session_ledger.dart';
 import 'pair_consent_policy.dart';
@@ -225,6 +227,45 @@ class PairingLab {
     }
   }
 
+  /// One-shot file transfer to a Windows Node lab host with --receive-file.
+  /// The picker provides scoped access; the host must approve FILE locally.
+  Future<FileSendResult> sendFile(String ip, AskForPairConsent ask, XFile file,
+      {void Function(int bytes, int total, bool verified)? onProgress}) async {
+    final ticket = _lifecycle.ticket;
+    await _init();
+    _lifecycle.requireCurrent(ticket);
+    if (_busy || _previewSocket != null) {
+      throw StateError('Pairing or preview already active');
+    }
+    if (!isLocalLanIpv4(InternetAddress.tryParse(ip))) {
+      throw const FormatException('Enter a valid LAN IPv4 address');
+    }
+    // Reject unsafe names before connecting or asking for pairing.
+    validateLabFileName(file.name);
+    final size = await file.length();
+    if (size < 0 || size > maxLabFileBytes) {
+      throw const FormatException('Selected file exceeds 64 MiB lab limit');
+    }
+    _busy = true;
+    Socket? socket;
+    try {
+      socket = await Socket.connect(ip, pairingPort,
+          timeout: const Duration(seconds: 4));
+      _lifecycle.requireCurrent(ticket);
+      _activePairSocket = socket;
+      FileSendResult? result;
+      await _pair(socket, isClient: true, ask: ask, ticket: ticket,
+          fileToSend: file, onFileProgress: onProgress,
+          onFileResult: (value) { result = value; });
+      return result ?? (throw StateError('File transfer did not complete'));
+    } finally {
+      socket?.destroy();
+      if (identical(_activePairSocket, socket)) _activePairSocket = null;
+      _busy = false;
+      onChange?.call();
+    }
+  }
+
   /// This is a diagnostic MJPEG proof, NOT production streaming. Connect only to
   /// a manually approved Node Windows host started with --share-screen.
   Future<void> preview(String ip, AskForPairConsent ask,
@@ -290,7 +331,7 @@ class PairingLab {
   Future<SimplePublicKey> _verifyHello(Map<String, dynamic> frame, String expectedType) async {
     if (frame['v'] != _protocol || frame['type'] != expectedType) throw const FormatException('Invalid hello type');
     if (frame.containsKey('intent') &&
-        (expectedType != 'CLIENT_HELLO' || frame['intent'] != 'clipboard')) {
+        (expectedType != 'CLIENT_HELLO' || !['clipboard', 'file'].contains(frame['intent']))) {
       throw const FormatException('Unsupported signed session intent');
     }
     for (final field in ['identity', 'ephemeral', 'nonce', 'sig']) {
@@ -313,7 +354,10 @@ class PairingLab {
 
   Future<PairResult> _pair(Socket socket, {required bool isClient,
       required AskForPairConsent ask, required int ticket,
-      void Function(Uint8List frame)? previewReceiver, String? clipboardText}) async {
+      void Function(Uint8List frame)? previewReceiver, String? clipboardText,
+      XFile? fileToSend,
+      void Function(int bytes, int total, bool verified)? onFileProgress,
+      void Function(FileSendResult result)? onFileResult}) async {
     final io = _JsonLines(socket);
     final ephemeral = await keyExchange.newKeyPair();
     try {
@@ -322,7 +366,8 @@ class PairingLab {
       late final SimplePublicKey remoteEph;
       if (isClient) {
         clientHello = await _hello('CLIENT_HELLO', ephemeral,
-          intent: clipboardText == null ? null : 'clipboard');
+          intent: fileToSend != null ? 'file' :
+            clipboardText == null ? null : 'clipboard');
         await io.send(clientHello);
         serverHello = await io.receive();
         remoteEph = await _verifyHello(serverHello, 'SERVER_HELLO');
@@ -368,6 +413,18 @@ class PairingLab {
             throw StateError('Receiver denied or failed clipboard transfer');
           }
           _lifecycle.requireCurrent(ticket);
+        }
+        if (fileToSend != null) {
+          _lifecycle.requireCurrent(ticket);
+          final sent = await sendLabFile(channel, fileToSend,
+              onProgress: (bytes, total, verified) {
+                if (!_lifecycle.isCurrent(ticket)) {
+                  throw StateError('File transfer cancelled');
+                }
+                onFileProgress?.call(bytes, total, verified);
+              });
+          _lifecycle.requireCurrent(ticket);
+          onFileResult?.call(sent);
         }
         if (previewReceiver != null) {
           // Stopping a listener must not allow a pending pairing to grant trust.
@@ -548,7 +605,7 @@ class _JsonLines {
   Future<void> close() async { await _subscription.cancel(); socket.destroy(); _ended(); }
 }
 
-class _SealedChannel {
+class _SealedChannel implements FileTransferChannel {
   final _JsonLines io;
   final List<int> shared, transcript;
   final bool isClient;
