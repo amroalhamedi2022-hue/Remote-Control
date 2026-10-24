@@ -529,6 +529,22 @@ void _showManualIpDialog(BuildContext context,PrototypeState app,ValueChanged<St
         }
       },child:const Text('Pair IP')),
       TextButton(onPressed:() async {
+        final ip=controller.text.trim(); Navigator.pop(dialogContext);
+        try {
+          await app.pairing.sendClipboard(ip,
+            (challenge)=>_pairDialog(context, challenge), app.clipboardText);
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content:Text('LAN receiver approved and wrote the clipboard text')));
+          }
+        } catch(e) {
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:Text('Clipboard by IP failed: $e')));
+          }
+        }
+      },child:const Text('Send text IP')),
+      TextButton(onPressed:() async {
         final ip=controller.text.trim();Navigator.pop(dialogContext);
         try { await app.previewIp(ip, (challenge)=>_pairDialog(context,challenge)); }
         catch(e) {
@@ -797,7 +813,7 @@ class _ClipboardCard extends StatelessWidget {
             decoration:InputDecoration(contentPadding:const EdgeInsets.all(7),filled:true,fillColor:c.panelDark,
               border:const OutlineInputBorder(borderSide:BorderSide.none)))),
         ])),const SizedBox(height:10),
-       Text('Select a discovered Android or Windows device. Android receivers must have this app open and approve the pairing and clipboard dialogs. On Windows run the LAN agent with --listen --receive-clipboard and approve CLIP. Each transfer requires new consent.',
+       Text('Select a discovered Android or Windows device, or use Devices → Add device by IP → Send text IP. Android receivers must have this app open and approve both dialogs. On Windows run the LAN agent with --listen --receive-clipboard and approve CLIP. Every transfer requires new consent.',
          style:TextStyle(color:c.muted,fontSize:11)),
        const SizedBox(height:10),
        Align(alignment:Alignment.centerLeft,child:LiquidAction(label:'Send text to selected device',gradient:true,
