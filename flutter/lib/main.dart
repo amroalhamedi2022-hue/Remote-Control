@@ -327,7 +327,7 @@ class _Body extends StatelessWidget {
       Text(_sections[section]!.$1,style:TextStyle(fontWeight:FontWeight.bold,fontSize:17,color:c.text)),
       const SizedBox(height:4),Text(devicePage?'Discover and connect to your devices on the local network.':
         section==AppSection.clipboard
-          ? 'Opt-in Android → Windows text transfer; Windows host approves each request.'
+          ? 'Opt-in Android → Android/Windows text transfer; receiver approves each request.'
           : 'Liquid Fusion · ${_sections[section]!.$1} · UI demonstration only',
         style:TextStyle(fontSize:11,color:c.muted)),
       const SizedBox(height:7),Text('LIVE LAN DISCOVERY · REMOTE CONTROL NOT CONNECTED',
@@ -788,25 +788,25 @@ class _ClipboardCard extends StatelessWidget {
   @override Widget build(BuildContext context) {
     final c=LiquidColors(app.lightMode);
     return GlassPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-      const _PanelHeading(title:'Shared Clipboard',subtitle:'Android → Windows · manual text · host approval required',icon:Icons.content_paste_outlined),
+      const _PanelHeading(title:'Shared Clipboard',subtitle:'Android → Android/Windows · manual text · receiver approval required',icon:Icons.content_paste_outlined),
       Container(height:115,padding:const EdgeInsets.all(9),decoration:BoxDecoration(color:c.panel,borderRadius:BorderRadius.circular(10),border:Border.all(color:c.border)),
         child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-          const Text('Windows ↔ Android',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700,color:LiquidColors.aqua)),
+          const Text('Android ↔ Android / Windows',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700,color:LiquidColors.aqua)),
           Expanded(child:TextFormField(initialValue:app.clipboardText,onChanged:app.setClipboardText,
             maxLines:2,style:TextStyle(fontSize:11,color:c.text),
             decoration:InputDecoration(contentPadding:const EdgeInsets.all(7),filled:true,fillColor:c.panelDark,
               border:const OutlineInputBorder(borderSide:BorderSide.none)))),
         ])),const SizedBox(height:10),
-       Text('Select a discovered Windows host. Run the paired LAN agent on Windows with --listen --receive-clipboard. Host must approve CLIP for every transfer.',
+       Text('Select a discovered Android or Windows device. Android receivers must have this app open and approve the pairing and clipboard dialogs. On Windows run the LAN agent with --listen --receive-clipboard and approve CLIP. Each transfer requires new consent.',
          style:TextStyle(color:c.muted,fontSize:11)),
        const SizedBox(height:10),
-       Align(alignment:Alignment.centerLeft,child:LiquidAction(label:'Send text to Windows',gradient:true,
+       Align(alignment:Alignment.centerLeft,child:LiquidAction(label:'Send text to selected device',gradient:true,
          onTap:() async {
            try {
              await app.sendClipboardSelected((challenge) => _pairDialog(context, challenge));
              if (context.mounted) {
                ScaffoldMessenger.of(context).showSnackBar(
-                 const SnackBar(content:Text('Windows host approved and wrote clipboard text')));
+                 const SnackBar(content:Text('Receiver approved and wrote clipboard text')));
              }
            } catch (e) {
              if (context.mounted) {
