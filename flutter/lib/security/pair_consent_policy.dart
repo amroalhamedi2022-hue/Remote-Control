@@ -11,11 +11,12 @@ class PairConsentPolicy {
     if (timeout <= Duration.zero) {
       throw ArgumentError.value(timeout, 'timeout', 'Must be positive');
     }
-    try {
-      return await request().timeout(timeout, onTimeout: () => false);
-    } catch (_) {
-      // UI teardown or platform exceptions must never implicitly approve.
-      return false;
-    }
+    // Future.sync also converts a synchronous dialog exception to a Future.
+    // Attach the error handler before the timeout so an immediately failed
+    // consent Future cannot escape as an unhandled error in Flutter's test zone.
+    return Future<bool>.sync(request)
+        .then<bool>((approved) => approved,
+            onError: (Object _, StackTrace __) => false)
+        .timeout(timeout, onTimeout: () => false);
   }
 }
