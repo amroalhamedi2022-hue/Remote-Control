@@ -7,7 +7,8 @@ export const MAX_CLIPBOARD_BYTES = 2048;
 export function clipboardByteLength(value) {
   if (typeof value !== 'string' || value.length === 0 ||
       /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\uFFFD]/u.test(value) ||
-      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)) {
+      /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value) ||
+      /[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]|[\u{e0000}-\u{e007f}]/u.test(value)) {
     throw new Error('Invalid clipboard text');
   }
   const bytes = Buffer.byteLength(value, 'utf8');
