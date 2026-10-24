@@ -146,9 +146,11 @@ export class SecureEnvelope {
  * The callback must represent local human consent. Never use remote-provided approval alone.
  * trustStore: optional Map<fingerprint, publicKey>; written only after both confirmations.
  */
-export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map(),debugHooks={}}) {
+export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map(),debugHooks={},consentTimeoutMs=MAX_TIMEOUT_MS}) {
   if(!['client','server'].includes(role))throw new Error('Invalid role');
   if(typeof onCode!=='function')throw new Error('Local consent callback required');
+  if(!Number.isSafeInteger(consentTimeoutMs) || consentTimeoutMs < 1 || consentTimeoutMs > MAX_TIMEOUT_MS)
+    throw new Error('Invalid pairing consent timeout');
   const io=new JsonLines(socket);
   const keys=crypto.generateKeyPairSync('x25519');
   let hello, reply, otherPub;
@@ -175,7 +177,16 @@ export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map
     const code = crypto.createHmac('sha256',shared).update(transcriptHash).digest().readUInt32BE(0)%1_000_000;
     const sas=String(code).padStart(6,'0');
     // No encrypted CONFIRM without LOCAL approval. Never silently accept on first contact.
-    const approved=await onCode({sas, fingerprint,known:trustStore.get(fingerprint)===otherIdentity});
+    // A stalled permission UI must never leave a pairing socket and ephemeral
+    // handshake pending forever. Consent is local and time-bounded; timing out
+    // destroys the socket without pinning an identity or opening a channel.
+    let consentTimer;
+    const approved=await Promise.race([
+      Promise.resolve().then(()=>onCode({sas, fingerprint,known:trustStore.get(fingerprint)===otherIdentity})),
+      new Promise((_,reject)=>{
+        consentTimer=setTimeout(()=>reject(new Error('Pairing consent timed out')),consentTimeoutMs);
+      }),
+    ]).finally(()=>clearTimeout(consentTimer));
     if(approved!==true)throw new Error('Local user declined pairing');
     const channel=new SecureEnvelope(io,shared,transcriptHash,role);
     channel.send({type:'CONFIRM'});
