@@ -89,7 +89,10 @@ class PairingLab {
   String? error;
   void Function()? onChange;
   bool get listening => _server != null;
-  bool isPairedInThisSession(String address) => _sessionAddresses.contains(address);
+  bool isPairedInThisSession(String address) {
+    final fingerprint = _sessionAddresses.fingerprintFor(address);
+    return fingerprint != null && _trust.containsKey(fingerprint);
+  }
   int get trustedCount => _trust.length;
   String? get localFingerprint => _localFingerprint;
   String? _localFingerprint;
@@ -229,9 +232,12 @@ class PairingLab {
   }
 
   Future<void> revoke(String fingerprint) async {
-    if (_trust.remove(fingerprint) == null) return;
+    final wasTrusted = _trust.remove(fingerprint) != null;
+    // Remove ephemeral session indicators even if the pin was already absent.
     _sessionAddresses.revokeFingerprint(fingerprint);
-    await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
+    if (wasTrusted) {
+      await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
+    }
     onChange?.call();
   }
   Map<String, String> get trusted => Map.unmodifiable(_trust);
@@ -399,6 +405,8 @@ class PairingLab {
     // Close active inbound/outbound pairing as well as the listening socket.
     // Otherwise a consent dialog could finish after Stop and pin a new peer.
     _lifecycle.invalidate();
+    // Stop ends this session's UI trust indicators, not persisted public-key pins.
+    _sessionAddresses.clear();
     _activePairSocket?.destroy();
     _activePairSocket = null;
     stopPreview();
