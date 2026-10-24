@@ -60,6 +60,18 @@ async function approve({sas,fingerprint,known}) {
     'Only if the 6-digit codes match on both devices, type YES: (45s) ');
   return answer === 'YES';
 }
+// Transfer progress is real acknowledged/written bytes, not an estimated timer.
+// Log at most once per MiB plus verified completion (never log file contents).
+function fileProgress(label) {
+  let lastMiB = -1;
+  return ({bytes,total,verified}) => {
+    const mib = Math.floor(bytes / (1024 * 1024));
+    if (!verified && mib === lastMiB) return;
+    lastMiB = mib;
+    console.log(`FILE_${label}_${verified ? 'VERIFIED' : 'PROGRESS'} ${bytes}/${total}`);
+  };
+}
+
 async function interact(socket,role) {
   try {
     const {fingerprint,channel,known,peerIntent}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve,
@@ -72,7 +84,7 @@ async function interact(socket,role) {
       if(response?.type!=='PONG')throw new Error('Unexpected secure response');
       console.log('SECURE_PONG received; no remote access permission was granted');
       if(opt('send-file')) {
-        const sent=await sendFileOnce(channel,opt('send-file'));
+        const sent=await sendFileOnce(channel,opt('send-file'),{onProgress:fileProgress('SEND')});
         console.log('FILE_TRANSFER_VERIFIED',sent.bytes,sent.sha256);
         return;
       }
@@ -148,6 +160,7 @@ async function interact(socket,role) {
         const offer=await channel.receive();
         const received=await receiveFileOnce(channel,offer,{
           directory:opt('receive-file'),
+          onProgress:fileProgress('RECEIVE'),
           approve:async ({name,bytes})=>{
             console.log('One-shot file offer from',fingerprint.slice(0,20),name,bytes,'bytes');
             const answer=await askWithDeadline(rl.question.bind(rl),
