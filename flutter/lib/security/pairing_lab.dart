@@ -426,6 +426,9 @@ class _SealedChannel {
   final List<int> shared, transcript;
   final bool isClient;
   int sent = 0, received = 0;
+  bool _sending = false;
+  bool _receiving = false;
+  bool _terminal = false;
   _SealedChannel(this.io, this.shared, this.transcript, {required this.isClient});
 
   Future<SecretKey> _key(String direction) async =>
@@ -440,30 +443,75 @@ class _SealedChannel {
     bytes.setUint64(4, seq, Endian.big);
     return bytes.buffer.asUint8List();
   }
-  Future<void> send(Map<String, dynamic> message) async {
-    final direction = isClient ? 'C2S1' : 'S2C1';
-    final seq = sent++;
-    final box = await AesGcm.with256bits().encrypt(utf8.encode(jsonEncode(message)),
-      secretKey: await _key(isClient ? 'c2s' : 's2c'), nonce: _nonce(direction, seq),
-      aad: utf8.encode('$_protocol|$direction|$seq'));
-    await io.send({'type': 'SEALED', 'seq': seq, 'data': _b64([...box.cipherText, ...box.mac.bytes])});
+
+  void _failClosed() {
+    _terminal = true;
+    io.socket.destroy();
   }
-  Future<Map<String, dynamic>> receive() async {
-    final frame = await io.receive();
-    if (frame['type'] != 'SEALED' || frame['seq'] != received || frame['data'] is! String) {
-      throw StateError('Unexpected or replayed sealed frame');
+
+  Future<void> send(Map<String, dynamic> message) async {
+    if (_terminal) throw StateError('Encrypted channel closed');
+    // Async encryption can complete out of order. Never reuse/reorder sequence
+    // numbers by permitting overlapping writes on the same sealed channel.
+    if (_sending) {
+      _failClosed();
+      throw StateError('Concurrent encrypted sends are forbidden');
     }
-    final direction = isClient ? 'S2C1' : 'C2S1';
-    final seq = received++;
-    final data = _unb64(frame['data'] as String);
-    if (data.length < 16) throw const FormatException('Invalid ciphertext');
-    final output = await AesGcm.with256bits().decrypt(
-      SecretBox(data.sublist(0, data.length - 16), nonce: _nonce(direction, seq),
-        mac: Mac(data.sublist(data.length - 16))),
-      secretKey: await _key(isClient ? 's2c' : 'c2s'),
-      aad: utf8.encode('$_protocol|$direction|$seq'));
-    final value = jsonDecode(utf8.decode(output));
-    if (value is! Map<String, dynamic>) throw const FormatException('Invalid sealed payload');
-    return value;
+    _sending = true;
+    try {
+      final direction = isClient ? 'C2S1' : 'S2C1';
+      final seq = sent;
+      final box = await AesGcm.with256bits().encrypt(utf8.encode(jsonEncode(message)),
+        secretKey: await _key(isClient ? 'c2s' : 's2c'), nonce: _nonce(direction, seq),
+        aad: utf8.encode('$_protocol|$direction|$seq'));
+      if (_terminal) throw StateError('Encrypted channel closed');
+      await io.send({'type': 'SEALED', 'seq': seq,
+        'data': _b64([...box.cipherText, ...box.mac.bytes])});
+      sent = seq + 1;
+    } catch (_) {
+      _failClosed();
+      rethrow;
+    } finally {
+      _sending = false;
+    }
+  }
+
+  Future<Map<String, dynamic>> receive() async {
+    if (_terminal) throw StateError('Encrypted channel closed');
+    // A second caller must not race authentication or advance the replay counter.
+    if (_receiving) {
+      _failClosed();
+      throw StateError('Concurrent encrypted receives are forbidden');
+    }
+    _receiving = true;
+    try {
+      final frame = await io.receive();
+      final seq = received;
+      if (frame['type'] != 'SEALED' || frame['seq'] != seq ||
+          frame['data'] is! String) {
+        throw StateError('Unexpected or replayed sealed frame');
+      }
+      final direction = isClient ? 'S2C1' : 'C2S1';
+      final data = _unb64(frame['data'] as String);
+      if (data.length < 16) throw const FormatException('Invalid ciphertext');
+      final output = await AesGcm.with256bits().decrypt(
+        SecretBox(data.sublist(0, data.length - 16), nonce: _nonce(direction, seq),
+          mac: Mac(data.sublist(data.length - 16))),
+        secretKey: await _key(isClient ? 's2c' : 'c2s'),
+        aad: utf8.encode('$_protocol|$direction|$seq'));
+      final value = jsonDecode(utf8.decode(output));
+      if (value is! Map<String, dynamic>) {
+        throw const FormatException('Invalid sealed payload');
+      }
+      if (_terminal) throw StateError('Encrypted channel closed');
+      // Commit the receive counter ONLY after AEAD and payload validation.
+      received = seq + 1;
+      return value;
+    } catch (_) {
+      _failClosed();
+      rethrow;
+    } finally {
+      _receiving = false;
+    }
   }
 }
