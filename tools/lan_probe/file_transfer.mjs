@@ -39,7 +39,8 @@ async function hashHandle(handle, size) {
   }
   return hex(h);
 }
-export async function sendFileOnce(channel, filePath) {
+export async function sendFileOnce(channel, filePath, {onProgress = () => {}} = {}) {
+  if (typeof onProgress !== 'function') throw new TypeError('Progress callback must be a function');
   // Do not follow symlinks; reject directory, pipe and changing-size sources.
   const handle=await fsp.open(filePath,constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
   try {
@@ -60,6 +61,7 @@ export async function sendFileOnce(channel, filePath) {
       const ack=await channel.receive();
       if(ack?.type!=='FILE_ACK'||ack.seq!==seq)throw new Error('Invalid file chunk acknowledgement');
       offset+=bytesRead;seq++;
+      onProgress({bytes:offset,total:st.size,verified:false});
     }
     // Re-read the source to reject in-place changes even if its length stayed the same.
     if((await handle.stat()).size!==st.size || await hashHandle(handle,st.size)!==digest)
@@ -68,11 +70,13 @@ export async function sendFileOnce(channel, filePath) {
     const done=await channel.receive();
     if(done?.type!=='FILE_OK'||done.bytes!==offset||done.sha256!==digest)
       throw new Error('Invalid file completion acknowledgement');
+    onProgress({bytes:offset,total:st.size,verified:true});
     return {bytes:offset,sha256:digest};
   } finally {await handle.close();}
 }
 
-export async function receiveFileOnce(channel, offer, {approve,directory}) {
+export async function receiveFileOnce(channel, offer, {approve,directory,onProgress=()=>{}}) {
+  if (typeof onProgress !== 'function') throw new TypeError('Progress callback must be a function');
   validateOffer(offer);
   if(typeof approve!=='function'||typeof directory!=='string')
     throw new Error('Explicit file receiver approval required');
@@ -108,6 +112,7 @@ export async function receiveFileOnce(channel, offer, {approve,directory}) {
         saved=true;
         await fsp.unlink(tmp);
         channel.send({type:'FILE_OK',bytes:count,sha256:digest});
+        onProgress({bytes:count,total:offer.bytes,verified:true});
         return {path:target,bytes:count,sha256:digest};
       }
       if(packet?.type!=='FILE_CHUNK'||packet.seq!==seq||typeof packet.data!=='string'||
@@ -124,6 +129,7 @@ export async function receiveFileOnce(channel, offer, {approve,directory}) {
         written+=result.bytesWritten;
       }
       h.update(data);count+=data.length;
+      onProgress({bytes:count,total:offer.bytes,verified:false});
       channel.send({type:'FILE_ACK',seq});
       seq++;
     }
