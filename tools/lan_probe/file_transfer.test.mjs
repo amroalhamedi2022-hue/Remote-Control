@@ -88,3 +88,37 @@ test('invalid offer and oversized offer fail before consent',()=>sandbox(async d
   }
   assert.equal(approvals,0);
 }));
+
+test('transfer progress is monotonic, bounded and verified only after hash acknowledgement',()=>sandbox(async dir=>{
+  const source=path.join(dir,'progress.bin'),dest=path.join(dir,'dest');
+  const payload=crypto.randomBytes(15_001);
+  await fs.writeFile(source,payload);await fs.mkdir(dest);
+  const [a,b]=channels(),sent=[],received=[];
+  const receiving=(async()=>receiveFileOnce(b,await b.receive(),{
+    directory:dest,approve:async()=>true,onProgress:p=>received.push(p)}))();
+  const sending=sendFileOnce(a,source,{onProgress:p=>sent.push(p)});
+  await Promise.all([sending,receiving]);
+  for(const progress of [sent,received]) {
+    assert.ok(progress.length>=2);
+    let previous=0;
+    for(const event of progress) {
+      assert.equal(event.total,payload.length);
+      assert.ok(event.bytes>=previous && event.bytes<=event.total);
+      previous=event.bytes;
+    }
+    assert.equal(progress.filter(p=>p.verified).length,1);
+    assert.equal(progress.at(-1).bytes,payload.length);
+    assert.equal(progress.at(-1).verified,true);
+    assert.ok(progress.slice(0,-1).every(p=>p.verified===false));
+  }
+}));
+test('zero-length transfer emits a verified zero-byte completion event',()=>sandbox(async dir=>{
+  const source=path.join(dir,'zero'),dest=path.join(dir,'dest');
+  await fs.writeFile(source,'');await fs.mkdir(dest);
+  const [a,b]=channels(),sent=[],received=[];
+  const recv=(async()=>receiveFileOnce(b,await b.receive(),{
+    directory:dest,approve:async()=>true,onProgress:p=>received.push(p)}))();
+  await Promise.all([sendFileOnce(a,source,{onProgress:p=>sent.push(p)}),recv]);
+  assert.deepEqual(sent,[{bytes:0,total:0,verified:true}]);
+  assert.deepEqual(received,[{bytes:0,total:0,verified:true}]);
+}));
