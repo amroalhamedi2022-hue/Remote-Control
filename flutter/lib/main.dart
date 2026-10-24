@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'models/app_state.dart';
 import 'ui/liquid_theme.dart';
@@ -25,10 +26,23 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
   }
   Future<bool> _confirmPair(PairChallenge challenge) async {
     if (!mounted || navigatorKey.currentContext == null) return false;
-    final answer = await showDialog<bool>(
-      context: navigatorKey.currentContext!,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
+    BuildContext? activeDialog;
+    Timer? consentTimer;
+    bool? answer;
+    try {
+      answer = await showDialog<bool>(
+        context: navigatorKey.currentContext!,
+        barrierDismissible: false,
+        builder: (context) {
+          activeDialog = context;
+          consentTimer ??= Timer(const Duration(seconds: 45), () {
+            final dialog = activeDialog;
+            if (dialog != null && dialog.mounted &&
+                (ModalRoute.of(dialog)?.isCurrent ?? false)) {
+              Navigator.of(dialog).pop(false);
+            }
+          });
+          return AlertDialog(
         title: const Text('Secure LAN pairing · experimental'),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Compare the six digits shown on BOTH devices before accepting.'),
@@ -47,8 +61,12 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Reject')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Codes match · approve')),
         ],
-      ),
-    );
+          );
+        },
+      );
+    } finally {
+      consentTimer?.cancel();
+    }
     return answer == true;
   }
   @override void dispose() { app.dispose(); super.dispose(); }
