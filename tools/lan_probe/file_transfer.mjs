@@ -14,7 +14,7 @@ export function safeTransferName(name) {
   if (typeof name !== 'string' || !name || name.length > 180 ||
       name === '.' || name === '..' || name.endsWith('.') || name.endsWith(' ') ||
       /[\\/<>:"|?*\u0000-\u001f\u007f-\u009f\uFFFD]/u.test(name) ||
-      /[\u00ad\u034f\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]|[\u{e0000}-\u{e007f}]/u.test(name) ||
+      /[\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]|[\u{e0000}-\u{e007f}]/u.test(name) ||
       /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(name) ||
       /^\.(?:liquidremote|netkit)-/iu.test(name) ||
       /^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)/iu.test(name)) {
