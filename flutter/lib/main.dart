@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_selector/file_selector.dart';
 import 'models/app_state.dart';
 import 'ui/liquid_theme.dart';
 import 'security/pairing_lab.dart';
+import 'security/file_transfer_lab.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,6 +28,19 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
     app.pairing.onClipboardWrite = (text) async {
       await Clipboard.setData(ClipboardData(text: text));
     };
+    // Desktop inbound files require BOTH pairing consent and an explicit
+    // local folder selection for EACH offer. Android SAF is not ready yet.
+    if (Platform.isWindows) {
+      app.pairing.onFileReceiveRequest = _confirmIncomingFile;
+      app.pairing.onFileReceiveCompleted = (result) {
+        final ctx = navigatorKey.currentContext;
+        if (mounted && ctx != null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+            content: Text('Verified incoming file saved: ${result.bytes} bytes · SHA-256 confirmed'),
+          ));
+        }
+      };
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) app.startPairHost(_confirmPair);
     });
@@ -75,6 +90,62 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
     }
     return answer == true;
   }
+  Future<Directory?> _confirmIncomingFile(
+      String fingerprint, LabIncomingOffer offer) async {
+    if (!Platform.isWindows || !mounted || navigatorKey.currentContext == null) {
+      return null;
+    }
+    BuildContext? activeDialog;
+    Timer? timer;
+    bool approved = false;
+    try {
+      approved = await showDialog<bool>(
+        context: navigatorKey.currentContext!,
+        barrierDismissible: false,
+        builder: (context) {
+          activeDialog = context;
+          timer ??= Timer(const Duration(seconds: 45), () {
+            final dialog = activeDialog;
+            if (dialog != null && dialog.mounted &&
+                (ModalRoute.of(dialog)?.isCurrent ?? false)) {
+              Navigator.of(dialog).pop(false);
+            }
+          });
+          return AlertDialog(
+            title: const Text('Receive a file from paired LAN device?'),
+            content: SizedBox(width: 420, child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('A paired device requests ONE file transfer. Choose a local folder only if you recognize this request.'),
+                const SizedBox(height: 12),
+                SelectableText('Peer: ${fingerprint.substring(0, 20)}…'),
+                SelectableText('Name: ${offer.name}'),
+                Text('Size: ${offer.bytes} bytes (64 MiB lab limit)'),
+                const SizedBox(height: 8),
+                const Text('No overwrite: verified files are published in a unique Received-* folder.'),
+              ],
+            )),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false),
+                child: const Text('Deny')),
+              FilledButton(onPressed: () => Navigator.pop(context, true),
+                child: const Text('Approve · choose folder')),
+            ],
+          );
+        },
+      ) == true;
+    } finally {
+      timer?.cancel();
+    }
+    if (!approved || !mounted) return null;
+    // file_selector uses the native Windows folder picker; a cancelled picker
+    // is a denial. No remote peer can choose or override the destination.
+    final path = await getDirectoryPath(confirmButtonText: 'Receive here');
+    if (!mounted || path == null || path.isEmpty) return null;
+    return Directory(path);
+  }
+
   Future<bool> _confirmClipboard(String fingerprint, String text) async {
     if (!mounted || navigatorKey.currentContext == null) return false;
     BuildContext? activeDialog;
@@ -126,6 +197,8 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
   @override void dispose() {
     app.pairing.onClipboardConsent = null;
     app.pairing.onClipboardWrite = null;
+    app.pairing.onFileReceiveRequest = null;
+    app.pairing.onFileReceiveCompleted = null;
     app.dispose();
     super.dispose();
   }
