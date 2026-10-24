@@ -14,7 +14,7 @@ import { H264LiveViewer } from '../video_lab/h264_live_viewer.mjs';
 import { startHostPresence } from './host_presence.mjs';
 import { isLanIpv4 } from './protocol.mjs';
 import { askWithDeadline } from './consent_prompt.mjs';
-import { acceptClipboardRequest, writeWindowsClipboard } from './clipboard_transfer.mjs';
+import { acceptClipboardRequest, writeWindowsClipboard, clipboardByteLength } from './clipboard_transfer.mjs';
 
 const options=process.argv.slice(2);
 const flag = name => options.includes(`--${name}`);
@@ -61,7 +61,8 @@ async function approve({sas,fingerprint,known}) {
 }
 async function interact(socket,role) {
   try {
-    const {fingerprint,channel,known}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve});
+    const {fingerprint,channel,known}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve,
+      intent:role==='client' && flag('send-clipboard') ? 'clipboard' : null});
     saveTrust();
     console.log(`PAIR_OK ${fingerprint.slice(0,20)} (${known?'recognized':'new'}) — encrypted channel active`);
     if(role==='client') {
@@ -69,6 +70,18 @@ async function interact(socket,role) {
       const response=await channel.receive();
       if(response?.type!=='PONG')throw new Error('Unexpected secure response');
       console.log('SECURE_PONG received; no remote access permission was granted');
+      if(flag('send-clipboard')) {
+        // One line entered interactively: never put private text in CLI args, logs or files.
+        const text=await askWithDeadline(rl.question.bind(rl),
+          'Text to send once to the Android clipboard (max 2048 UTF-8 bytes, 45s): ');
+        clipboardByteLength(text);
+        channel.send({type:'CLIPBOARD_PUT',text});
+        const result=await channel.receive();
+        if(result?.type==='CLIPBOARD_DENIED')throw new Error('Android user denied clipboard transfer');
+        if(result?.type!=='CLIPBOARD_OK'||result.bytes!==Buffer.byteLength(text,'utf8'))
+          throw new Error('Android clipboard acknowledgement invalid');
+        console.log('ANDROID_CLIPBOARD_WRITTEN_WITH_CONSENT');
+      }
       if(flag('view-h264') || flag('watch-h264')) {
         const seconds = Number(opt('max-seconds') || 3);
         if (!Number.isInteger(seconds) || seconds < 1 || seconds > 10) throw Error('H.264 preview duration must be 1–10 seconds');
@@ -178,6 +191,9 @@ async function interact(socket,role) {
     if(!socket.destroyed){socket.end();socket.setTimeout(500,()=>socket.destroy());}
   }
 }
+if(flag('send-clipboard') && (flag('view-screen') || flag('view-h264') || flag('watch-h264') || flag('listen'))) {
+  throw new Error('One-shot clipboard sending requires a separate client session');
+}
 if(flag('receive-clipboard') && (flag('share-screen') || flag('share-h264'))) {
   throw new Error('Clipboard and screen sharing require separate host sessions');
 }
@@ -217,6 +233,6 @@ if(flag('listen')) {
   const socket=net.createConnection({host,port:connectPort});
   await interact(socket,'client');rl.close();
 } else {
-  console.log('Usage: node pair_agent.mjs --listen [--no-discovery] [--share-screen] [--share-h264] [--receive-clipboard] [--encoder=libx264|h264_nvenc] [--test-pattern] [--port=43829] | --connect=IP[:port] [--view-screen --max-frames=2 --output=frame.jpg] | --connect=IP[:port] --view-h264 [--watch-h264] --max-seconds=3 [--output=clip.ts] | --list | --revoke=<fingerprint>');
+  console.log('Usage: node pair_agent.mjs --listen [--no-discovery] [--share-screen] [--share-h264] [--receive-clipboard] [--encoder=libx264|h264_nvenc] [--test-pattern] [--port=43829] | --connect=IP[:port] [--view-screen --max-frames=2 --output=frame.jpg] | --connect=IP[:port] --send-clipboard | --connect=IP[:port] --view-h264 [--watch-h264] --max-seconds=3 [--output=clip.ts] | --list | --revoke=<fingerprint>');
   rl.close();process.exitCode=1;
 }
