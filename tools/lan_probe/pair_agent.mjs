@@ -15,6 +15,7 @@ import { startHostPresence } from './host_presence.mjs';
 import { isLanIpv4 } from './protocol.mjs';
 import { askWithDeadline } from './consent_prompt.mjs';
 import { acceptClipboardRequest, writeWindowsClipboard, clipboardByteLength } from './clipboard_transfer.mjs';
+import { sendFileOnce, receiveFileOnce } from './file_transfer.mjs';
 
 const options=process.argv.slice(2);
 const flag = name => options.includes(`--${name}`);
@@ -61,8 +62,8 @@ async function approve({sas,fingerprint,known}) {
 }
 async function interact(socket,role) {
   try {
-    const {fingerprint,channel,known}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve,
-      intent:role==='client' && flag('send-clipboard') ? 'clipboard' : null});
+    const {fingerprint,channel,known,peerIntent}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve,
+      intent:role==='client' ? (opt('send-file') ? 'file' : flag('send-clipboard') ? 'clipboard' : null) : null});
     saveTrust();
     console.log(`PAIR_OK ${fingerprint.slice(0,20)} (${known?'recognized':'new'}) — encrypted channel active`);
     if(role==='client') {
@@ -70,6 +71,11 @@ async function interact(socket,role) {
       const response=await channel.receive();
       if(response?.type!=='PONG')throw new Error('Unexpected secure response');
       console.log('SECURE_PONG received; no remote access permission was granted');
+      if(opt('send-file')) {
+        const sent=await sendFileOnce(channel,opt('send-file'));
+        console.log('FILE_TRANSFER_VERIFIED',sent.bytes,sent.sha256);
+        return;
+      }
       if(flag('send-clipboard')) {
         // One line entered interactively: never put private text in CLI args, logs or files.
         const text=await askWithDeadline(rl.question.bind(rl),
@@ -137,6 +143,21 @@ async function interact(socket,role) {
       const request=await channel.receive();
       if(request?.type==='PING')channel.send({type:'PONG'});
       else throw new Error('Action prohibited: Only encrypted PING is allowed');
+      if(opt('receive-file')) {
+        if(peerIntent!=='file') throw Error('Signed file-transfer intent required');
+        const offer=await channel.receive();
+        const received=await receiveFileOnce(channel,offer,{
+          directory:opt('receive-file'),
+          approve:async ({name,bytes})=>{
+            console.log('One-shot file offer from',fingerprint.slice(0,20),name,bytes,'bytes');
+            const answer=await askWithDeadline(rl.question.bind(rl),
+              'To receive this file into the selected folder, type FILE: (45s) ');
+            return answer==='FILE';
+          }
+        });
+        console.log(received ? 'FILE_RECEIVED_VERIFIED' : 'FILE_DENIED',received?.bytes ?? 0);
+        return;
+      }
       if(flag('receive-clipboard')) {
         const req = await channel.receive();
         const accepted = await acceptClipboardRequest(channel, req, {
@@ -191,6 +212,12 @@ async function interact(socket,role) {
     if(!socket.destroyed){socket.end();socket.setTimeout(500,()=>socket.destroy());}
   }
 }
+if(opt('send-file') && (flag('send-clipboard') || flag('view-screen') || flag('view-h264') || flag('watch-h264') || flag('listen'))) {
+  throw new Error('One-shot file sending requires a separate client session');
+}
+if(opt('receive-file') && (flag('receive-clipboard') || flag('share-screen') || flag('share-h264') || !flag('listen'))) {
+  throw new Error('One-shot file receiving requires a separate host session');
+}
 if(flag('send-clipboard') && (flag('view-screen') || flag('view-h264') || flag('watch-h264') || flag('listen'))) {
   throw new Error('One-shot clipboard sending requires a separate client session');
 }
@@ -208,7 +235,7 @@ if(flag('listen')) {
   });
   let presence;
   server.listen(port,'0.0.0.0',async()=>{
-    console.log(`PAIR_AGENT_READY ${port}; local consent required on both devices${flag('share-screen') ? '; MJPEG sharing requires SHARE' : ''}${flag('share-h264') ? '; H.264 sharing requires H264' : ''}${flag('receive-clipboard') ? '; clipboard requires CLIP' : ''}`);
+    console.log(`PAIR_AGENT_READY ${port}; local consent required on both devices${flag('share-screen') ? '; MJPEG sharing requires SHARE' : ''}${flag('share-h264') ? '; H.264 sharing requires H264' : ''}${flag('receive-clipboard') ? '; clipboard requires CLIP' : ''}${opt('receive-file') ? '; file receiving requires FILE' : ''}`);
     // Announce the Windows host through the same discovery format as Flutter.
     // A failed discovery bind must not silently masquerade as success.
     if (!flag('no-discovery')) {
@@ -233,6 +260,6 @@ if(flag('listen')) {
   const socket=net.createConnection({host,port:connectPort});
   await interact(socket,'client');rl.close();
 } else {
-  console.log('Usage: node pair_agent.mjs --listen [--no-discovery] [--share-screen] [--share-h264] [--receive-clipboard] [--encoder=libx264|h264_nvenc] [--test-pattern] [--port=43829] | --connect=IP[:port] [--view-screen --max-frames=2 --output=frame.jpg] | --connect=IP[:port] --send-clipboard | --connect=IP[:port] --view-h264 [--watch-h264] --max-seconds=3 [--output=clip.ts] | --list | --revoke=<fingerprint>');
+  console.log('Usage: node pair_agent.mjs --listen [--no-discovery] [--share-screen] [--share-h264] [--receive-clipboard] [--encoder=libx264|h264_nvenc] [--test-pattern] [--port=43829] | --connect=IP[:port] [--view-screen --max-frames=2 --output=frame.jpg] | --connect=IP[:port] --send-clipboard | --connect=IP[:port] --view-h264 [--watch-h264] --max-seconds=3 [--output=clip.ts] | --listen --receive-file=EXISTING_FOLDER | --connect=IP[:port] --send-file=FILE | --list | --revoke=<fingerprint>');
   rl.close();process.exitCode=1;
 }
