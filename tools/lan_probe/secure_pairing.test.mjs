@@ -128,3 +128,23 @@ test('trusted identity is recognized on later sessions with the same key',async 
   assert.equal(rememberedA,true);assert.equal(rememberedB,true);
   assert.equal(paired[0].known,true);assert.equal(paired[1].known,true);
 });
+
+test('concurrent encrypted receives fail closed instead of orphaning a pending waiter',async t=>{
+  const f=await fixture();
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  const [,server]=await Promise.all([f.clientSide,f.serverSide]);
+  const pending=server.channel.receive();
+  // The second reader must not replace the first JsonLines waiter.
+  await assert.rejects(server.channel.receive(),/Concurrent frame reads/);
+  await assert.rejects(pending);
+  assert.throws(()=>server.channel.send({type:'PING'}),/Encrypted session closed/);
+});
+
+test('non-object encrypted outbound payload poisons the session before transmission',async t=>{
+  const f=await fixture();
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  const [client,server]=await Promise.all([f.clientSide,f.serverSide]);
+  assert.throws(()=>client.channel.send(['not','a','message']),/Encrypted payload must be an object/);
+  assert.throws(()=>client.channel.send({type:'PING'}),/Encrypted session closed/);
+  await assert.rejects(server.channel.receive());
+});
