@@ -100,7 +100,7 @@ function nonce(direction, seq) {
 export class SecureEnvelope {
   constructor(lines, shared, transcriptHash, role) {
     this.lines=lines;this.keys=secrets(shared,transcriptHash,role);
-    this.sent=0;this.received=0;this.failed=false;
+    this.sent=0;this.received=0;this.failed=false;this.receiving=false;
   }
   // A rejected frame is a terminal authentication failure, not a recoverable
   // parsing error. Never accept later frames on a poisoned encrypted channel.
@@ -125,8 +125,14 @@ export class SecureEnvelope {
   }
   async receive() {
     if(this.failed)throw new Error('Encrypted session closed');
+    // JsonLines rejects concurrent socket waiters, but two already-buffered
+    // frames can bypass that guard. Serialize the entire authenticated
+    // receive, including GCM verification and sequence advancement.
+    if(this.receiving)this.failClosed(new Error('Concurrent frame reads are not allowed'));
+    this.receiving=true;
     try {
       const frame=await this.lines.receive();
+      if(this.failed)throw new Error('Encrypted session closed');
       if(frame.type!=='SEALED'||frame.seq!==this.received||typeof frame.data!=='string'||frame.data.length>10000||!(/^[A-Za-z0-9_-]+$/).test(frame.data))
         throw new Error('Unexpected or replayed encrypted frame');
       const bytes=unb64(frame.data);
@@ -146,6 +152,7 @@ export class SecureEnvelope {
       this.received++;
       return message;
     } catch(error) {this.failClosed(error);}
+    finally {this.receiving=false;}
   }
 }
 
