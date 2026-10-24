@@ -14,6 +14,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../network/lan_address_policy.dart';
 import 'pair_session_ledger.dart';
 import 'pair_consent_policy.dart';
+import 'pairing_lifecycle.dart';
 
 const pairingPort = 43829;
 const _protocol = 'liquidremote.pair.v1';
@@ -77,6 +78,8 @@ class PairingLab {
   Socket? _previewSocket;
   bool _previewCancelled = false;
   bool _busy = false;
+  final PairingLifecycle _lifecycle = PairingLifecycle();
+  Socket? _activePairSocket;
   final Map<String, String> _trust = {};
   final PairSessionLedger _sessionAddresses = PairSessionLedger();
   SimpleKeyPair? _identity;
@@ -127,9 +130,18 @@ class PairingLab {
     if (_server != null) return;
     try {
       await _init();
+      final ticket = _lifecycle.ticket;
       final server = await ServerSocket.bind(InternetAddress.anyIPv4, pairingPort);
+      if (!_lifecycle.isCurrent(ticket)) {
+        await server.close();
+        return;
+      }
       _server = server;
       server.listen((socket) async {
+        if (!identical(_server, server) || !_lifecycle.isCurrent(ticket)) {
+          socket.destroy();
+          return;
+        }
         // Binding on all interfaces is needed for LAN reachability, but a
         // forwarded public connection must never reach the pairing UI.
         if (!isLocalLanIpv4(socket.remoteAddress, allowLoopback: true)) {
@@ -138,9 +150,14 @@ class PairingLab {
         }
         if (_busy) { socket.destroy(); return; }
         _busy = true;
-        try { await _pair(socket, isClient: false, ask: ask); }
+        _activePairSocket = socket;
+        try { await _pair(socket, isClient: false, ask: ask, ticket: ticket); }
         catch (e) { error = 'Incoming pairing: $e'; onChange?.call(); }
-        finally { socket.destroy(); _busy = false; }
+        finally {
+          socket.destroy();
+          if (identical(_activePairSocket, socket)) _activePairSocket = null;
+          _busy = false;
+        }
       }, onError: (Object e) { error = 'Pair listener: $e'; onChange?.call(); });
       error = null;
     } catch (e) { error = 'Pair listener unavailable: $e'; }
@@ -155,14 +172,21 @@ class PairingLab {
       throw const FormatException('Enter a valid LAN IPv4 address');
     }
     _busy = true;
+    final ticket = _lifecycle.ticket;
     Socket? socket;
     try {
       socket = await Socket.connect(ip, pairingPort, timeout: const Duration(seconds: 4));
-      final result = await _pair(socket, isClient: true, ask: ask);
+      _lifecycle.requireCurrent(ticket);
+      _activePairSocket = socket;
+      final result = await _pair(socket, isClient: true, ask: ask, ticket: ticket);
       error = null;
       onChange?.call();
       return result;
-    } finally { socket?.destroy(); _busy = false; }
+    } finally {
+      socket?.destroy();
+      if (identical(_activePairSocket, socket)) _activePairSocket = null;
+      _busy = false;
+    }
   }
 
   /// This is a diagnostic MJPEG proof, NOT production streaming. Connect only to
@@ -177,14 +201,18 @@ class PairingLab {
     }
     _busy = true;
     _previewCancelled = false;
+    final ticket = _lifecycle.ticket;
     Socket? socket;
     try {
       socket = await Socket.connect(ip, pairingPort, timeout: const Duration(seconds: 4));
+      _lifecycle.requireCurrent(ticket);
       _previewSocket = socket;
-      await _pair(socket, isClient: true, ask: ask, previewReceiver: onFrame);
+      _activePairSocket = socket;
+      await _pair(socket, isClient: true, ask: ask, previewReceiver: onFrame, ticket: ticket);
     } finally {
       socket?.destroy();
       _previewSocket = null;
+      if (identical(_activePairSocket, socket)) _activePairSocket = null;
       _busy = false;
       onChange?.call();
     }
@@ -238,7 +266,8 @@ class PairingLab {
   }
 
   Future<PairResult> _pair(Socket socket, {required bool isClient,
-      required AskForPairConsent ask, void Function(Uint8List frame)? previewReceiver}) async {
+      required AskForPairConsent ask, required int ticket,
+      void Function(Uint8List frame)? previewReceiver}) async {
     final io = _JsonLines(socket);
     final ephemeral = await keyExchange.newKeyPair();
     try {
@@ -273,6 +302,7 @@ class PairingLab {
       final allow = await PairConsentPolicy.awaitApproval(
         () => ask(PairChallenge(code, fingerprint, pinned == remotePublic)));
       if (!allow) throw StateError('Local user declined pairing');
+      _lifecycle.requireCurrent(ticket);
       final channel = _SealedChannel(io, sharedBytes, transcriptHash, isClient: isClient);
       await channel.send({'type': 'CONFIRM'});
       final confirmation = await channel.receive();
@@ -283,7 +313,8 @@ class PairingLab {
         final pong = await channel.receive();
         if (pong['type'] != 'PONG') throw StateError('Encrypted PING failed');
         if (previewReceiver != null) {
-          // Pairing identity is pinned after authenticated PING, before view-only request.
+          // Stopping a listener must not allow a pending pairing to grant trust.
+          _lifecycle.requireCurrent(ticket);
           _trust[fingerprint] = remotePublic;
           await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
           _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
@@ -300,7 +331,9 @@ class PairingLab {
         if (ping['type'] != 'PING') throw StateError('Only encrypted PING permitted');
         await channel.send({'type': 'PONG'});
       }
-      // Trust is recorded ONLY after a successful authenticated round trip.
+      // Trust is recorded ONLY after an authenticated round trip and while
+      // this pairing generation is still active.
+      _lifecycle.requireCurrent(ticket);
       _trust[fingerprint] = remotePublic;
       await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
       _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
@@ -359,7 +392,18 @@ class PairingLab {
     }
   }
 
-  Future<void> stop() async { stopPreview(); await _server?.close(); _server = null; onChange?.call(); }
+  Future<void> stop() async {
+    // Close active inbound/outbound pairing as well as the listening socket.
+    // Otherwise a consent dialog could finish after Stop and pin a new peer.
+    _lifecycle.invalidate();
+    _activePairSocket?.destroy();
+    _activePairSocket = null;
+    stopPreview();
+    final server = _server;
+    _server = null;
+    await server?.close();
+    onChange?.call();
+  }
 }
 
 class _JsonLines {
