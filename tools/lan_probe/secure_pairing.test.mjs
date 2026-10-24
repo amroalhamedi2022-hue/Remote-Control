@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {sendFileOnce,receiveFileOnce} from './file_transfer.mjs';
 import {pairSocket, generateIdentity, identityFingerprint} from './secure_pairing.mjs';
 
 async function fixture(clientOpts={},serverOpts={}) {
@@ -195,6 +199,24 @@ test('tampering with signed file intent prevents trust creation',async t=>{
   await assert.rejects(f.clientSide);
   assert.equal(f.clientTrust.size,0);
   assert.equal(f.serverTrust.size,0);
+});
+
+test('real TCP pairing transfers file bytes over encrypted channel after receiver consent',async t=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'remote-paired-file-'));
+  const f=await fixture({intent:'file'});
+  t.after(async()=>{f.clientSocket.destroy();f.listener.close();await fs.rm(root,{recursive:true,force:true});});
+  const [client,server]=await Promise.all([f.clientSide,f.serverSide]);
+  const payload=crypto.randomBytes(24_573);
+  const source=path.join(root,'ملف 🫧.bin');
+  const destination=path.join(root,'received');
+  await fs.mkdir(destination);await fs.writeFile(source,payload);
+  let consent=0;
+  const receiver=(async()=>receiveFileOnce(server.channel,await server.channel.receive(),{
+    directory:destination,approve:async()=>{consent++;return true;}}))();
+  const [sent,saved]=await Promise.all([sendFileOnce(client.channel,source),receiver]);
+  assert.equal(consent,1);
+  assert.equal(sent.sha256,saved.sha256);
+  assert.deepEqual(await fs.readFile(saved.path),payload);
 });
 
 test('ordinary pairing does not request clipboard privileges', async t => {
