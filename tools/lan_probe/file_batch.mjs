@@ -227,6 +227,10 @@ export async function sendFolderOnce(channel, folderPath,
     await verifySourceEntry(realRoot,identities,file.full);
     channel.send({type:'FOLDER_ENTRY',path:file.relative,index});
     const result=await sendFileOnce(channel,file.full,{signal,idleTimeoutMs});
+    // The file descriptor used by sendFileOnce may remain valid even after
+    // the pathname was replaced. Refuse to publish a folder whose original
+    // source identity changed while its bytes were in flight.
+    await verifySourceEntry(realRoot,identities,file.full);
     if (result.bytes!==file.bytes) throw new Error('Folder source size changed');
     transferred+=result.bytes;
     onProgress({files:index+1,totalFiles:files.length,bytes:transferred,totalBytes:bytes});
