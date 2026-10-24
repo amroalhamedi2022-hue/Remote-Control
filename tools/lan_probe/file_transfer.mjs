@@ -7,6 +7,11 @@ import crypto from 'node:crypto';
 
 export const MAX_FILE_BYTES = 64 * 1024 * 1024;
 export const FILE_CHUNK_BYTES = 3072; // base64 fits the 8 KiB secure frame limit
+export const FILE_IDLE_TIMEOUT_MS = 45_000; // bound waits for peer approval and chunk ACKs
+function checkIdleTimeout(value) {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 120_000)
+    throw new RangeError('Invalid file transfer idle timeout');
+}
 const sha256 = () => crypto.createHash('sha256');
 const hex = h => h.digest('hex');
 
@@ -21,23 +26,32 @@ function cancellationError() {
 function checkCancelled(signal) {
   if (signal?.aborted) throw cancellationError();
 }
-async function receiveWithCancel(channel, signal) {
+async function receiveWithCancel(channel, signal, idleTimeoutMs) {
   checkCancelled(signal);
-  if (!signal) return channel.receive();
   return new Promise((resolve, reject) => {
     let settled = false;
+    let timer;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
-      signal.removeEventListener('abort', onAbort);
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       fn(value);
     };
+    const terminatePeerWait = () => channel.lines?.socket?.destroy();
     const onAbort = () => {
-      channel.lines?.socket?.destroy();
+      terminatePeerWait();
       finish(reject, cancellationError());
     };
-    signal.addEventListener('abort', onAbort, {once: true});
-    if (signal.aborted) {onAbort(); return;}
+    const onTimeout = () => {
+      terminatePeerWait();
+      const error = new Error('File transfer timed out waiting for peer');
+      error.name = 'TimeoutError';
+      finish(reject, error);
+    };
+    timer = setTimeout(onTimeout, idleTimeoutMs);
+    signal?.addEventListener('abort', onAbort, {once: true});
+    if (signal?.aborted) {onAbort(); return;}
     Promise.resolve().then(() => channel.receive()).then(
       value => finish(resolve, value),
       error => finish(reject, error),
@@ -75,8 +89,9 @@ async function hashHandle(handle, size, signal) {
   }
   return hex(h);
 }
-export async function sendFileOnce(channel, filePath, {onProgress = () => {}, signal} = {}) {
+export async function sendFileOnce(channel, filePath, {onProgress = () => {}, signal, idleTimeoutMs = FILE_IDLE_TIMEOUT_MS} = {}) {
   if (typeof onProgress !== 'function') throw new TypeError('Progress callback must be a function');
+  checkIdleTimeout(idleTimeoutMs);
   checkCancelled(signal);
   // Do not follow symlinks; reject directory, pipe and changing-size sources.
   const handle=await fsp.open(filePath,constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
@@ -87,7 +102,7 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
     const digest=await hashHandle(handle,st.size,signal);
     checkCancelled(signal);
     channel.send({type:'FILE_OFFER',name,bytes:st.size,sha256:digest});
-    const ready=await receiveWithCancel(channel,signal);
+    const ready=await receiveWithCancel(channel,signal,idleTimeoutMs);
     if(ready?.type==='FILE_DENIED')throw new Error('Receiver denied file transfer');
     if(ready?.type!=='FILE_READY')throw new Error('Invalid file transfer approval');
     const buf=Buffer.alloc(FILE_CHUNK_BYTES);
@@ -97,7 +112,7 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
       const {bytesRead}=await handle.read(buf,0,Math.min(buf.length,st.size-offset),offset);
       if(bytesRead<=0)throw new Error('Source file changed during transfer');
       channel.send({type:'FILE_CHUNK',seq,data:buf.subarray(0,bytesRead).toString('base64')});
-      const ack=await receiveWithCancel(channel,signal);
+      const ack=await receiveWithCancel(channel,signal,idleTimeoutMs);
       if(ack?.type!=='FILE_ACK'||ack.seq!==seq)throw new Error('Invalid file chunk acknowledgement');
       offset+=bytesRead;seq++;
       onProgress({bytes:offset,total:st.size,verified:false});
@@ -107,7 +122,7 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
       throw new Error('Source file changed during transfer');
     checkCancelled(signal);
     channel.send({type:'FILE_END',bytes:offset,sha256:digest});
-    const done=await receiveWithCancel(channel,signal);
+    const done=await receiveWithCancel(channel,signal,idleTimeoutMs);
     if(done?.type!=='FILE_OK'||done.bytes!==offset||done.sha256!==digest)
       throw new Error('Invalid file completion acknowledgement');
     onProgress({bytes:offset,total:st.size,verified:true});
@@ -115,8 +130,9 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
   } finally {await handle.close();}
 }
 
-export async function receiveFileOnce(channel, offer, {approve,directory,onProgress=()=>{},signal}) {
+export async function receiveFileOnce(channel, offer, {approve,directory,onProgress=()=>{},signal,idleTimeoutMs=FILE_IDLE_TIMEOUT_MS}) {
   if (typeof onProgress !== 'function') throw new TypeError('Progress callback must be a function');
+  checkIdleTimeout(idleTimeoutMs);
   checkCancelled(signal);
   validateOffer(offer);
   if(typeof approve!=='function'||typeof directory!=='string')
@@ -137,7 +153,7 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
     const h=sha256();let count=0,seq=0;
     channel.send({type:'FILE_READY'});
     while(true) {
-      const packet=await receiveWithCancel(channel,signal);
+      const packet=await receiveWithCancel(channel,signal,idleTimeoutMs);
       checkCancelled(signal);
       if(packet?.type==='FILE_END') {
         const digest=hex(h);
