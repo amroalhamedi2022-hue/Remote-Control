@@ -71,6 +71,49 @@ test('sender refuses symlinks and oversized folder before network offer',()=>san
   await assert.rejects(sendFolderOnce(a,src),/limits/);
   assert.ok(MAX_FOLDER_BYTES>0);
 }));
+test('sender rejects case-folded aliases before any network offer',()=>sandbox(async root=>{
+  const src=path.join(root,'source');await fs.mkdir(src);
+  await fs.writeFile(path.join(src,'Report.txt'),'first');
+  await fs.writeFile(path.join(src,'report.txt'),'second');
+  const names=await fs.readdir(src);
+  if(names.length!==2) return; // Case-insensitive host cannot represent the fixture.
+  const [sender,receiver]=channels();
+  await assert.rejects(sendFolderOnce(sender,src),/Ambiguous case\/Unicode/);
+  // No FOLDER_BEGIN may be sent for a manifest the receiver cannot extract safely.
+  const sentinel=Symbol('no-offer');
+  const offered=await Promise.race([
+    receiver.receive(),new Promise(resolve=>setTimeout(()=>resolve(sentinel),40))
+  ]);
+  assert.equal(offered,sentinel);
+}));
+test('sender rejects source file replaced after folder approval',()=>sandbox(async root=>{
+  const src=path.join(root,'source');await fs.mkdir(src);
+  const original=path.join(src,'safe.txt');
+  const outside=path.join(root,'outside.txt');
+  await fs.writeFile(original,'good');await fs.writeFile(outside,'bad');
+  const [sender,receiver]=channels();
+  const sending=sendFolderOnce(sender,src,{idleTimeoutMs:1000});
+  const offer=await receiver.receive();
+  assert.equal(offer.type,'FOLDER_BEGIN');
+  await fs.rm(original);
+  await fs.symlink(outside,original);
+  receiver.send({type:'FOLDER_READY'});
+  await assert.rejects(sending,/Source changed|Source directory changed/);
+}));
+test('sender rejects a nested directory replaced with an outside symlink',()=>sandbox(async root=>{
+  const src=path.join(root,'source'),nested=path.join(src,'nested');
+  const outside=path.join(root,'outside');
+  await fs.mkdir(nested,{recursive:true});await fs.mkdir(outside);
+  await fs.writeFile(path.join(nested,'safe.txt'),'safe');
+  await fs.writeFile(path.join(outside,'safe.txt'),'outside');
+  const [sender,receiver]=channels();
+  const sending=sendFolderOnce(sender,src,{idleTimeoutMs:1000});
+  assert.equal((await receiver.receive()).type,'FOLDER_BEGIN');
+  await fs.rename(nested,path.join(root,'old-nested'));
+  await fs.symlink(outside,nested,'dir');
+  receiver.send({type:'FOLDER_READY'});
+  await assert.rejects(sending,/Source changed|Source directory changed/);
+}));
 test('receiver rejects traversal before writing a file',()=>sandbox(async root=>{
   const [sender,receiver]=channels();
   const incoming=receiveFolderOnce(receiver,{type:'FOLDER_BEGIN',folder:'photos',count:1,bytes:1},
