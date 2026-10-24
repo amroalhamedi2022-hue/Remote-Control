@@ -107,7 +107,7 @@ void main() {
   test('validates cross-platform filename safety before sending', () {
     for (final name in [
       '../secret', 'CON.txt', 'nul', 'bad?.pdf', 'name.', 'name ',
-      '.liquidremote-123', 'a\\b', 'a\u202eexe',
+      '.liquidremote-123', 'a\\b', 'a\u202eexe', 'COM¹.txt', 'LPT².log', 'tag\u{E0001}.txt',
     ]) {
       expect(() => validateLabFileName(name), throwsFormatException,
           reason:name);
