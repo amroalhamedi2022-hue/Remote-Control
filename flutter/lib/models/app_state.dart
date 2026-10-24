@@ -39,7 +39,7 @@ class PrototypeState extends ChangeNotifier {
 
   Future<void> sendClipboardSelected(AskForPairConsent ask) async {
     final matches = lan.peers.where((p) => p.id == selectedPeerId).toList();
-    if (matches.length != 1) throw StateError('Select a discovered Android or Windows device first');
+    if (matches.length != 1) throw StateError('Select a discovered Windows receiver first');
     if (!ClipboardPeerPolicy.canSendTo(matches.single.platform)) {
       throw StateError('Clipboard receiver must be Android or Windows');
     }
@@ -57,8 +57,8 @@ class PrototypeState extends ChangeNotifier {
     if (matches.length != 1) {
       throw StateError('Select a discovered Android or Windows device first');
     }
-    if (!['Android', 'Windows'].contains(matches.single.platform)) {
-      throw StateError('Unsupported file receiver platform');
+    if (matches.single.platform != 'Windows') {
+      throw StateError('Android file receiver is not implemented yet');
     }
     if (fileTransferActive) throw StateError('File transfer already active');
     fileTransferActive = true;
