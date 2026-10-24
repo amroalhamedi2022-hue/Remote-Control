@@ -576,7 +576,6 @@ class _JsonLines {
     _closed = true;
     if (_waiter != null) { _waiter!.completeError(StateError('Peer disconnected')); _waiter = null; }
   }
-  @override
   Future<Map<String, dynamic>> receive() async {
     if (_closed && _lines.isEmpty) throw StateError('Peer disconnected');
     String text;
@@ -662,6 +661,7 @@ class _SealedChannel implements FileTransferChannel {
     }
   }
 
+  @override
   Future<Map<String, dynamic>> receive() async {
     if (_terminal) throw StateError('Encrypted channel closed');
     // A second caller must not race authentication or advance the replay counter.
