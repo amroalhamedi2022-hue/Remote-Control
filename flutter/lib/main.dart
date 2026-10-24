@@ -746,11 +746,15 @@ class _ClipboardCard extends StatelessWidget {
          onTap:() async {
            try {
              await app.sendClipboardSelected((challenge) => _pairDialog(context, challenge));
-             if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-               const SnackBar(content:Text('Windows host approved and wrote clipboard text')));
+             if (context.mounted) {
+               ScaffoldMessenger.of(context).showSnackBar(
+                 const SnackBar(content:Text('Windows host approved and wrote clipboard text')));
+             }
            } catch (e) {
-             if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-               SnackBar(content:Text('Clipboard not transferred: $e')));
+             if (context.mounted) {
+               ScaffoldMessenger.of(context).showSnackBar(
+                 SnackBar(content:Text('Clipboard not transferred: $e')));
+             }
            }
          })),
     ]));
