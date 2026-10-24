@@ -89,6 +89,10 @@ class PairingLab {
   final keyExchange = X25519();
   String? error;
   void Function()? onChange;
+  // A receiver is disabled until the UI installs BOTH callbacks. No unattended
+  // clipboard writes, background sync, or clipboard reads.
+  Future<bool> Function(String fingerprint, String text)? onClipboardConsent;
+  Future<void> Function(String text)? onClipboardWrite;
   bool get listening => _server != null;
   bool isPairedInThisSession(String address) {
     final fingerprint = _sessionAddresses.fingerprintFor(address);
@@ -268,12 +272,14 @@ class PairingLab {
   }
   Map<String, String> get trusted => Map.unmodifiable(_trust);
 
-  Future<Map<String, dynamic>> _hello(String type, SimpleKeyPair eph, {String? clientHash}) async {
+  Future<Map<String, dynamic>> _hello(String type, SimpleKeyPair eph,
+      {String? clientHash, String? intent}) async {
     final ephPublic = await eph.extractPublicKey();
     final data = <String, dynamic>{
       'v': _protocol, 'type': type, 'identity': _b64(_identitySpki!),
       'ephemeral': _b64(_spki(_xSpki, ephPublic.bytes)), 'nonce': _b64(_rand(24)),
       if (clientHash != null) 'clientHash': clientHash,
+      if (intent != null) 'intent': intent,
     };
     final signed = await signature.sign(utf8.encode(jsonEncode(data)), keyPair: _identity!);
     data['sig'] = _b64(signed.bytes);
@@ -282,6 +288,10 @@ class PairingLab {
 
   Future<SimplePublicKey> _verifyHello(Map<String, dynamic> frame, String expectedType) async {
     if (frame['v'] != _protocol || frame['type'] != expectedType) throw const FormatException('Invalid hello type');
+    if (frame.containsKey('intent') &&
+        (expectedType != 'CLIENT_HELLO' || frame['intent'] != 'clipboard')) {
+      throw const FormatException('Unsupported signed session intent');
+    }
     for (final field in ['identity', 'ephemeral', 'nonce', 'sig']) {
       final value = frame[field];
       if (value is! String || !RegExp(r'^[A-Za-z0-9_-]{1,255}$').hasMatch(value)) {
@@ -310,7 +320,8 @@ class PairingLab {
       late final Map<String, dynamic> serverHello;
       late final SimplePublicKey remoteEph;
       if (isClient) {
-        clientHello = await _hello('CLIENT_HELLO', ephemeral);
+        clientHello = await _hello('CLIENT_HELLO', ephemeral,
+          intent: clipboardText == null ? null : 'clipboard');
         await io.send(clientHello);
         serverHello = await io.receive();
         remoteEph = await _verifyHello(serverHello, 'SERVER_HELLO');
@@ -377,6 +388,27 @@ class PairingLab {
         final ping = await channel.receive();
         if (ping['type'] != 'PING') throw StateError('Only encrypted PING permitted');
         await channel.send({'type': 'PONG'});
+        if (clientHello['intent'] == 'clipboard') {
+          // A signed intent avoids waiting on an ordinary PING-only pairing.
+          // Every clipboard operation requires a separate local approval.
+          final request = await channel.receive().timeout(const Duration(seconds: 55));
+          final content = request['text'];
+          if (request['type'] != 'CLIPBOARD_PUT' || content is! String) {
+            throw const FormatException('Unexpected clipboard request');
+          }
+          final bytes = ClipboardPolicy.validate(content);
+          final consent = onClipboardConsent;
+          final write = onClipboardWrite;
+          if (consent == null || write == null ||
+              !await PairConsentPolicy.awaitApproval(() => consent(fingerprint, content))) {
+            await channel.send({'type': 'CLIPBOARD_DENIED'});
+            throw StateError('Android clipboard transfer denied');
+          }
+          _lifecycle.requireCurrent(ticket);
+          await write(content);
+          _lifecycle.requireCurrent(ticket);
+          await channel.send({'type': 'CLIPBOARD_OK', 'bytes': bytes});
+        }
       }
       // Trust is recorded ONLY after an authenticated round trip and while
       // this pairing generation is still active.
