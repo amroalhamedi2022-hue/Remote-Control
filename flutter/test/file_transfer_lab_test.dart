@@ -33,6 +33,76 @@ class _NodeReceiverFixture implements FileTransferChannel {
   }
 }
 
+
+class _IncomingFixture implements FileTransferChannel {
+  final List<Map<String, dynamic>> incoming;
+  final sent = <Map<String, dynamic>>[];
+  _IncomingFixture(this.incoming);
+  @override
+  Future<void> send(Map<String, dynamic> message) async { sent.add(message); }
+  @override
+  Future<Map<String, dynamic>> receive() async => incoming.removeAt(0);
+}
+
+class _StagingFixture implements LabReceiveStaging {
+  final bytes = <int>[];
+  bool published = false;
+  bool aborted = false;
+  bool rejectCommit = false;
+  @override
+  Future<void> write(List<int> data) async { bytes.addAll(data); }
+  @override
+  Future<void> commit({required String name, required int bytes,
+      required String sha256}) async {
+    if (rejectCommit) throw StateError('Disk full');
+    if (this.bytes.length != bytes) throw StateError('Incorrect staging size');
+    published = true;
+  }
+  @override
+  Future<void> abort() async { aborted = true; bytes.clear(); }
+}
+
+Future<void> _verifyReceive(
+  List<Map<String, dynamic>> frames, {
+  bool accept = true,
+  bool failCommit = false,
+  bool shouldSucceed = true,
+}) async {
+  final data = <int>[1, 2, 3, 4, 5];
+  final hash = '74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0';
+  final channel = _IncomingFixture(frames);
+  final staging = _StagingFixture()..rejectCommit = failCommit;
+  final offer = {
+    'type': 'FILE_OFFER', 'name': 'ملف.txt',
+    'bytes': data.length, 'sha256': hash,
+  };
+  var created = 0;
+  Future<LabReceiveStaging> create(LabIncomingOffer _) async {
+    created++;
+    return staging;
+  }
+  Future<FileSendResult?> receive() => receiveLabFile(channel, offer,
+    approve: (_) async => accept, createStaging: create);
+  if (!accept) {
+    expect(await receive(), isNull);
+    expect(created, 0);
+    expect(channel.sent.single['type'], 'FILE_DENIED');
+  } else if (shouldSucceed) {
+    final result = await receive();
+    expect(result?.bytes, 5);
+    expect(staging.bytes, data);
+    expect(staging.published, isTrue);
+    expect(staging.aborted, isFalse);
+    expect(channel.sent.map((e) => e['type']),
+      ['FILE_READY', 'FILE_ACK', 'FILE_OK']);
+  } else {
+    await expectLater(receive(), throwsA(isA<Exception>()));
+    expect(staging.published, isFalse);
+    expect(staging.aborted, isTrue);
+    expect(channel.sent.where((e) => e['type'] == 'FILE_OK'), isEmpty);
+  }
+}
+
 void main() {
   test('validates cross-platform filename safety before sending', () {
     for (final name in [
@@ -88,4 +158,61 @@ void main() {
       'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
     expect(channel.sent.map((m) => m['type']), ['FILE_OFFER','FILE_END']);
   });
+
+  test('Dart receiver commits only after Node-compatible SHA-256 final frame', () async {
+    const digest = '74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0';
+    await _verifyReceive([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1,2,3,4,5])},
+      {'type': 'FILE_END', 'bytes': 5, 'sha256': digest},
+    ]);
+  });
+
+  test('incoming transfer denial creates no destination', () async {
+    await _verifyReceive([], accept: false);
+  });
+
+  test('wrong incoming sequence aborts staged bytes', () async {
+    await _verifyReceive([
+      {'type': 'FILE_CHUNK', 'seq': 1, 'data': base64.encode([1,2,3,4,5])},
+    ], shouldSucceed: false);
+  });
+
+  test('incoming size overflow aborts before writing', () async {
+    await _verifyReceive([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1,2,3,4,5,6])},
+    ], shouldSucceed: false);
+  });
+
+  test('invalid incoming base64 aborts staging', () async {
+    await _verifyReceive([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': '!!!='},
+    ], shouldSucceed: false);
+  });
+
+  test('wrong final digest never publishes partial file', () async {
+    await _verifyReceive([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1,2,3,4,5])},
+      {'type': 'FILE_END', 'bytes': 5, 'sha256': '0' * 64},
+    ], shouldSucceed: false);
+  });
+
+  test('failed destination commit never acknowledges success', () async {
+    const digest = '74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0';
+    await _verifyReceive([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1,2,3,4,5])},
+      {'type': 'FILE_END', 'bytes': 5, 'sha256': digest},
+    ], failCommit: true, shouldSucceed: false);
+  });
+
+  test('malformed incoming offer is rejected before consent', () async {
+    final channel = _IncomingFixture([]);
+    var asked = false;
+    await expectLater(receiveLabFile(channel, {
+      'type':'FILE_OFFER','name':'CON.txt','bytes':2,'sha256':'0' * 64,
+    }, approve: (_) async { asked = true; return true; },
+       createStaging: (_) async => _StagingFixture()), throwsFormatException);
+    expect(asked, isFalse);
+    expect(channel.sent, isEmpty);
+  });
+
 }
