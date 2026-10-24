@@ -122,3 +122,43 @@ test('zero-length transfer emits a verified zero-byte completion event',()=>sand
   assert.deepEqual(sent,[{bytes:0,total:0,verified:true}]);
   assert.deepEqual(received,[{bytes:0,total:0,verified:true}]);
 }));
+
+
+test('sender cancellation interrupts a pending file approval without reporting success',()=>sandbox(async dir=>{
+  const input=path.join(dir,'cancel-send.bin');
+  await fs.writeFile(input,crypto.randomBytes(4096));
+  const [sender,receiver]=channels(),controller=new AbortController();
+  const sending=sendFileOnce(sender,input,{signal:controller.signal});
+  const offer=await receiver.receive();
+  assert.equal(offer.type,'FILE_OFFER');
+  controller.abort();
+  await assert.rejects(sending,{name:'AbortError',message:'File transfer cancelled'});
+}));
+
+test('receiver cancellation discards partial file while waiting for next chunk',()=>sandbox(async dir=>{
+  const dest=path.join(dir,'received');await fs.mkdir(dest);
+  const [sender,receiver]=channels(),controller=new AbortController();
+  const bytes=Buffer.from('partial payload');
+  const offer={type:'FILE_OFFER',name:'partial.txt',bytes:bytes.length,
+    sha256:crypto.createHash('sha256').update(bytes).digest('hex')};
+  const receiving=receiveFileOnce(receiver,offer,{directory:dest,approve:async()=>true,
+    signal:controller.signal});
+  assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+  sender.send({type:'FILE_CHUNK',seq:0,data:bytes.subarray(0,3).toString('base64')});
+  assert.deepEqual(await sender.receive(),{type:'FILE_ACK',seq:0});
+  controller.abort();
+  await assert.rejects(receiving,{name:'AbortError',message:'File transfer cancelled'});
+  assert.deepEqual(await fs.readdir(dest),[]);
+}));
+
+test('pre-cancelled receiver never asks for consent or writes a file',()=>sandbox(async dir=>{
+  const controller=new AbortController();controller.abort();
+  let asked=0;
+  await assert.rejects(receiveFileOnce(channels()[1],{
+    type:'FILE_OFFER',name:'ok.txt',bytes:0,sha256:crypto.createHash('sha256').update('').digest('hex')
+  },{directory:dir,approve:async()=>{asked++;return true;},signal:controller.signal}),{
+    name:'AbortError',message:'File transfer cancelled'
+  });
+  assert.equal(asked,0);
+  assert.deepEqual(await fs.readdir(dir),[]);
+}));
