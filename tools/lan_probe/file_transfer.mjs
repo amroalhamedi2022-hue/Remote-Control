@@ -1,6 +1,6 @@
 // Opt-in, one-shot file transfer over an already authenticated AES-GCM LAN channel.
 // This is a Node interoperability fixture, not Android SAF or a production audit.
-import fs, {constants} from 'node:fs';
+import {constants} from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -117,7 +117,12 @@ export async function receiveFileOnce(channel, offer, {approve,directory}) {
       const data=Buffer.from(packet.data,'base64');
       if(data.length===0||data.length>FILE_CHUNK_BYTES||count+data.length>offer.bytes)
         throw new Error('File transfer exceeds approved size');
-      await file.write(data,0,data.length,count);
+      let written=0;
+      while(written<data.length) {
+        const result=await file.write(data,written,data.length-written,count+written);
+        if(result.bytesWritten<=0)throw new Error('Destination write stalled');
+        written+=result.bytesWritten;
+      }
       h.update(data);count+=data.length;
       channel.send({type:'FILE_ACK',seq});
       seq++;
