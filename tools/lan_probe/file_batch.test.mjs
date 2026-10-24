@@ -86,6 +86,14 @@ test('sender rejects case-folded aliases before any network offer',()=>sandbox(a
   ]);
   assert.equal(offered,sentinel);
 }));
+test('sender refuses file/directory aliases before offering a folder',()=>sandbox(async root=>{
+  const src=path.join(root,'source');await fs.mkdir(src);
+  await fs.mkdir(path.join(src,'Media'));
+  await fs.writeFile(path.join(src,'media'),'collision');
+  if((await fs.readdir(src)).length!==2) return; // case-insensitive host
+  const [sender]=channels();
+  await assert.rejects(sendFolderOnce(sender,src),/Ambiguous case\/Unicode/);
+}));
 test('sender rejects source file replaced after folder approval',()=>sandbox(async root=>{
   const src=path.join(root,'source');await fs.mkdir(src);
   const original=path.join(src,'safe.txt');
