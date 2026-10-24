@@ -137,7 +137,12 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
   validateOffer(offer);
   if(typeof approve!=='function'||typeof directory!=='string')
     throw new Error('Explicit file receiver approval required');
-  const approved=await approve(offer);
+  // User consent may be asynchronous (a desktop dialog). Apply the same
+  // cancellation and idle deadline as encrypted frame reads so a dismissed or
+  // stuck dialog cannot keep a receiver session alive indefinitely.
+  const approved=await receiveWithCancel({
+    receive:()=>approve(offer), lines:channel.lines
+  },signal,idleTimeoutMs);
   checkCancelled(signal);
   if(approved!==true) {
     channel.send({type:'FILE_DENIED'});
