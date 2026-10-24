@@ -807,7 +807,7 @@ class _FileCard extends StatelessWidget {
               'Choose a file with the Android system picker',
               style:TextStyle(color:c.text,fontWeight:FontWeight.w600)),
             const SizedBox(height:10),
-            LinearProgressIndicator(value:total > 0 ? (sent/total).clamp(0.0,1.0) : null,
+            LinearProgressIndicator(value:total > 0 ? (sent/total).clamp(0.0,1.0).toDouble() : (active ? null : 0.0),
               minHeight:5),
             const SizedBox(height:8),
             Text('Maximum 64 MiB. Select a discovered Windows host running the Node lab with --listen --receive-file=<folder>. Verify six-digit pairing on both devices; the Windows receiver must type FILE to approve.',
