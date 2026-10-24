@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'dart:typed_data';
 import '../network/lan_discovery.dart';
 import '../security/pairing_lab.dart';
+import '../security/clipboard_peer_policy.dart';
 
 enum AppSection { devices, control, files, clipboard, multiDevice, settings }
 enum InputMode { touch, mouse, keyboard }
@@ -33,6 +33,15 @@ class PrototypeState extends ChangeNotifier {
     final matches = lan.peers.where((p) => p.id == selectedPeerId).toList();
     if (matches.length != 1) throw StateError('Select a discovered device first');
     return pairing.connect(matches.single.address, ask);
+  }
+
+  Future<void> sendClipboardSelected(AskForPairConsent ask) async {
+    final matches = lan.peers.where((p) => p.id == selectedPeerId).toList();
+    if (matches.length != 1) throw StateError('Select a discovered Android or Windows device first');
+    if (!ClipboardPeerPolicy.canSendTo(matches.single.platform)) {
+      throw StateError('Clipboard receiver must be Android or Windows');
+    }
+    await pairing.sendClipboard(matches.single.address, ask, clipboardText);
   }
 
   Uint8List? previewImage;

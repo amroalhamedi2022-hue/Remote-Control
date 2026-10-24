@@ -3,7 +3,7 @@
 import dgram from 'node:dgram';
 import net from 'node:net';
 import os from 'node:os';
-import { randomId, payload, parsePacket, parseEndpoint, UDP_PORT, TCP_PORT } from './protocol.mjs';
+import { randomId, payload, parsePacket, parseEndpoint, isLanIpv4, UDP_PORT, TCP_PORT } from './protocol.mjs';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -29,19 +29,25 @@ function udpBind(port) {
 async function serve() {
   const socket = await udpBind(udpPort);
   const server = net.createServer(conn => {
+    // The CLI fixture must not expose even its probe endpoint to public IPs.
+    // Accept a bounded complete line, not an arbitrary TCP packet boundary.
+    if (!isLanIpv4(conn.remoteAddress)) { conn.destroy(); return; }
     conn.setTimeout(3000, ()=>conn.destroy());
-    let handled=false;
+    let command='';
     conn.on('data', chunk=>{
-      if (handled || chunk.length > 64) { conn.destroy(); return; }
-      handled = true;
-      if (chunk.toString('utf8').trim() === 'PING') conn.end('PONG\n');
+      if (Buffer.byteLength(command, 'utf8') + chunk.length > 64) { conn.destroy(); return; }
+      command += chunk.toString('utf8');
+      if (!command.includes('\n')) return;
+      if (command === 'PING\n' || command === 'PING\r\n') conn.end('PONG\n');
       else conn.destroy();
     });
+    conn.on('error',()=>conn.destroy());
   });
   await new Promise((resolve,reject)=>server.once('error',reject).listen(tcpPort,'0.0.0.0',resolve));
   socket.setBroadcast(true);
   const send = (kind, ip, port)=>socket.send(payload(kind,node),port,ip);
   socket.on('message',(data,remote)=>{
+    if (!isLanIpv4(remote.address)) return;
     const peer=parsePacket(data);
     if (!peer || peer.id === node.id) return;
     if (peer.kind === 'DISCOVER') send('ANNOUNCE',remote.address,remote.port);

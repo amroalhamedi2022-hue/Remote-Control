@@ -1,6 +1,14 @@
 # Remote Control — Liquid Fusion v0.8 (Discoverable Windows Host Lab)
 
+**Public GitHub:** https://github.com/amroalhamedi2022-hue/Remote-Control
+
 Independent personal LAN remote-control project targeting **Xiaomi Pad 5 (Android/HyperOS), Android phone and Windows 11**. This source bundle is separate from NetKit. The locked design reference is `design/LIQUID_FUSION_MASTER_REFERENCE.png` (unchanged).
+
+## GitHub source and builds
+
+The complete v0.8 source and locked design were migrated to the public `Remote-Control` repository on 2026-10-23, by the owner's request. **Development and monitoring are done in this chat**, not handed off to Work or Codex.
+
+The v0.9 build reliability PR adds `scripts/verify_build_artifact.py`, negative/positive structure tests and JSON SHA-256 evidence for real Android/Windows build outputs. Check `docs/STATUS_BOARD.md` for stage gates: Node lab tests alone do not prove a functioning remote-control application.
 
 ## New in v0.8
 
@@ -53,8 +61,6 @@ Alternatively, on a Windows machine with Flutter + Android SDK installed, run `s
 
 Discovery is untrusted. The pairing mechanism is a custom *laboratory* implementation, and the Node sample stores private keys as local plaintext files; replace both with reviewed production-grade transport and platform secure storage before granting input, clipboard or file access. There is no Root/ADB daily use in the plan; Android unattended screen capture limitations remain unchanged. References: `docs/ARCHITECTURE_ADR_001.md`, `docs/H264_ENCRYPTED_LAB_v0.6.md`, `docs/WINDOWS_LIVE_VIEWER_v0.7.md`, `docs/LICENSE_LEDGER.md`.
 
-## Administration and GitHub execution (2026-10-23)
+## Administration and GitHub execution (updated 2026-10-23)
 
-**Updated user-approved model:** Work performs ONLY a one-time private GitHub repository creation/source import and confirms access; then STOPS. The original (normal) ChatGPT conversation performs all coding, source changes, tests, commits/PRs, Actions investigation, APK/Windows builds and project administration. See `docs/OPERATING_MODEL.md`, `docs/GITHUB_SETUP.md` and `WORK_START_PROMPT.md`.
-
-Earlier source experiment results do **not** constitute a working production remote-control app. The master UI image remains authoritative and unchanged.
+The owner's existing repository is **public** and the normal ChatGPT conversation now handles all GitHub development, commits, pull requests, CI investigation and milestone management. Any prior instructions to create a separate private repo or delegate coding to Work are superseded. See `docs/STATUS_BOARD.md` and `docs/ADMIN_RULES.md`.

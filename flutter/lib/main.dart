@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'models/app_state.dart';
 import 'ui/liquid_theme.dart';
 import 'security/pairing_lab.dart';
@@ -19,16 +21,33 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
   @override void initState() {
     super.initState();
     app.startLan();
+    app.pairing.onClipboardConsent = _confirmClipboard;
+    app.pairing.onClipboardWrite = (text) async {
+      await Clipboard.setData(ClipboardData(text: text));
+    };
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) app.startPairHost(_confirmPair);
     });
   }
   Future<bool> _confirmPair(PairChallenge challenge) async {
     if (!mounted || navigatorKey.currentContext == null) return false;
-    final answer = await showDialog<bool>(
-      context: navigatorKey.currentContext!,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
+    BuildContext? activeDialog;
+    Timer? consentTimer;
+    bool? answer;
+    try {
+      answer = await showDialog<bool>(
+        context: navigatorKey.currentContext!,
+        barrierDismissible: false,
+        builder: (context) {
+          activeDialog = context;
+          consentTimer ??= Timer(const Duration(seconds: 45), () {
+            final dialog = activeDialog;
+            if (dialog != null && dialog.mounted &&
+                (ModalRoute.of(dialog)?.isCurrent ?? false)) {
+              Navigator.of(dialog).pop(false);
+            }
+          });
+          return AlertDialog(
         title: const Text('Secure LAN pairing · experimental'),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Compare the six digits shown on BOTH devices before accepting.'),
@@ -41,17 +60,74 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
           const SizedBox(height: 6),
           SelectableText('Identity: ${challenge.fingerprint}', style: const TextStyle(fontSize: 11)),
           const SizedBox(height: 8),
-          const Text('Only an encrypted connectivity test will be allowed. No screen, input or file access.'),
+          const Text('Pairing grants no unattended access. Clipboard requires a separate local approval; screen, input and files are not granted.'),
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Reject')),
           FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Codes match · approve')),
         ],
-      ),
-    );
+          );
+        },
+      );
+    } finally {
+      consentTimer?.cancel();
+    }
     return answer == true;
   }
-  @override void dispose() { app.dispose(); super.dispose(); }
+  Future<bool> _confirmClipboard(String fingerprint, String text) async {
+    if (!mounted || navigatorKey.currentContext == null) return false;
+    BuildContext? activeDialog;
+    Timer? timer;
+    try {
+      return await showDialog<bool>(
+        context: navigatorKey.currentContext!,
+        barrierDismissible: false,
+        builder: (context) {
+          activeDialog = context;
+          timer ??= Timer(const Duration(seconds: 45), () {
+            final dialog = activeDialog;
+            if (dialog != null && dialog.mounted &&
+                (ModalRoute.of(dialog)?.isCurrent ?? false)) {
+              Navigator.of(dialog).pop(false);
+            }
+          });
+          return AlertDialog(
+            title: const Text('Receive clipboard text?'),
+            content: SizedBox(
+              width: 380,
+              child: Column(mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('A paired LAN device requests to REPLACE your Android clipboard once.'),
+                  const SizedBox(height: 8),
+                  SelectableText('Peer: ${fingerprint.substring(0, 20)}…',
+                    style: const TextStyle(fontSize: 11)),
+                  const SizedBox(height: 12),
+                  SizedBox(height: 150,
+                    child: SingleChildScrollView(child: SelectableText(text))),
+                  const SizedBox(height: 8),
+                  const Text('No background sync. Automatically denied after 45 seconds.',
+                    style: TextStyle(fontSize: 12)),
+                ]),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false),
+                child: const Text('Deny')),
+              FilledButton(onPressed: () => Navigator.pop(context, true),
+                child: const Text('Replace clipboard once')),
+            ],
+          );
+        },
+      ) == true;
+    } finally {
+      timer?.cancel();
+    }
+  }
+  @override void dispose() {
+    app.pairing.onClipboardConsent = null;
+    app.pairing.onClipboardWrite = null;
+    app.dispose();
+    super.dispose();
+  }
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: app,
@@ -250,7 +326,9 @@ class _Body extends StatelessWidget {
     return ListView(padding:EdgeInsets.fromLTRB(mobile?13:18,13,mobile?13:18,20),children:[
       Text(_sections[section]!.$1,style:TextStyle(fontWeight:FontWeight.bold,fontSize:17,color:c.text)),
       const SizedBox(height:4),Text(devicePage?'Discover and connect to your devices on the local network.':
-        'Liquid Fusion · ${_sections[section]!.$1} · UI demonstration only',
+        section==AppSection.clipboard
+          ? 'Opt-in Android → Android/Windows text transfer; receiver approves each request.'
+          : 'Liquid Fusion · ${_sections[section]!.$1} · UI demonstration only',
         style:TextStyle(fontSize:11,color:c.muted)),
       const SizedBox(height:7),Text('LIVE LAN DISCOVERY · REMOTE CONTROL NOT CONNECTED',
         style:TextStyle(fontSize:10,color:c.muted,fontWeight:FontWeight.w700)),
@@ -264,7 +342,7 @@ class _Body extends StatelessWidget {
       if(devicePage && !mobile)
         _SecondaryPanels(app:app,tablet:tablet,onDemo:onDemo),
       if(section==AppSection.files) _FileCard(onDemo:onDemo),
-      if(section==AppSection.clipboard) _ClipboardCard(app:app,onDemo:onDemo),
+      if(section==AppSection.clipboard) _ClipboardCard(app:app),
       if(section==AppSection.settings) _SettingsCard(app:app),
       if(section==AppSection.multiDevice)GlassPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
         Text('Multi-device control',style:TextStyle(fontSize:17,fontWeight:FontWeight.bold,color:c.text)),
@@ -342,21 +420,46 @@ class _Devices extends StatelessWidget {
 }
 Future<bool> _pairDialog(BuildContext context, PairChallenge challenge) async {
   if (!context.mounted) return false;
-  final approved = await showDialog<bool>(context: context, barrierDismissible: false,
-    builder: (ctx) => AlertDialog(title: const Text('Verify pairing code'),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Text('Compare the 6-digit code on BOTH devices. Do not approve if different.'),
-        const SizedBox(height: 12),
-        SelectableText(challenge.code, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold,letterSpacing: 5)),
-        Text(challenge.previouslyTrusted ? 'Previously trusted device' : 'New device identity'),
-        const SizedBox(height: 8),
-        SelectableText(challenge.fingerprint, style: const TextStyle(fontSize: 10)),
-      ]),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx,false),child: const Text('Reject')),
-        FilledButton(onPressed: () => Navigator.pop(ctx,true),child: const Text('Codes match')),
-      ]));
-  return approved == true;
+  BuildContext? activeDialog;
+  Timer? consentTimer;
+  try {
+    final approved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        activeDialog = ctx;
+        // PairConsentPolicy also expires the handshake, but its Future.timeout
+        // cannot dismiss a Flutter route by itself. Never leave a stale approval
+        // dialog visible after the underlying encrypted socket has timed out.
+        consentTimer ??= Timer(const Duration(seconds: 45), () {
+          final dialog = activeDialog;
+          if (dialog != null && dialog.mounted &&
+              (ModalRoute.of(dialog)?.isCurrent ?? false)) {
+            Navigator.of(dialog).pop(false);
+          }
+        });
+        return AlertDialog(
+          title: const Text('Verify pairing code'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Compare the 6-digit code on BOTH devices. Do not approve if different.'),
+            const SizedBox(height: 12),
+            SelectableText(challenge.code,
+              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 5)),
+            Text(challenge.previouslyTrusted ? 'Previously trusted device' : 'New device identity'),
+            const SizedBox(height: 8),
+            SelectableText(challenge.fingerprint, style: const TextStyle(fontSize: 10)),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Reject')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Codes match')),
+          ],
+        );
+      },
+    );
+    return approved == true;
+  } finally {
+    consentTimer?.cancel();
+  }
 }
 
 class _DeviceTile extends StatelessWidget {
@@ -414,18 +517,42 @@ void _showManualIpDialog(BuildContext context,PrototypeState app,ValueChanged<St
         final ip=controller.text.trim(); Navigator.pop(dialogContext);
         try {
           final result=await app.pairing.connect(ip, (challenge)=>_pairDialog(context, challenge));
-          if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:Text('Encrypted PING OK · ${result.fingerprint.substring(0,12)}… · no remote control granted')));
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:Text('Encrypted PING OK · ${result.fingerprint.substring(0,12)}… · no remote control granted')));
+          }
         }catch(e){
-          if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content:Text('Could not pair by IP: $e')));
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:Text('Could not pair by IP: $e')));
+          }
         }
       },child:const Text('Pair IP')),
       TextButton(onPressed:() async {
+        final ip=controller.text.trim(); Navigator.pop(dialogContext);
+        try {
+          await app.pairing.sendClipboard(ip,
+            (challenge)=>_pairDialog(context, challenge), app.clipboardText);
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content:Text('LAN receiver approved and wrote the clipboard text')));
+          }
+        } catch(e) {
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content:Text('Clipboard by IP failed: $e')));
+          }
+        }
+      },child:const Text('Send text IP')),
+      TextButton(onPressed:() async {
         final ip=controller.text.trim();Navigator.pop(dialogContext);
         try { await app.previewIp(ip, (challenge)=>_pairDialog(context,challenge)); }
-        catch(e) { if(context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content:Text('Preview ended: $e'))); }
+        catch(e) {
+          if(context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content:Text('Preview ended: $e')));
+          }
+        }
       },child:const Text('View IP (lab)'))],
   )).then((_)=>controller.dispose());
 }
@@ -585,13 +712,15 @@ class _SecondaryPanels extends StatelessWidget {
   final ValueChanged<String> onDemo;
   const _SecondaryPanels({required this.app,required this.tablet,required this.onDemo});
   @override Widget build(BuildContext context) {
-    if(tablet)return Column(children:[_ConnectionCard(app:app,onDemo:onDemo),const SizedBox(height:11),
-      Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:_FileCard(onDemo:onDemo)),
-        const SizedBox(width:11),Expanded(child:_ClipboardCard(app:app,onDemo:onDemo))])]);
+    if(tablet) {
+      return Column(children:[_ConnectionCard(app:app,onDemo:onDemo),const SizedBox(height:11),
+        Row(crossAxisAlignment:CrossAxisAlignment.start,children:[Expanded(child:_FileCard(onDemo:onDemo)),
+          const SizedBox(width:11),Expanded(child:_ClipboardCard(app:app))])]);
+    }
     return Row(crossAxisAlignment:CrossAxisAlignment.start,children:[
       Expanded(flex:12,child:_ConnectionCard(app:app,onDemo:onDemo)),const SizedBox(width:11),
       Expanded(flex:10,child:_FileCard(onDemo:onDemo)),const SizedBox(width:11),
-      Expanded(flex:10,child:_ClipboardCard(app:app,onDemo:onDemo)),
+      Expanded(flex:10,child:_ClipboardCard(app:app)),
     ]);
   }
 }
@@ -671,21 +800,37 @@ class _FileCard extends StatelessWidget {
 }
 class _ClipboardCard extends StatelessWidget {
   final PrototypeState app;
-  final ValueChanged<String> onDemo;
-  const _ClipboardCard({required this.app,required this.onDemo});
+  const _ClipboardCard({required this.app});
   @override Widget build(BuildContext context) {
     final c=LiquidColors(app.lightMode);
     return GlassPanel(child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-      const _PanelHeading(title:'Shared Clipboard',subtitle:'Local demo text — not synced',icon:Icons.content_paste_outlined),
+      const _PanelHeading(title:'Shared Clipboard',subtitle:'Android → Android/Windows · manual text · receiver approval required',icon:Icons.content_paste_outlined),
       Container(height:115,padding:const EdgeInsets.all(9),decoration:BoxDecoration(color:c.panel,borderRadius:BorderRadius.circular(10),border:Border.all(color:c.border)),
         child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-          const Text('Windows ↔ Android',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700,color:LiquidColors.aqua)),
+          const Text('Android ↔ Android / Windows',style:TextStyle(fontSize:11,fontWeight:FontWeight.w700,color:LiquidColors.aqua)),
           Expanded(child:TextFormField(initialValue:app.clipboardText,onChanged:app.setClipboardText,
             maxLines:2,style:TextStyle(fontSize:11,color:c.text),
             decoration:InputDecoration(contentPadding:const EdgeInsets.all(7),filled:true,fillColor:c.panelDark,
               border:const OutlineInputBorder(borderSide:BorderSide.none)))),
-        ])),const SizedBox(height:10),Align(alignment:Alignment.centerLeft,child:LiquidAction(label:'Preview clipboard',gradient:true,
-          onTap:()=>onDemo('Demo text saved in this UI only'))),
+        ])),const SizedBox(height:10),
+       Text('Select a discovered Android or Windows device, or use Devices → Add device by IP → Send text IP. Android receivers must have this app open and approve both dialogs. On Windows run the LAN agent with --listen --receive-clipboard and approve CLIP. Every transfer requires new consent.',
+         style:TextStyle(color:c.muted,fontSize:11)),
+       const SizedBox(height:10),
+       Align(alignment:Alignment.centerLeft,child:LiquidAction(label:'Send text to selected device',gradient:true,
+         onTap:() async {
+           try {
+             await app.sendClipboardSelected((challenge) => _pairDialog(context, challenge));
+             if (context.mounted) {
+               ScaffoldMessenger.of(context).showSnackBar(
+                 const SnackBar(content:Text('Receiver approved and wrote clipboard text')));
+             }
+           } catch (e) {
+             if (context.mounted) {
+               ScaffoldMessenger.of(context).showSnackBar(
+                 SnackBar(content:Text('Clipboard not transferred: $e')));
+             }
+           }
+         })),
     ]));
   }
 }
