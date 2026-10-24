@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
-import { pairSocket, generateIdentity, identityFingerprint } from './secure_pairing.mjs';
+import { pairSocket, generateIdentity, identityFingerprint, requireSignedIntent } from './secure_pairing.mjs';
 import { sendPreview, PreviewAssembler } from '../stream_lab/preview_stream.mjs';
 import { sendH264, H264Assembler } from '../video_lab/h264_transport.mjs';
 import { H264LiveViewer } from '../video_lab/h264_live_viewer.mjs';
@@ -144,7 +144,7 @@ async function interact(socket,role) {
       if(request?.type==='PING')channel.send({type:'PONG'});
       else throw new Error('Action prohibited: Only encrypted PING is allowed');
       if(opt('receive-file')) {
-        if(peerIntent!=='file') throw Error('Signed file-transfer intent required');
+        requireSignedIntent(peerIntent, 'file');
         const offer=await channel.receive();
         const received=await receiveFileOnce(channel,offer,{
           directory:opt('receive-file'),
@@ -159,6 +159,8 @@ async function interact(socket,role) {
         return;
       }
       if(flag('receive-clipboard')) {
+        // Trusted pairing alone never authorizes a privileged clipboard session.
+        requireSignedIntent(peerIntent, 'clipboard');
         const req = await channel.receive();
         const accepted = await acceptClipboardRequest(channel, req, {
           approve: async () => {
