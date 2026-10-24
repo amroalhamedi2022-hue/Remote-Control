@@ -129,3 +129,26 @@ test('sender bounds directory count before offering transfer',()=>sandbox(async 
   const [a]=channels();
   await assert.rejects(sendFolderOnce(a,src),/directory limits/);
 }));
+
+test('receiver rejects a file offer larger than approved folder byte budget before writing',()=>sandbox(async root=>{
+  const [sender,receiver]=channels();
+  const incoming=receiveFolderOnce(receiver,{
+    type:'FOLDER_BEGIN',folder:'photos',count:1,bytes:1
+  },{directory:root,approve:async()=>true,idleTimeoutMs:200});
+  assert.equal((await sender.receive()).type,'FOLDER_READY');
+  sender.send({type:'FOLDER_ENTRY',index:0,path:'oversized.txt'});
+  sender.send({type:'FILE_OFFER',name:'oversized.txt',bytes:2,sha256:'0'.repeat(64)});
+  await assert.rejects(incoming,/remaining byte budget/);
+  assert.deepEqual(await fs.readdir(root),[]);
+}));
+test('receiver rejects file/directory collisions even when casing differs',()=>sandbox(async root=>{
+  const [sender,receiver]=channels();
+  const incoming=receiveFolderOnce(receiver,{
+    type:'FOLDER_BEGIN',folder:'photos',count:1,bytes:1,directories:['Pictures','Pictures/Empty']
+  },{directory:root,approve:async()=>true,idleTimeoutMs:200});
+  assert.equal((await sender.receive()).type,'FOLDER_READY');
+  sender.send({type:'FOLDER_ENTRY',index:0,path:'pictures'});
+  await assert.rejects(incoming,/conflicts with a directory/);
+  assert.deepEqual(await fs.readdir(root),['Pictures']);
+  assert.deepEqual(await fs.readdir(path.join(root,'Pictures')),['Empty']);
+}));
