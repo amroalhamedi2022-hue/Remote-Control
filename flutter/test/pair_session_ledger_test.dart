@@ -44,6 +44,28 @@ void main() {
     expect(ledger.contains('c'), isFalse);
   });
 
+  test('fingerprint lookup expires and never treats an IP as identity', () {
+    var now = DateTime.utc(2026, 10, 24, 8);
+    final ledger = PairSessionLedger(
+      lifetime: const Duration(seconds: 30), clock: () => now);
+    ledger.remember('192.168.1.5', 'device-a');
+    expect(ledger.fingerprintFor('192.168.1.5'), 'device-a');
+    expect(ledger.fingerprintFor('192.168.1.6'), isNull);
+    // Re-pairing a reused DHCP address replaces the old identity.
+    ledger.remember('192.168.1.5', 'device-b');
+    expect(ledger.fingerprintFor('192.168.1.5'), 'device-b');
+    ledger.revokeFingerprint('device-a');
+    expect(ledger.fingerprintFor('192.168.1.5'), 'device-b');
+    ledger.revokeFingerprint('device-b');
+    expect(ledger.fingerprintFor('192.168.1.5'), isNull);
+    ledger.remember('192.168.1.5', 'device-c');
+    now = now.add(const Duration(seconds: 30));
+    expect(ledger.fingerprintFor('192.168.1.5'), isNull);
+    ledger.remember('192.168.1.5', 'device-c');
+    ledger.clear();
+    expect(ledger.fingerprintFor('192.168.1.5'), isNull);
+  });
+
   test('rejects invalid limits and empty identity', () {
     expect(() => PairSessionLedger(lifetime: Duration.zero), throwsArgumentError);
     expect(() => PairSessionLedger(maxEntries: 0), throwsArgumentError);
