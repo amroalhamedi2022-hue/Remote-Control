@@ -7,6 +7,7 @@ import {safeTransferName, sendFileOnce, receiveFileOnce, receiveWithCancel,
   MAX_FILE_BYTES, FILE_IDLE_TIMEOUT_MS} from './file_transfer.mjs';
 
 export const MAX_FOLDER_FILES = 64;
+export const MAX_FOLDER_DIRECTORIES = 64;
 export const MAX_FOLDER_BYTES = 256 * 1024 * 1024;
 export const MAX_FOLDER_DEPTH = 8;
 
@@ -29,12 +30,27 @@ function validBegin(msg) {
       !Number.isSafeInteger(msg.bytes) || msg.bytes < 0 || msg.bytes > MAX_FOLDER_BYTES)
     throw new Error('Invalid folder offer');
   safeTransferName(msg.folder);
+  // Older peers may omit the optional directory manifest. New peers preserve
+  // empty subfolders without granting any extra filesystem permissions.
+  const directories = msg.directories === undefined ? [] : msg.directories;
+  if (!Array.isArray(directories) || directories.length > MAX_FOLDER_DIRECTORIES)
+    throw new Error('Invalid folder directory manifest');
+  const seen = new Set();
+  return directories.map(relative => {
+    const parts = safeRelativeFile(relative);
+    if (parts.length > MAX_FOLDER_DEPTH) throw new Error('Folder nesting limit exceeded');
+    const canonical = parts.join('/').toLowerCase();
+    if (seen.has(canonical)) throw new Error('Duplicate folder directory');
+    seen.add(canonical);
+    return parts;
+  });
 }
 async function collectFolder(root) {
   const stat = await fs.lstat(root);
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('Source must be a real directory');
   const realRoot = await fs.realpath(root);
   const files = [];
+  const directories = [];
   let bytes = 0;
   async function visit(directory, parts) {
     const entries = (await fs.readdir(directory, {withFileTypes:true}))
@@ -49,6 +65,9 @@ async function collectFolder(root) {
       if (info.isSymbolicLink()) throw new Error('Folder symlinks are not transferable');
       if (info.isDirectory()) {
         if (childParts.length > MAX_FOLDER_DEPTH) throw new Error('Folder nesting limit exceeded');
+        if (directories.length >= MAX_FOLDER_DIRECTORIES)
+          throw new Error('Folder exceeds bounded directory limits');
+        directories.push(relative);
         await visit(full,childParts);
       } else if (info.isFile()) {
         if (info.size > MAX_FILE_BYTES || !Number.isSafeInteger(info.size))
@@ -61,7 +80,7 @@ async function collectFolder(root) {
     }
   }
   await visit(realRoot,[]);
-  return {folder:safeTransferName(path.basename(realRoot)),files,bytes};
+  return {folder:safeTransferName(path.basename(realRoot)),files,directories,bytes};
 }
 async function ensureSafeDirectory(root, components) {
   let current = root;
@@ -85,8 +104,8 @@ export async function sendFolderOnce(channel, folderPath,
     {signal, idleTimeoutMs=FILE_IDLE_TIMEOUT_MS, onProgress=()=>{}}={}) {
   validateLimit(idleTimeoutMs);
   if (signal?.aborted) throw Object.assign(new Error('Folder transfer cancelled'),{name:'AbortError'});
-  const {folder,files,bytes}=await collectFolder(folderPath);
-  channel.send({type:'FOLDER_BEGIN',folder,count:files.length,bytes});
+  const {folder,files,directories,bytes}=await collectFolder(folderPath);
+  channel.send({type:'FOLDER_BEGIN',folder,count:files.length,bytes,directories});
   const response=await receiveWithCancel(channel,signal,idleTimeoutMs);
   if (response?.type==='FOLDER_DENIED') throw new Error('Receiver denied folder transfer');
   if (response?.type!=='FOLDER_READY') throw new Error('Invalid folder approval');
@@ -108,7 +127,7 @@ export async function sendFolderOnce(channel, folderPath,
 export async function receiveFolderOnce(channel, begin,
     {directory,approve,signal,idleTimeoutMs=FILE_IDLE_TIMEOUT_MS,onProgress=()=>{}}={}) {
   validateLimit(idleTimeoutMs);
-  validBegin(begin);
+  const directories=validBegin(begin);
   if (typeof approve!=='function' || typeof directory!=='string')
     throw new Error('Explicit folder receiver approval required');
   const permitted=await receiveWithCancel({receive:()=>approve(begin),lines:channel.lines},
@@ -121,6 +140,9 @@ export async function receiveFolderOnce(channel, begin,
   if (!(await fs.lstat(root)).isDirectory()) throw new Error('Destination must be a directory');
   const seen=new Set();
   let total=0;
+  // All directory paths were validated before consent. Never create a folder
+  // on a denied request; verify each existing component is not a symlink.
+  for (const components of directories) await ensureSafeDirectory(root,components);
   channel.send({type:'FOLDER_READY'});
   for (let i=0;i<begin.count;i++) {
     const entry=await receiveWithCancel(channel,signal,idleTimeoutMs);
