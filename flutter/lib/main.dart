@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'models/app_state.dart';
 import 'ui/liquid_theme.dart';
 import 'security/pairing_lab.dart';
@@ -20,6 +21,10 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
   @override void initState() {
     super.initState();
     app.startLan();
+    app.pairing.onClipboardConsent = _confirmClipboard;
+    app.pairing.onClipboardWrite = (text) async {
+      await Clipboard.setData(ClipboardData(text: text));
+    };
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) app.startPairHost(_confirmPair);
     });
@@ -69,7 +74,60 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
     }
     return answer == true;
   }
-  @override void dispose() { app.dispose(); super.dispose(); }
+  Future<bool> _confirmClipboard(String fingerprint, String text) async {
+    if (!mounted || navigatorKey.currentContext == null) return false;
+    BuildContext? activeDialog;
+    Timer? timer;
+    try {
+      return await showDialog<bool>(
+        context: navigatorKey.currentContext!,
+        barrierDismissible: false,
+        builder: (context) {
+          activeDialog = context;
+          timer ??= Timer(const Duration(seconds: 45), () {
+            final dialog = activeDialog;
+            if (dialog != null && dialog.mounted &&
+                (ModalRoute.of(dialog)?.isCurrent ?? false)) {
+              Navigator.of(dialog).pop(false);
+            }
+          });
+          return AlertDialog(
+            title: const Text('Receive clipboard text?'),
+            content: SizedBox(
+              width: 380,
+              child: Column(mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('A paired LAN device requests to REPLACE your Android clipboard once.'),
+                  const SizedBox(height: 8),
+                  SelectableText('Peer: ${fingerprint.substring(0, 20)}…',
+                    style: const TextStyle(fontSize: 11)),
+                  const SizedBox(height: 12),
+                  SizedBox(height: 150,
+                    child: SingleChildScrollView(child: SelectableText(text))),
+                  const SizedBox(height: 8),
+                  const Text('No background sync. Automatically denied after 45 seconds.',
+                    style: TextStyle(fontSize: 12)),
+                ]),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false),
+                child: const Text('Deny')),
+              FilledButton(onPressed: () => Navigator.pop(context, true),
+                child: const Text('Replace clipboard once')),
+            ],
+          );
+        },
+      ) == true;
+    } finally {
+      timer?.cancel();
+    }
+  }
+  @override void dispose() {
+    app.pairing.onClipboardConsent = null;
+    app.pairing.onClipboardWrite = null;
+    app.dispose();
+    super.dispose();
+  }
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: app,
