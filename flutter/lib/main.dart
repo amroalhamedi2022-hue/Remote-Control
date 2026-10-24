@@ -360,21 +360,46 @@ class _Devices extends StatelessWidget {
 }
 Future<bool> _pairDialog(BuildContext context, PairChallenge challenge) async {
   if (!context.mounted) return false;
-  final approved = await showDialog<bool>(context: context, barrierDismissible: false,
-    builder: (ctx) => AlertDialog(title: const Text('Verify pairing code'),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Text('Compare the 6-digit code on BOTH devices. Do not approve if different.'),
-        const SizedBox(height: 12),
-        SelectableText(challenge.code, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold,letterSpacing: 5)),
-        Text(challenge.previouslyTrusted ? 'Previously trusted device' : 'New device identity'),
-        const SizedBox(height: 8),
-        SelectableText(challenge.fingerprint, style: const TextStyle(fontSize: 10)),
-      ]),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx,false),child: const Text('Reject')),
-        FilledButton(onPressed: () => Navigator.pop(ctx,true),child: const Text('Codes match')),
-      ]));
-  return approved == true;
+  BuildContext? activeDialog;
+  Timer? consentTimer;
+  try {
+    final approved = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        activeDialog = ctx;
+        // PairConsentPolicy also expires the handshake, but its Future.timeout
+        // cannot dismiss a Flutter route by itself. Never leave a stale approval
+        // dialog visible after the underlying encrypted socket has timed out.
+        consentTimer ??= Timer(const Duration(seconds: 45), () {
+          final dialog = activeDialog;
+          if (dialog != null && dialog.mounted &&
+              (ModalRoute.of(dialog)?.isCurrent ?? false)) {
+            Navigator.of(dialog).pop(false);
+          }
+        });
+        return AlertDialog(
+          title: const Text('Verify pairing code'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text('Compare the 6-digit code on BOTH devices. Do not approve if different.'),
+            const SizedBox(height: 12),
+            SelectableText(challenge.code,
+              style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 5)),
+            Text(challenge.previouslyTrusted ? 'Previously trusted device' : 'New device identity'),
+            const SizedBox(height: 8),
+            SelectableText(challenge.fingerprint, style: const TextStyle(fontSize: 10)),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Reject')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Codes match')),
+          ],
+        );
+      },
+    );
+    return approved == true;
+  } finally {
+    consentTimer?.cancel();
+  }
 }
 
 class _DeviceTile extends StatelessWidget {
