@@ -8,7 +8,8 @@ void main() {
   });
   test('invalid text and control characters are rejected', () {
     for (final bad in ['', '\u0000', 'x\u0007', 'x\uFFFD',
-      List.filled(2049, 'x').join(), '\uD800', '\uDC00', '\uD800x']) {
+      List.filled(2049, 'x').join(), '\uD800', '\uDC00', '\uD800x',
+      'invoice\u202Egpj.exe', 'hidden\u2066text', 'x\u200by', 'a\u061cb']) {
       expect(() => ClipboardPolicy.validate(bad), throwsFormatException);
     }
   });
