@@ -1,6 +1,7 @@
 // v0.5 experimental signed pairing and view-only MJPEG LAN preview.
 // All screen sharing requires an extra LOCAL host approval (SHARE on Node agent).
-// No remote input, files, clipboard or unattended access is authorized.
+// Clipboard is permitted only through an explicit, encrypted one-shot intent
+// with a separate local receiver approval. No input, files or unattended access.
 // The bespoke handshake MUST be replaced/audited before product release.
 import 'dart:async';
 import 'dart:collection';
@@ -199,7 +200,7 @@ class PairingLab {
     }
   }
 
-  /// User-entered text only; Windows host requires explicit CLIP consent.
+  /// User-entered text only; Android or Windows receiver requires one-shot consent.
   Future<void> sendClipboard(String ip, AskForPairConsent ask, String text) async {
     ClipboardPolicy.validate(text);
     final ticket = _lifecycle.ticket;
@@ -364,7 +365,7 @@ class PairingLab {
           await channel.send({'type':'CLIPBOARD_PUT', 'text':clipboardText});
           final reply = await channel.receive().timeout(const Duration(seconds: 55));
           if (reply['type'] != 'CLIPBOARD_OK' || reply['bytes'] != bytes) {
-            throw StateError('Windows host did not approve clipboard transfer');
+            throw StateError('Receiver denied or failed clipboard transfer');
           }
           _lifecycle.requireCurrent(ticket);
         }
