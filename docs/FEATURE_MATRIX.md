@@ -16,7 +16,7 @@
 | R12 | Multi-touch / gestures where permitted | P1 | Not implemented; Android API and Accessibility limitations |
 | R13 | Audio if permitted | P2 | Not implemented; playback capture permissions vary |
 | R14 | Shared Clipboard respecting Android privacy | P1 | UI mock only, no live sync |
-| R15 | File/folder transfer and drag/drop where feasible | P1 | UI mock only; add integrity, progress, cancellation, permission flows |
+| R15 | File/folder transfer and drag/drop where feasible | P1 | **PARTIAL:** Flutter Android→Windows one-shot picked-file sender with SHA-256/chunk ACK/receiver consent added in PR #1; Node lab supports file/folder receive, Flutter Android receiver/folder picker/drag-drop not implemented. CI and physical SAF→Windows acceptance pending. |
 | R16 | Keyboard shortcuts, volume/media | P1 | Not implemented; OS permission limitations |
 | R17 | Multiple simultaneous devices/sessions | P2 | UI prototype only |
 | R18 | Automatic reconnect to paired devices | P1 | Not verified; respect user consent / new MediaProjection grant |
