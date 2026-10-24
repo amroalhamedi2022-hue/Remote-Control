@@ -13,6 +13,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../network/lan_address_policy.dart';
 import 'pair_session_ledger.dart';
+import 'pair_consent_policy.dart';
 
 const pairingPort = 43829;
 const _protocol = 'liquidremote.pair.v1';
@@ -269,7 +270,8 @@ class PairingLab {
       final mac = await Hmac.sha256().calculateMac(transcriptHash, secretKey: SecretKey(sharedBytes));
       final codeInteger = ByteData.sublistView(Uint8List.fromList(mac.bytes)).getUint32(0) % 1000000;
       final code = codeInteger.toString().padLeft(6, '0');
-      final allow = await ask(PairChallenge(code, fingerprint, pinned == remotePublic));
+      final allow = await PairConsentPolicy.awaitApproval(
+        () => ask(PairChallenge(code, fingerprint, pinned == remotePublic)));
       if (!allow) throw StateError('Local user declined pairing');
       final channel = _SealedChannel(io, sharedBytes, transcriptHash, isClient: isClient);
       await channel.send({'type': 'CONFIRM'});
@@ -375,7 +377,7 @@ class _JsonLines {
         if (byte == 10) {
           String line;
           try { line = utf8.decode(_pending); }
-          catch (_) { socket.destroy(); return; }
+          catch (_) { socket.destroy(); _ended(); return; }
           _pending.clear();
           if (_waiter != null) { _waiter!.complete(line); _waiter = null; }
           else { _lines.add(line); if (_lines.length > 512) { socket.destroy(); _ended(); break; } }
@@ -392,8 +394,20 @@ class _JsonLines {
   }
   Future<Map<String, dynamic>> receive() async {
     if (_closed && _lines.isEmpty) throw StateError('Peer disconnected');
-    final text = _lines.isNotEmpty ? _lines.removeFirst() :
-      await (() { final c = Completer<String>(); _waiter = c; return c.future; })().timeout(_timeout);
+    String text;
+    if (_lines.isNotEmpty) {
+      text = _lines.removeFirst();
+    } else {
+      if (_waiter != null) throw StateError('Concurrent frame receives');
+      final waiting = Completer<String>();
+      _waiter = waiting;
+      try {
+        text = await waiting.future.timeout(_timeout);
+      } finally {
+        // A timed-out waiter must never consume a future peer message.
+        if (identical(_waiter, waiting)) _waiter = null;
+      }
+    }
     final x = jsonDecode(text);
     if (x is! Map<String, dynamic>) throw const FormatException('Invalid network frame');
     return x;
