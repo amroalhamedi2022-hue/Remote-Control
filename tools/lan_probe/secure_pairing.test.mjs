@@ -21,7 +21,7 @@ async function fixture(clientOpts={},serverOpts={}) {
   const clientSocket=net.createConnection({port,host:'127.0.0.1'});
   const clientSide=pairSocket(clientSocket,{role:'client',identity:clientIdentity,trustStore:clientTrust,
     onCode:clientOpts.approve??(async()=>true),debugHooks:clientOpts.debugHooks,
-    consentTimeoutMs:clientOpts.consentTimeoutMs});
+    consentTimeoutMs:clientOpts.consentTimeoutMs,intent:clientOpts.intent});
   clientSide.catch(()=>{});
   while(!serverSide)await new Promise(resolve=>setImmediate(resolve));
   return {clientSide,serverSide,clientSocket,listener,clientTrust,serverTrust,
@@ -164,4 +164,29 @@ test('non-object encrypted outbound payload poisons the session before transmiss
   assert.throws(()=>client.channel.send(['not','a','message']),/Encrypted payload must be an object/);
   assert.throws(()=>client.channel.send({type:'PING'}),/Encrypted session closed/);
   await assert.rejects(server.channel.receive());
+});
+
+test('one-shot clipboard intent is authenticated and visible only to receiver', async t => {
+  const f=await fixture({intent:'clipboard'});
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  const [client,server]=await Promise.all([f.clientSide,f.serverSide]);
+  assert.equal(server.peerIntent,'clipboard');
+  assert.equal(client.peerIntent,null);
+  client.channel.send({type:'CLIPBOARD_PUT',text:'مرحبا 🫧'});
+  assert.deepEqual(await server.channel.receive(),{type:'CLIPBOARD_PUT',text:'مرحبا 🫧'});
+  server.channel.send({type:'CLIPBOARD_OK',bytes:Buffer.byteLength('مرحبا 🫧')});
+  assert.equal((await client.channel.receive()).type,'CLIPBOARD_OK');
+});
+
+test('ordinary pairing does not request clipboard privileges', async t => {
+  const f=await fixture();
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  const [,server]=await Promise.all([f.clientSide,f.serverSide]);
+  assert.equal(server.peerIntent,null);
+});
+
+test('unsupported client intent is rejected before a network connection', async () => {
+  const socket=new net.Socket();
+  await assert.rejects(pairSocket(socket,{role:'client',identity:generateIdentity(),
+    onCode:async()=>true,intent:'remote-input'}),/Unsupported client session intent/);
 });
