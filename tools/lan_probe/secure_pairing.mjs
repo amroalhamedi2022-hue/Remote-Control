@@ -28,7 +28,7 @@ function privateIdentity(identity) {
   return key;
 }
 function validateHello(h, kind) {
-  if (h?.intent !== undefined && (kind !== 'CLIENT_HELLO' || h.intent !== 'clipboard'))
+  if (h?.intent !== undefined && (kind !== 'CLIENT_HELLO' || !['clipboard', 'file'].includes(h.intent)))
     throw new Error('Unsupported signed session intent');
   if (!h || typeof h !== 'object' || Array.isArray(h) || h.v !== PAIR_PROTOCOL || h.type !== kind ||
       !safeB64(h.identity) || !safeB64(h.ephemeral) || !safeB64(h.nonce) || !safeB64(h.sig))
@@ -165,7 +165,7 @@ export class SecureEnvelope {
  */
 export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map(),debugHooks={},consentTimeoutMs=MAX_TIMEOUT_MS,intent=null}) {
   if(!['client','server'].includes(role))throw new Error('Invalid role');
-  if (intent !== null && (role !== 'client' || intent !== 'clipboard'))
+  if (intent !== null && (role !== 'client' || !['clipboard', 'file'].includes(intent)))
     throw new Error('Unsupported client session intent');
   if(typeof onCode!=='function')throw new Error('Local consent callback required');
   if(!Number.isSafeInteger(consentTimeoutMs) || consentTimeoutMs < 1 || consentTimeoutMs > MAX_TIMEOUT_MS)
