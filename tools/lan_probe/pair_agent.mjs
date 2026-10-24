@@ -16,7 +16,7 @@ import { isLanIpv4 } from './protocol.mjs';
 import { askWithDeadline } from './consent_prompt.mjs';
 import { acceptClipboardRequest, writeWindowsClipboard, clipboardByteLength } from './clipboard_transfer.mjs';
 import { sendFileOnce, receiveFileOnce } from './file_transfer.mjs';
-import { sendFolderOnce, receiveFolderOnce } from './file_batch.mjs';
+import { sendFolderOnce, receiveFolderOnce, cleanupStaleFolderTransfers } from './file_batch.mjs';
 
 const options=process.argv.slice(2);
 const flag = name => options.includes(`--${name}`);
@@ -281,6 +281,14 @@ if(flag('send-clipboard') && (flag('view-screen') || flag('view-h264') || flag('
 }
 if(flag('receive-clipboard') && (flag('share-screen') || flag('share-h264'))) {
   throw new Error('Clipboard and screen sharing require separate host sessions');
+}
+// A fresh listener owns this destination exclusively (one session at a time).
+// Reclaim only verifiably old, marked staging directories BEFORE opening the
+// listener; never run the cleaner concurrently with a live receive.
+if (flag('listen') && opt('receive-folder')) {
+  const recovered=await cleanupStaleFolderTransfers(opt('receive-folder'));
+  console.log('FOLDER_STAGING_RECOVERY',
+    'removed='+recovered.removed,'skipped='+recovered.skipped);
 }
 if(flag('listen')) {
   const server=net.createServer();
