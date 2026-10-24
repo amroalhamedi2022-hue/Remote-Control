@@ -128,9 +128,10 @@ class PairingLab {
 
   Future<void> startListening(AskForPairConsent ask) async {
     if (_server != null) return;
+    final ticket = _lifecycle.ticket;
     try {
       await _init();
-      final ticket = _lifecycle.ticket;
+      _lifecycle.requireCurrent(ticket);
       final server = await ServerSocket.bind(InternetAddress.anyIPv4, pairingPort);
       if (!_lifecycle.isCurrent(ticket)) {
         await server.close();
@@ -165,14 +166,15 @@ class PairingLab {
   }
 
   Future<PairResult> connect(String ip, AskForPairConsent ask) async {
+    final ticket = _lifecycle.ticket;
     await _init();
+    _lifecycle.requireCurrent(ticket);
     if (_busy) throw StateError('Already pairing another device');
     final parsed = InternetAddress.tryParse(ip);
     if (!isLocalLanIpv4(parsed)) {
       throw const FormatException('Enter a valid LAN IPv4 address');
     }
     _busy = true;
-    final ticket = _lifecycle.ticket;
     Socket? socket;
     try {
       socket = await Socket.connect(ip, pairingPort, timeout: const Duration(seconds: 4));
@@ -193,7 +195,9 @@ class PairingLab {
   /// a manually approved Node Windows host started with --share-screen.
   Future<void> preview(String ip, AskForPairConsent ask,
       void Function(Uint8List frame) onFrame) async {
+    final ticket = _lifecycle.ticket;
     await _init();
+    _lifecycle.requireCurrent(ticket);
     if (_busy || _previewSocket != null) throw StateError('Pairing or preview already active');
     final parsed = InternetAddress.tryParse(ip);
     if (!isLocalLanIpv4(parsed)) {
@@ -201,7 +205,6 @@ class PairingLab {
     }
     _busy = true;
     _previewCancelled = false;
-    final ticket = _lifecycle.ticket;
     Socket? socket;
     try {
       socket = await Socket.connect(ip, pairingPort, timeout: const Duration(seconds: 4));
