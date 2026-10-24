@@ -50,7 +50,7 @@ void main() {
     final file = XFile.fromData(bytes, name:'ملف.bin');
     final channel = _NodeReceiverFixture();
     final updates = <(int,int,bool)>[];
-    final result = await sendLabFile(channel, file,
+    final result = await sendLabFile(channel, file, selectedName:'ملف.bin',
       onProgress:(sent,total,verified) => updates.add((sent,total,verified)));
     expect(result.bytes, 8000);
     expect(result.sha256, hasLength(64));
@@ -68,21 +68,21 @@ void main() {
   test('receiver refusal never emits file bytes', () async {
     final channel = _NodeReceiverFixture(deny:true);
     final file = XFile.fromData(Uint8List.fromList([1,2,3]),name:'x.bin');
-    await expectLater(sendLabFile(channel,file), throwsStateError);
+    await expectLater(sendLabFile(channel,file,selectedName:'x.bin'), throwsStateError);
     expect(channel.sent.map((m) => m['type']), ['FILE_OFFER']);
   });
 
   test('incorrect chunk ACK fails closed before sending completion', () async {
     final channel = _NodeReceiverFixture(wrongAck:true);
     final file = XFile.fromData(Uint8List.fromList([1,2,3]),name:'x.bin');
-    await expectLater(sendLabFile(channel,file), throwsStateError);
+    await expectLater(sendLabFile(channel,file,selectedName:'x.bin'), throwsStateError);
     expect(channel.sent.map((m) => m['type']), ['FILE_OFFER','FILE_CHUNK']);
   });
 
   test('empty file still receives a SHA-256 verified completion', () async {
     final channel = _NodeReceiverFixture();
     final file = XFile.fromData(Uint8List(0),name:'empty.txt');
-    final result = await sendLabFile(channel,file);
+    final result = await sendLabFile(channel,file,selectedName:'empty.txt');
     expect(result.bytes,0);
     expect(result.sha256,
       'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
