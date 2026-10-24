@@ -14,6 +14,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:file_selector/file_selector.dart';
 import 'file_transfer_lab.dart';
+import 'desktop_file_staging.dart';
 import '../network/lan_address_policy.dart';
 import 'pair_session_ledger.dart';
 import 'pair_consent_policy.dart';
@@ -96,6 +97,11 @@ class PairingLab {
   // clipboard writes, background sync, or clipboard reads.
   Future<bool> Function(String fingerprint, String text)? onClipboardConsent;
   Future<void> Function(String text)? onClipboardWrite;
+  // Windows desktop only: the local user must explicitly approve each file
+  // and select the destination folder. Android SAF is NOT wired yet.
+  Future<Directory?> Function(String fingerprint, LabIncomingOffer offer)?
+      onFileReceiveRequest;
+  void Function(FileSendResult result)? onFileReceiveCompleted;
   bool get listening => _server != null;
   bool isPairedInThisSession(String address) {
     final fingerprint = _sessionAddresses.fingerprintFor(address);
@@ -466,6 +472,34 @@ class PairingLab {
           await write(content);
           _lifecycle.requireCurrent(ticket);
           await channel.send({'type': 'CLIPBOARD_OK', 'bytes': bytes});
+        }
+        if (clientHello['intent'] == 'file') {
+          // FILE_OFFER is accepted only inside this signed, SAS-approved,
+          // encrypted session. No default directory and no unattended writes.
+          final offer = await channel.receive().timeout(fileResponseTimeout);
+          Directory? chosen;
+          final received = await receiveLabFile(channel, offer,
+            approve: (request) async {
+              _lifecycle.requireCurrent(ticket);
+              final select = onFileReceiveRequest;
+              if (!Platform.isWindows || select == null) return false;
+              chosen = await select(fingerprint, request);
+              _lifecycle.requireCurrent(ticket);
+              return chosen != null;
+            },
+            createStaging: (request) {
+              _lifecycle.requireCurrent(ticket);
+              final directory = chosen;
+              if (directory == null) throw StateError('No approved file destination');
+              return DesktopLabReceiveStaging.create(directory, request);
+            },
+            onProgress: (bytes, total, verified) {
+              _lifecycle.requireCurrent(ticket);
+            },
+          );
+          if (received == null) throw StateError('Incoming file was denied');
+          _lifecycle.requireCurrent(ticket);
+          onFileReceiveCompleted?.call(received);
         }
       }
       // Trust is recorded ONLY after an authenticated round trip and while
