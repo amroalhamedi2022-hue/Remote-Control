@@ -61,9 +61,10 @@ class PrototypeState extends ChangeNotifier {
       throw StateError('Android file receiver is not implemented yet');
     }
     if (fileTransferActive) throw StateError('File transfer already active');
+    final selectedSize = await file.length();
     fileTransferActive = true;
     fileTransferredBytes = 0;
-    fileTotalBytes = await file.length();
+    fileTotalBytes = selectedSize;
     fileTransferVerified = false;
     notifyListeners();
     try {
