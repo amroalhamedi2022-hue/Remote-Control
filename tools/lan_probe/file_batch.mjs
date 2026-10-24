@@ -1,7 +1,9 @@
 // Bounded, opt-in nested folder transfer over an already paired AES-GCM channel.
 // Node interoperability fixture only: NOT Android SAF or production-grade directory isolation.
-// Per-file SHA-256 is verified by file_transfer.mjs; completed files are not rolled back.
+// Per-file SHA-256 is verified by file_transfer.mjs. A whole batch is staged
+// privately and published only after its manifest and every file verify.
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import {safeTransferName, sendFileOnce, receiveFileOnce, receiveWithCancel,
   MAX_FILE_BYTES, FILE_IDLE_TIMEOUT_MS} from './file_transfer.mjs';
@@ -141,6 +143,13 @@ export async function receiveFolderOnce(channel, begin,
   }
   const root=await fs.realpath(directory);
   if (!(await fs.lstat(root)).isDirectory()) throw new Error('Destination must be a directory');
+  // Never place partial files in the user-selected directory. Keep all batch
+  // writes in a private sibling and publish only after FOLDER_END validates.
+  // A crash can leave a hidden staging directory; startup cleanup is still
+  // required before treating this Node fixture as production-ready.
+  const staging=await fs.mkdtemp(path.join(root,'.liquidremote-batch-'));
+  let published=false;
+  try {
   const seen=new Set();
   const fileParents=new Set();
   const reservedDirectories=new Set();
@@ -151,7 +160,7 @@ export async function receiveFolderOnce(channel, begin,
   let total=0;
   // All directory paths were validated before consent. Never create a folder
   // on a denied request; verify each existing component is not a symlink.
-  for (const components of directories) await ensureSafeDirectory(root,components);
+  for (const components of directories) await ensureSafeDirectory(staging,components);
   channel.send({type:'FOLDER_READY'});
   for (let i=0;i<begin.count;i++) {
     const entry=await receiveWithCancel(channel,signal,idleTimeoutMs);
@@ -168,7 +177,7 @@ export async function receiveFolderOnce(channel, begin,
       fileParents.add(parent);
     }
     seen.add(canonical);
-    const target=await ensureSafeDirectory(root,parts.slice(0,-1));
+    const target=await ensureSafeDirectory(staging,parts.slice(0,-1));
     const offer=await receiveWithCancel(channel,signal,idleTimeoutMs);
     if (offer?.name!==parts.at(-1)) throw new Error('Folder entry filename mismatch');
     // Reject a forged offer before writing any bytes. The sender must stay
@@ -188,6 +197,16 @@ export async function receiveFolderOnce(channel, begin,
   if (end?.type!=='FOLDER_END'||end.count!==begin.count||
       end.bytes!==total||total!==begin.bytes)
     throw new Error('Folder transfer size mismatch');
+  // A UUID destination avoids replacing an existing directory, including an
+  // empty one on POSIX where rename() can otherwise silently overwrite it.
+  // The original folder label remains visible. No destination overwrite is
+  // attempted, and a collision is rejected instead of retried unsafely.
+  const destinationName=`${begin.folder} (received ${crypto.randomUUID()})`;
+  await fs.rename(staging,path.join(root,destinationName));
+  published=true;
   channel.send({type:'FOLDER_OK',count:begin.count,bytes:total});
   return {count:begin.count,bytes:total};
+  } finally {
+    if (!published) await fs.rm(staging,{recursive:true,force:true});
+  }
 }
