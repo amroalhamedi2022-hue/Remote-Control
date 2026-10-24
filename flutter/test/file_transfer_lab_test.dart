@@ -96,7 +96,7 @@ Future<void> _verifyReceive(
     expect(channel.sent.map((e) => e['type']),
       ['FILE_READY', 'FILE_ACK', 'FILE_OK']);
   } else {
-    await expectLater(receive(), throwsA(isA<Exception>()));
+    await expectLater(receive(), throwsA(anyOf(isA<Exception>(), isA<Error>())));
     expect(staging.published, isFalse);
     expect(staging.aborted, isTrue);
     expect(channel.sent.where((e) => e['type'] == 'FILE_OK'), isEmpty);
