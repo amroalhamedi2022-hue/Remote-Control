@@ -326,6 +326,8 @@ class PairingLab {
           _lifecycle.requireCurrent(ticket);
           _trust[fingerprint] = remotePublic;
           await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
+          // Stop may have invalidated the session while secure storage awaited.
+          _lifecycle.requireCurrent(ticket);
           _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
           onChange?.call();
           await channel.send({'type':'STREAM_START', 'mode':'view-only'});
@@ -345,6 +347,7 @@ class PairingLab {
       _lifecycle.requireCurrent(ticket);
       _trust[fingerprint] = remotePublic;
       await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
+      _lifecycle.requireCurrent(ticket);
       _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
       onChange?.call();
       return PairResult(fingerprint, pinned == remotePublic, socket.remoteAddress.address);
