@@ -162,3 +162,36 @@ test('pre-cancelled receiver never asks for consent or writes a file',()=>sandbo
   assert.equal(asked,0);
   assert.deepEqual(await fs.readdir(dir),[]);
 }));
+
+
+test('sender times out when peer never approves the encrypted file offer',()=>sandbox(async dir=>{
+  const source=path.join(dir,'idle-send.txt');await fs.writeFile(source,'test');
+  const [sender,receiver]=channels();
+  const pending=sendFileOnce(sender,source,{idleTimeoutMs:25});
+  assert.equal((await receiver.receive()).type,'FILE_OFFER');
+  await assert.rejects(pending,{name:'TimeoutError',message:'File transfer timed out waiting for peer'});
+}));
+
+test('receiver times out on a stalled sender and removes the partial file',()=>sandbox(async dir=>{
+  const destination=path.join(dir,'received');await fs.mkdir(destination);
+  const payload=Buffer.from('abcde');
+  const offer={type:'FILE_OFFER',name:'idle.txt',bytes:payload.length,
+    sha256:crypto.createHash('sha256').update(payload).digest('hex')};
+  const [sender,receiver]=channels();
+  const pending=receiveFileOnce(receiver,offer,{
+    directory:destination,approve:async()=>true,idleTimeoutMs:25
+  });
+  assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+  sender.send({type:'FILE_CHUNK',seq:0,data:payload.subarray(0,2).toString('base64')});
+  assert.deepEqual(await sender.receive(),{type:'FILE_ACK',seq:0});
+  await assert.rejects(pending,{name:'TimeoutError',message:'File transfer timed out waiting for peer'});
+  assert.deepEqual(await fs.readdir(destination),[]);
+}));
+
+test('reject invalid idle timeout before sending or requesting consent',async()=>{
+  const [sender,receiver]=channels();
+  await assert.rejects(sendFileOnce(sender,'unused',{idleTimeoutMs:0}),/Invalid file transfer idle timeout/);
+  await assert.rejects(receiveFileOnce(receiver,{type:'FILE_OFFER'},{
+    directory:'unused',approve:async()=>true,idleTimeoutMs:120001
+  }),/Invalid file transfer idle timeout/);
+});
