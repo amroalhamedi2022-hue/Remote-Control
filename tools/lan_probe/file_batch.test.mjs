@@ -5,6 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import {sendFileOnce} from './file_transfer.mjs';
 import {safeRelativeFile,sendFolderOnce,receiveFolderOnce,
+  cleanupStaleFolderTransfers,STAGING_RECOVERY_MIN_AGE_MS,
   MAX_FOLDER_FILES,MAX_FOLDER_BYTES,MAX_FOLDER_DIRECTORIES} from './file_batch.mjs';
 function channels() {
   function endpoint() {
@@ -191,4 +192,57 @@ test('folder receive never overwrites existing folder of same name',()=>sandbox(
   const published=names.find(name=>name.startsWith('src (received '));
   assert.ok(published);
   assert.equal(await fs.readFile(path.join(dest,published,'file.txt'),'utf8'),'new');
+}));
+
+// Crash-recovery gate: only explicitly marked, stale, private staging folders
+// may be removed. Real received folders and unrelated data must be untouched.
+test('startup recovery reclaims old interrupted folder batches only',()=>sandbox(async root=>{
+  const now=Date.now();
+  const old=now-STAGING_RECOVERY_MIN_AGE_MS-120000;
+  async function stage(id,{createdAt=old,mark=true,age=old}={}) {
+    const dir=path.join(root,'.liquidremote-batch-'+id);
+    await fs.mkdir(path.join(dir,'payload'),{recursive:true});
+    await fs.writeFile(path.join(dir,'payload','partial.bin'),'not yet verified');
+    if (mark) {
+      const marker=path.join(dir,'.liquidremote-batch-recovery.json');
+      await fs.writeFile(marker,JSON.stringify({version:1,id,createdAt}));
+      await fs.utimes(marker,new Date(age),new Date(age));
+    }
+    await fs.utimes(dir,new Date(age),new Date(age));
+    return dir;
+  }
+  const orphan=await stage('orphanA1234');
+  const active=await stage('activeB1234',{createdAt:now,age:now});
+  const unmarked=await stage('unmarkedC1234',{mark:false});
+  const forged=await stage('forgedD1234');
+  await fs.writeFile(path.join(forged,'.liquidremote-batch-recovery.json'),
+    JSON.stringify({version:1,id:'wrong-id',createdAt:old}));
+  await fs.utimes(forged,new Date(old),new Date(old));
+  const published=path.join(root,'photos (received existing)');
+  await fs.mkdir(published);
+  await fs.writeFile(path.join(published,'verified.txt'),'keep');
+  const outside=path.join(root,'outside');
+  await fs.mkdir(outside);
+  await fs.writeFile(path.join(outside,'keep.txt'),'outside');
+  const link=path.join(root,'.liquidremote-batch-linkE1234');
+  await fs.symlink(outside,link,'dir');
+  const result=await cleanupStaleFolderTransfers(root,{now});
+  assert.equal(result.removed,1);
+  assert.equal(result.inspected,5);
+  assert.equal(result.skipped,4);
+  await assert.rejects(fs.lstat(orphan),{code:'ENOENT'});
+  for(const dir of [active,unmarked,forged,published,outside,link])
+    assert.ok(await fs.lstat(dir));
+  assert.equal(await fs.readFile(path.join(outside,'keep.txt'),'utf8'),'outside');
+  assert.equal(await fs.readFile(path.join(published,'verified.txt'),'utf8'),'keep');
+  assert.equal((await cleanupStaleFolderTransfers(root,{now})).removed,0);
+}));
+test('startup recovery refuses unsafe thresholds and oversized candidate scans',()=>sandbox(async root=>{
+  const candidate=path.join(root,'.liquidremote-batch-notours123');
+  await fs.mkdir(candidate);
+  await assert.rejects(cleanupStaleFolderTransfers(root,{minAgeMs:0}),/Invalid folder recovery options/);
+  await assert.rejects(cleanupStaleFolderTransfers(root,{maxCandidates:0}),/Invalid folder recovery options/);
+  await fs.mkdir(path.join(root,'.liquidremote-batch-another123'));
+  await assert.rejects(cleanupStaleFolderTransfers(root,{maxCandidates:1}),/scan limit/);
+  assert.ok(await fs.lstat(candidate));
 }));
