@@ -55,7 +55,7 @@ async function approve({sas,fingerprint,known}) {
   console.log(`SAS: ${sas}    Peer identity: ${fingerprint.slice(0,20)}…`);
   console.log(known?'Previously trusted identity':'NEW, UNTRUSTED identity');
   const answer=await askWithDeadline(rl.question.bind(rl),
-    'Only if the 6-digit codes match on both devices, type YES (45s): ');
+    'Only if the 6-digit codes match on both devices, type YES: (45s) ');
   return answer === 'YES';
 }
 async function interact(socket,role) {
@@ -133,7 +133,7 @@ async function interact(socket,role) {
           }
           console.log(`\nH.264 VIEW-ONLY request from ${fingerprint.slice(0,20)}... (${req.seconds}s)`);
           const consent=await askWithDeadline(rl.question.bind(rl),
-            'To share THIS session only, type H264 (45s): ');
+            'To share THIS session only, type H264: (45s) ');
           if(consent!=='H264') {
             channel.send({type:'H264_DENIED'});
             throw Error('Host denied H.264 screen sharing');
@@ -149,7 +149,7 @@ async function interact(socket,role) {
           throw new Error('Only an explicit view-only preview request is allowed');
         console.log(`\nVIEW-ONLY screen request from ${fingerprint.slice(0,20)}...`);
         const answer=await askWithDeadline(rl.question.bind(rl),
-          'To allow your screen to be shared THIS SESSION, type SHARE (45s): ');
+          'To allow your screen to be shared THIS SESSION, type SHARE: (45s) ');
         if(answer!=='SHARE'){
           channel.send({type:'STREAM_DENIED'});
           throw Error('Host denied screen access');
