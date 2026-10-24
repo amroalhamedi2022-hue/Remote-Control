@@ -28,8 +28,8 @@ String validateLabFileName(String name) {
       name.endsWith('.') || name.endsWith(' ') ||
       RegExp(r'[\\/<>:"|?*\x00-\x1f\x7f-\x9f\uFFFD]').hasMatch(name) ||
       RegExp(r'[\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]').hasMatch(name) ||
-      RegExp(r'^\\.(liquidremote|netkit)-', caseSensitive: false).hasMatch(name) ||
-      RegExp(r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\.|$)',
+      RegExp(r'^\.(liquidremote|netkit)-', caseSensitive: false).hasMatch(name) ||
+      RegExp(r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)',
           caseSensitive: false).hasMatch(name)) {
     throw const FormatException('Unsafe selected filename');
   }
