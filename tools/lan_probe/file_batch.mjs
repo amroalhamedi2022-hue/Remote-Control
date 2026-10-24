@@ -120,6 +120,10 @@ async function collectFolder(root) {
   const realRoot = await fs.realpath(root);
   const files = [];
   const directories = [];
+  const canonicalEntries = new Set();
+  const identities = new Map();
+  const rootInfo = await fs.lstat(realRoot);
+  identities.set(realRoot, rootInfo);
   let bytes = 0;
   async function visit(directory, parts) {
     const entries = (await fs.readdir(directory, {withFileTypes:true}))
@@ -132,6 +136,13 @@ async function collectFolder(root) {
       const full = path.join(directory,entry.name);
       const info = await fs.lstat(full);
       if (info.isSymbolicLink()) throw new Error('Folder symlinks are not transferable');
+      // A sender must reject aliases BEFORE asking a receiver to approve the
+      // batch. Otherwise Windows/macOS can collapse two distinct POSIX paths.
+      const canonical = canonicalRelative(childParts);
+      if (canonicalEntries.has(canonical))
+        throw new Error('Ambiguous case/Unicode source folder path');
+      canonicalEntries.add(canonical);
+      identities.set(full, info);
       if (info.isDirectory()) {
         if (childParts.length > MAX_FOLDER_DEPTH) throw new Error('Folder nesting limit exceeded');
         if (directories.length >= MAX_FOLDER_DIRECTORIES)
@@ -149,7 +160,39 @@ async function collectFolder(root) {
     }
   }
   await visit(realRoot,[]);
-  return {folder:safeTransferName(path.basename(realRoot)),files,directories,bytes};
+  return {folder:safeTransferName(path.basename(realRoot)),files,directories,bytes,
+    realRoot,identities};
+}
+
+/**
+ * Detect changed source entries and symlink/junction swaps before opening a
+ * file. The transfer itself still re-hashes bytes using O_NOFOLLOW. This is
+ * a portable best-effort defense; a fully race-free guarantee needs native
+ * directory-handle/openat support and remains a production acceptance gate.
+ */
+async function verifySourceEntry(root, identities, full) {
+  const relative = path.relative(root,full);
+  if (relative.startsWith('..') || path.isAbsolute(relative) || !relative)
+    throw new Error('Source path escaped selected folder');
+  let current = root;
+  const parts = relative.split(path.sep);
+  for (let i=-1;i<parts.length;i++) {
+    if (i>=0) current=path.join(current,parts[i]);
+    const before=identities.get(current);
+    if (!before) throw new Error('Unrecorded source path');
+    const after=await fs.lstat(current);
+    if (after.isSymbolicLink() || before.dev!==after.dev ||
+        before.ino!==after.ino || before.mode!==after.mode ||
+        before.size!==after.size || before.mtimeMs!==after.mtimeMs ||
+        before.ctimeMs!==after.ctimeMs)
+      throw new Error('Source changed after folder approval');
+    if (i<parts.length-1) {
+      if (!after.isDirectory() || await fs.realpath(current)!==current)
+        throw new Error('Source directory changed or redirected');
+    } else if (!after.isFile()) {
+      throw new Error('Source file is no longer regular');
+    }
+  }
 }
 async function ensureSafeDirectory(root, components) {
   let current = root;
@@ -173,7 +216,7 @@ export async function sendFolderOnce(channel, folderPath,
     {signal, idleTimeoutMs=FILE_IDLE_TIMEOUT_MS, onProgress=()=>{}}={}) {
   validateLimit(idleTimeoutMs);
   if (signal?.aborted) throw Object.assign(new Error('Folder transfer cancelled'),{name:'AbortError'});
-  const {folder,files,directories,bytes}=await collectFolder(folderPath);
+  const {folder,files,directories,bytes,realRoot,identities}=await collectFolder(folderPath);
   channel.send({type:'FOLDER_BEGIN',folder,count:files.length,bytes,directories});
   const response=await receiveWithCancel(channel,signal,idleTimeoutMs);
   if (response?.type==='FOLDER_DENIED') throw new Error('Receiver denied folder transfer');
@@ -181,6 +224,7 @@ export async function sendFolderOnce(channel, folderPath,
   let transferred=0;
   for (const [index,file] of files.entries()) {
     if (signal?.aborted) throw Object.assign(new Error('Folder transfer cancelled'),{name:'AbortError'});
+    await verifySourceEntry(realRoot,identities,file.full);
     channel.send({type:'FOLDER_ENTRY',path:file.relative,index});
     const result=await sendFileOnce(channel,file.full,{signal,idleTimeoutMs});
     if (result.bytes!==file.bytes) throw new Error('Folder source size changed');
