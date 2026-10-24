@@ -12,14 +12,16 @@ async function fixture(clientOpts={},serverOpts={}) {
   let serverSide;
   const listener=net.createServer(socket=>{
     serverSide=pairSocket(socket,{role:'server',identity:serverIdentity,trustStore:serverTrust,
-      onCode:serverOpts.approve??(async()=>true),debugHooks:serverOpts.debugHooks});
+      onCode:serverOpts.approve??(async()=>true),debugHooks:serverOpts.debugHooks,
+      consentTimeoutMs:serverOpts.consentTimeoutMs});
     serverSide.catch(()=>{});
   });
   await new Promise(resolve=>listener.listen(0,'127.0.0.1',resolve));
   const port=listener.address().port;
   const clientSocket=net.createConnection({port,host:'127.0.0.1'});
   const clientSide=pairSocket(clientSocket,{role:'client',identity:clientIdentity,trustStore:clientTrust,
-    onCode:clientOpts.approve??(async()=>true),debugHooks:clientOpts.debugHooks});
+    onCode:clientOpts.approve??(async()=>true),debugHooks:clientOpts.debugHooks,
+    consentTimeoutMs:clientOpts.consentTimeoutMs});
   clientSide.catch(()=>{});
   while(!serverSide)await new Promise(resolve=>setImmediate(resolve));
   return {clientSide,serverSide,clientSocket,listener,clientTrust,serverTrust,
@@ -47,6 +49,17 @@ test('a user rejection prevents trust creation and an encrypted session',async t
   const out=await Promise.allSettled([f.clientSide,f.serverSide]);
   assert.ok(out.every(r=>r.status==='rejected'));
   assert.equal(f.clientTrust.size,0);assert.equal(f.serverTrust.size,0);
+});
+
+test('stalled local consent times out without trusting or opening a channel',async t=>{
+  const f=await fixture({approve:()=>new Promise(()=>{}),consentTimeoutMs:40},
+    {approve:async()=>true});
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  await assert.rejects(f.clientSide,/Pairing consent timed out/);
+  await assert.rejects(f.serverSide);
+  assert.equal(f.clientTrust.size,0);
+  assert.equal(f.serverTrust.size,0);
+  assert.equal(f.clientSocket.destroyed,true);
 });
 
 test('tampered server identity signature is rejected before trust',async t=>{
