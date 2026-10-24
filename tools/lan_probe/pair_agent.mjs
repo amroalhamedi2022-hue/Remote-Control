@@ -13,6 +13,7 @@ import { sendH264, H264Assembler } from '../video_lab/h264_transport.mjs';
 import { H264LiveViewer } from '../video_lab/h264_live_viewer.mjs';
 import { startHostPresence } from './host_presence.mjs';
 import { isLanIpv4 } from './protocol.mjs';
+import { askWithDeadline } from './consent_prompt.mjs';
 
 const options=process.argv.slice(2);
 const flag = name => options.includes(`--${name}`);
@@ -53,7 +54,8 @@ async function approve({sas,fingerprint,known}) {
   console.log('\nPairing verification — compare on BOTH devices');
   console.log(`SAS: ${sas}    Peer identity: ${fingerprint.slice(0,20)}…`);
   console.log(known?'Previously trusted identity':'NEW, UNTRUSTED identity');
-  const answer=(await rl.question('Only if the 6-digit codes match on both devices, type YES: ')).trim();
+  const answer=await askWithDeadline(rl.question.bind(rl),
+    'Only if the 6-digit codes match on both devices, type YES (45s): ');
   return answer === 'YES';
 }
 async function interact(socket,role) {
@@ -130,7 +132,8 @@ async function interact(socket,role) {
             throw Error('H.264 view-only access denied by host policy');
           }
           console.log(`\nH.264 VIEW-ONLY request from ${fingerprint.slice(0,20)}... (${req.seconds}s)`);
-          const consent=(await rl.question('To share THIS session only, type H264: ')).trim();
+          const consent=await askWithDeadline(rl.question.bind(rl),
+            'To share THIS session only, type H264 (45s): ');
           if(consent!=='H264') {
             channel.send({type:'H264_DENIED'});
             throw Error('Host denied H.264 screen sharing');
@@ -145,7 +148,8 @@ async function interact(socket,role) {
         if(!flag('share-screen')||req?.type!=='STREAM_START'||req?.mode!=='view-only')
           throw new Error('Only an explicit view-only preview request is allowed');
         console.log(`\nVIEW-ONLY screen request from ${fingerprint.slice(0,20)}...`);
-        const answer=(await rl.question('To allow your screen to be shared THIS SESSION, type SHARE: ')).trim();
+        const answer=await askWithDeadline(rl.question.bind(rl),
+          'To allow your screen to be shared THIS SESSION, type SHARE (45s): ');
         if(answer!=='SHARE'){
           channel.send({type:'STREAM_DENIED'});
           throw Error('Host denied screen access');
