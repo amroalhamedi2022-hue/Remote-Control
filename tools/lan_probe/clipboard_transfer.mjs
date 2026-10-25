@@ -16,40 +16,102 @@ export function clipboardByteLength(value) {
   return bytes;
 }
 
-export async function acceptClipboardRequest(channel, request, {approve, writeClipboard}) {
+function clipboardAbortError() {
+  const error = new Error('Clipboard session revoked or cancelled');
+  error.name = 'AbortError';
+  return error;
+}
+
+function requireActiveClipboardSession(isSessionActive, signal) {
+  if (signal?.aborted || !isSessionActive()) throw clipboardAbortError();
+}
+
+// Consent can be a pending native dialog; expiry/abort must not allow a late
+// YES to write the clipboard. Promise.race observes late rejections safely.
+async function awaitClipboardConsent(approve, signal, timeoutMs) {
+  let timer;
+  let onAbort;
+  try {
+    const deadlines = [
+      Promise.resolve().then(approve),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Clipboard consent timed out')), timeoutMs);
+      }),
+    ];
+    if (signal) deadlines.push(new Promise((_, reject) => {
+      onAbort = () => reject(clipboardAbortError());
+      signal.addEventListener('abort', onAbort, {once: true});
+      if (signal.aborted) onAbort();
+    }));
+    return await Promise.race(deadlines);
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+export async function acceptClipboardRequest(channel, request,
+    {approve, writeClipboard, isSessionActive = () => true, signal,
+      consentTimeoutMs = 45_000} = {}) {
   if (request?.type !== 'CLIPBOARD_PUT' || typeof approve !== 'function' ||
-      typeof writeClipboard !== 'function') throw new Error('Clipboard action not permitted');
+      typeof writeClipboard !== 'function' || typeof isSessionActive !== 'function' ||
+      !Number.isSafeInteger(consentTimeoutMs) || consentTimeoutMs < 1 ||
+      consentTimeoutMs > 120_000) throw new Error('Clipboard action not permitted');
   const bytes = clipboardByteLength(request.text);
-  if (await approve() !== true) {
+  requireActiveClipboardSession(isSessionActive, signal);
+  let approved;
+  try {
+    approved = await awaitClipboardConsent(approve, signal, consentTimeoutMs);
+  } catch (error) {
+    // A timed-out local prompt can still deny a live peer. A revoked channel
+    // must never receive an acknowledgement, even a denial.
+    if (!signal?.aborted && isSessionActive()) {
+      try { channel.send({type:'CLIPBOARD_DENIED'}); } catch { /* peer gone */ }
+    }
+    throw error;
+  }
+  requireActiveClipboardSession(isSessionActive, signal);
+  if (approved !== true) {
     channel.send({type:'CLIPBOARD_DENIED'});
     return false;
   }
-  await writeClipboard(request.text);
+  // A backend may finish an OS write after cancellation. This final check
+  // prevents a false success ACK, but cannot undo an already committed write.
+  await writeClipboard(request.text, {signal});
+  requireActiveClipboardSession(isSessionActive, signal);
   channel.send({type:'CLIPBOARD_OK', bytes});
   return true;
 }
 
 // Windows only: fixed PowerShell command; user text enters via STDIN, never
 // as an executable argument or shell interpolation. No clipboard reads.
-export async function writeWindowsClipboard(text) {
+export async function writeWindowsClipboard(text, {signal} = {}) {
   clipboardByteLength(text);
   if (process.platform !== 'win32') throw new Error('Windows clipboard host required');
+  if (signal?.aborted) throw clipboardAbortError();
   await new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
       '[Console]::InputEncoding = [System.Text.Encoding]::UTF8; Set-Clipboard -Value ([Console]::In.ReadToEnd())'],
       {stdio:['pipe','ignore','pipe'], windowsHide:true});
     let settled = false;
-    const timeout = setTimeout(() => {child.kill(); finish(new Error('Clipboard operation timed out'));}, 10_000);
+    const onAbort = () => {child.kill(); finish(clipboardAbortError());};
+    const timeout = setTimeout(() => {
+      child.kill();
+      finish(new Error('Clipboard operation timed out'));
+    }, 10_000);
     function finish(error) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
       if (error) reject(error); else resolve();
     }
     child.on('error', finish);
     child.stderr.resume(); // Never log clipboard content or PowerShell output.
     child.on('close', code => finish(code === 0 ? null : new Error('Clipboard write failed')));
     child.stdin.on('error', () => {}); // child may exit before stdin drains
+    signal?.addEventListener('abort', onAbort, {once: true});
+    if (signal?.aborted) {onAbort(); return;}
     child.stdin.end(text, 'utf8');
   });
 }
