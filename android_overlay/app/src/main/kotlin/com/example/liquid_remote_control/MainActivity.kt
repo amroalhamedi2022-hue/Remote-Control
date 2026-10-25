@@ -22,6 +22,29 @@ class MainActivity : FlutterActivity() {
     private var picker: MethodChannel.Result? = null
     private var approvedTree: Uri? = null
     private val pickerRequest = 42019
+    // The receiver is one-shot: never stage multiple uncommitted 64 MiB files.
+    private val minFreeCacheReserve = 8L * 1024 * 1024
+
+    private fun validFileName(name: String): Boolean {
+        if (name.isEmpty() || name.length > 180 || name == "." || name == ".." ||
+            name.endsWith(".") || name.endsWith(" ") ||
+            name.startsWith(".liquidremote-", ignoreCase = true) ||
+            name.startsWith(".netkit-", ignoreCase = true) ||
+            Regex("^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(\\.|$)",
+                RegexOption.IGNORE_CASE).containsMatchIn(name)) return false
+        if (name.any { it == '/' || it == '\\' || it == ':' ||
+            it == '<' || it == '>' || it == '"' || it == '|' ||
+            it == '?' || it == '*' }) return false
+        // Reject invisible/bidi/supplementary tags, consistent with Dart's
+        // validated FILE_OFFER names and Windows-safe filesystem policy.
+        return !name.codePoints().anyMatch { cp ->
+            cp < 32 || cp in 0x7f..0x9f || cp == 0xfffd ||
+            cp == 0x00ad || cp == 0x034f || cp == 0x061c || cp == 0x180e ||
+            cp in 0x200b..0x200f || cp in 0x2028..0x202e ||
+            cp in 0x2060..0x206f || cp == 0xfeff ||
+            cp in 0xfff9..0xfffb || cp in 0xe0000..0xe007f
+        }
+    }
     private data class Stage(
         val file: File, val stream: FileOutputStream, val tree: Uri,
         val name: String, val size: Long, val digest: String, var written: Long = 0
@@ -120,13 +143,13 @@ class MainActivity : FlutterActivity() {
 
     private fun begin(tree: Uri, name: String, bytes: Long, digest: String): String {
         require(tree.scheme == "content" && DocumentsContract.isTreeUri(tree))
-        require(name.isNotEmpty() && name.length <= 180 && name != "." && name != ".." &&
-            !name.endsWith(".") && !name.endsWith(" ") &&
-            name.none { it.code < 32 || it == '/' || it == '\\' || it == ':' ||
-                it == '<' || it == '>' || it == '"' || it == '|' ||
-                it == '?' || it == '*' })
+        require(validFileName(name)) { "Unsafe incoming filename" }
         require(bytes in 0..(64L * 1024 * 1024))
         require(Regex("^[0-9a-f]{64}$").matches(digest))
+        require(sessions.isEmpty()) { "Another incoming file is already staged" }
+        require(cacheDir.usableSpace >= bytes + minFreeCacheReserve) {
+            "Insufficient private cache space for verified incoming file"
+        }
         val file = File.createTempFile("liquidremote-inbound-", ".part", cacheDir)
         try {
             val id = UUID.randomUUID().toString()
