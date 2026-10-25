@@ -455,3 +455,34 @@ test('trust revoke during Windows hard-link publication rolls back final file',(
     assert.deepEqual(await fs.readdir(dest),[]);
   } finally {fs.link=originalLink;}
 }));
+
+
+test('trust revocation interrupts pending file consent without waiting for idle timeout',()=>sandbox(async dir=>{
+  const [sender,receiver]=channels();
+  let active=true, consentStarted;
+  const started=new Promise(resolve=>{consentStarted=resolve;});
+  const offer={type:'FILE_OFFER',name:'consent.txt',bytes:0,
+    sha256:crypto.createHash('sha256').update('').digest('hex')};
+  const pending=receiveFileOnce(receiver,offer,{directory:dir,idleTimeoutMs:5000,
+    isSessionActive:()=>active,approve:async()=>{consentStarted();return new Promise(()=>{});}});
+  await started;
+  active=false;
+  await assert.rejects(pending,{name:'AbortError',message:'File transfer cancelled'});
+  assert.deepEqual(await fs.readdir(dir),[]);
+}));
+
+test('trust revocation interrupts idle file receiver and deletes staged bytes',()=>sandbox(async dir=>{
+  const [sender,receiver]=channels();
+  let active=true;
+  const payload=Buffer.from('pending data');
+  const offer={type:'FILE_OFFER',name:'pending.bin',bytes:payload.length,
+    sha256:crypto.createHash('sha256').update(payload).digest('hex')};
+  const pending=receiveFileOnce(receiver,offer,{directory:dir,idleTimeoutMs:5000,
+    isSessionActive:()=>active,approve:async()=>true});
+  assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+  sender.send({type:'FILE_CHUNK',seq:0,data:payload.subarray(0,3).toString('base64')});
+  assert.deepEqual(await sender.receive(),{type:'FILE_ACK',seq:0});
+  active=false;
+  await assert.rejects(pending,{name:'AbortError',message:'File transfer cancelled'});
+  assert.deepEqual(await fs.readdir(dir),[]);
+}));
