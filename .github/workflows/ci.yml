@@ -104,6 +104,20 @@ jobs:
           cache: true
       - name: Bootstrap Flutter with versioned native Android SAF overlay
         run: bash ./scripts/bootstrap_flutter.sh
+      - name: Regress native SAF filename, Unicode and staging quota policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v kotlinc >/dev/null 2>&1; then
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/kotlinc.zip" \
+              https://github.com/JetBrains/kotlin/releases/download/v2.2.21/kotlin-compiler-2.2.21.zip
+            unzip -q "$RUNNER_TEMP/kotlinc.zip" -d "$RUNNER_TEMP"
+            export PATH="$RUNNER_TEMP/kotlinc/bin:$PATH"
+          fi
+          kotlinc \
+            android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/SafReceivePolicy.kt \
+            qa/SafReceivePolicyTest.kt -include-runtime -d "$RUNNER_TEMP/saf-policy.jar"
+          java -jar "$RUNNER_TEMP/saf-policy.jar"
       - name: Compile real Android debug APK with Kotlin SAF bridge
         working-directory: app
         run: flutter build apk --debug
