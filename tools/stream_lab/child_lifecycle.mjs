@@ -16,13 +16,15 @@ export function createChildLifecycle(child, {graceMs = 500} = {}) {
   function requestStop() {
     if (terminationRequested) return;
     terminationRequested = true;
-    try { child.kill(); } catch { /* cleanup rechecks the actual process state */ }
+    // Arm escalation before sending the first signal so even a synchronous close
+    // event (for injected/test children) cannot leave an unnecessary timer behind.
     forceKillTimer = setTimeout(() => {
       if (child.exitCode === null && child.signalCode === null) {
         try { child.kill('SIGKILL'); } catch { /* cleanup also makes a final attempt */ }
       }
     }, graceMs);
     forceKillTimer.unref?.();
+    try { child.kill(); } catch { /* cleanup rechecks the actual process state */ }
   }
 
   function cleanup() {
