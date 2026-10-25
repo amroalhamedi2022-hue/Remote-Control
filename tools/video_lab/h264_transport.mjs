@@ -117,9 +117,17 @@ export async function sendH264(channel, socket, options = {}) {
   child.stderr.on('data', b => {stderr = (stderr + b.toString()).slice(-1200);});
   const hash = crypto.createHash('sha256');
   let pending = Buffer.alloc(0);
-  channel.send({type: 'H264_BEGIN', codec: 'h264', container: 'mpegts', maxBytes: MAX_TS_BYTES,
-    fps: profile.fps, width: profile.width, encoder: profile.encoder});
+  let trustRevoked = false;
+  // A quiet FFmpeg stdout must not postpone revocation until the next frame.
+  const trustWatch = setInterval(() => {
+    let active = false;
+    try { active = isSessionActive(); } catch { /* fail closed */ }
+    if (!active) { trustRevoked = true; if (!child.killed) child.kill(); }
+  }, 100);
+  trustWatch.unref?.();
   try {
+    channel.send({type: 'H264_BEGIN', codec: 'h264', container: 'mpegts', maxBytes: MAX_TS_BYTES,
+      fps: profile.fps, width: profile.width, encoder: profile.encoder});
     for await (const bytes of child.stdout) {
       if (socket.destroyed) throw new Error('Viewer disconnected');
       if (!isSessionActive()) throw new Error('H.264 screen trust revoked during capture');
@@ -143,7 +151,7 @@ export async function sendH264(channel, socket, options = {}) {
         }
       }
     }
-    if (!isSessionActive()) throw new Error('H.264 screen trust revoked before completion');
+    if (trustRevoked || !isSessionActive()) throw new Error('H.264 screen trust revoked while capture was idle');
     if (pending.length) throw new Error('Truncated MPEG-TS packet');
     status = await ended;
     if (status !== 0 || !size) throw new Error(`FFmpeg failed (${status}): ${stderr}`);
@@ -151,6 +159,7 @@ export async function sendH264(channel, socket, options = {}) {
     channel.send({type: 'H264_END', bytes: size, sha256});
     return {bytes: size, sha256, fps: profile.fps, width: profile.width, encoder: profile.encoder};
   } finally {
+    clearInterval(trustWatch);
     if (child.exitCode === null && !child.killed) child.kill();
     // Observe child errors / exits even if receiving client disconnects early.
     try {await Promise.race([ended, new Promise(resolve => setTimeout(resolve, 1500))]);} catch { /* reported above */ }
