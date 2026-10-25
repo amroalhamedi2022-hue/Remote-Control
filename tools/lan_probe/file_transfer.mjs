@@ -160,6 +160,10 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
     while(true) {
       const packet=await receiveWithCancel(channel,signal,idleTimeoutMs);
       checkCancelled(signal);
+      // Dart sends FILE_CANCEL after FILE_READY when its source disappears,
+      // the user cancels, or a chunk ACK is rejected. Never publish a partial.
+      if(packet?.type==='FILE_CANCEL')
+        throw cancellationError();
       if(packet?.type==='FILE_END') {
         const digest=hex(h);
         if(count!==offer.bytes||packet.bytes!==count||packet.sha256!==digest||
