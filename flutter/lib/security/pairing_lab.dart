@@ -15,6 +15,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:file_selector/file_selector.dart';
 import 'file_transfer_lab.dart';
 import 'desktop_file_staging.dart';
+import 'android_saf_staging.dart';
 import '../network/lan_address_policy.dart';
 import 'pair_session_ledger.dart';
 import 'pair_consent_policy.dart';
@@ -97,10 +98,11 @@ class PairingLab {
   // clipboard writes, background sync, or clipboard reads.
   Future<bool> Function(String fingerprint, String text)? onClipboardConsent;
   Future<void> Function(String text)? onClipboardWrite;
-  // Windows desktop only: the local user must explicitly approve each file
-  // and select the destination folder. Android SAF is NOT wired yet.
+  // Both platforms require separate per-file consent and local folder selection.
   Future<Directory?> Function(String fingerprint, LabIncomingOffer offer)?
       onFileReceiveRequest;
+  Future<String?> Function(String fingerprint, LabIncomingOffer offer)?
+      onAndroidFileReceiveRequest;
   void Function(FileSendResult result)? onFileReceiveCompleted;
   bool get listening => _server != null;
   bool isPairedInThisSession(String address) {
@@ -478,17 +480,33 @@ class PairingLab {
           // encrypted session. No default directory and no unattended writes.
           final offer = await channel.receive().timeout(fileResponseTimeout);
           Directory? chosen;
+          String? chosenSafTree;
           final received = await receiveLabFile(channel, offer,
             approve: (request) async {
               _lifecycle.requireCurrent(ticket);
-              final select = onFileReceiveRequest;
-              if (!Platform.isWindows || select == null) return false;
-              chosen = await select(fingerprint, request);
-              _lifecycle.requireCurrent(ticket);
-              return chosen != null;
+              if (Platform.isWindows) {
+                final select = onFileReceiveRequest;
+                if (select == null) return false;
+                chosen = await select(fingerprint, request);
+                _lifecycle.requireCurrent(ticket);
+                return chosen != null;
+              }
+              if (Platform.isAndroid) {
+                final select = onAndroidFileReceiveRequest;
+                if (select == null) return false;
+                chosenSafTree = await select(fingerprint, request);
+                _lifecycle.requireCurrent(ticket);
+                return chosenSafTree != null;
+              }
+              return false;
             },
             createStaging: (request) {
               _lifecycle.requireCurrent(ticket);
+              if (Platform.isAndroid) {
+                final tree = chosenSafTree;
+                if (tree == null) throw StateError('No approved SAF destination');
+                return AndroidSafLabReceiveStaging.create(tree, request);
+              }
               final directory = chosen;
               if (directory == null) throw StateError('No approved file destination');
               return DesktopLabReceiveStaging.create(directory, request);
