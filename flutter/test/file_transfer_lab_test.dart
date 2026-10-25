@@ -9,8 +9,10 @@ import 'package:liquid_remote_control/security/file_transfer_lab.dart';
 class _NodeReceiverFixture implements FileTransferChannel {
   final bool deny;
   final bool wrongAck;
+  final void Function()? onAck;
   final List<Map<String, dynamic>> sent = [];
-  _NodeReceiverFixture({this.deny = false, this.wrongAck = false});
+  _NodeReceiverFixture({this.deny = false, this.wrongAck = false,
+    this.onAck});
 
   @override
   Future<void> send(Map<String, dynamic> message) async {
@@ -24,6 +26,7 @@ class _NodeReceiverFixture implements FileTransferChannel {
       case 'FILE_OFFER':
         return {'type': deny ? 'FILE_DENIED' : 'FILE_READY'};
       case 'FILE_CHUNK':
+        onAck?.call();
         return {'type':'FILE_ACK', 'seq': wrongAck ? -1 : last['seq']};
       case 'FILE_END':
         return {'type':'FILE_OK', 'bytes':last['bytes'],
@@ -101,6 +104,17 @@ Future<void> _verifyReceive(
     expect(staging.published, isFalse);
     expect(staging.aborted, isTrue);
     expect(channel.sent.where((e) => e['type'] == 'FILE_OK'), isEmpty);
+  }
+}
+
+class _BlockingStaging extends _StagingFixture {
+  final Completer<void> entered = Completer<void>();
+  final Completer<void> release = Completer<void>();
+  @override
+  Future<void> write(List<int> data) async {
+    entered.complete();
+    await release.future;
+    await super.write(data);
   }
 }
 
@@ -277,6 +291,71 @@ void main() {
     expect(stage.aborted, isTrue);
     expect(stage.published, isFalse);
     expect(channel.sent.where((m) => m['type'] == 'FILE_READY'), isEmpty);
+  });
+
+  test('revoked sender cancels before publishing FILE_END', () async {
+    var active = true;
+    final channel = _NodeReceiverFixture(onAck: () { active = false; });
+    final file = XFile.fromData(Uint8List.fromList([1, 2, 3]),
+        name: 'revoked.bin');
+    await expectLater(sendLabFile(channel, file,
+      selectedName: 'revoked.bin', isSessionActive: () => active),
+      throwsStateError);
+    expect(channel.sent.map((m) => m['type']),
+      ['FILE_OFFER', 'FILE_CHUNK', 'FILE_CANCEL']);
+  });
+
+  test('revocation during native staging aborts before FILE_READY', () async {
+    var active = true;
+    final pending = Completer<LabReceiveStaging>();
+    final stage = _StagingFixture();
+    final channel = _IncomingFixture([]);
+    final receiving = receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'late.bin',
+      'bytes': 1, 'sha256': '0' * 64,
+    }, approve: (_) async => true, createStaging: (_) => pending.future,
+      isSessionActive: () => active);
+    await Future<void>.delayed(Duration.zero);
+    active = false;
+    pending.complete(stage);
+    await expectLater(receiving, throwsStateError);
+    expect(stage.aborted, isTrue);
+    expect(stage.published, isFalse);
+    expect(channel.sent.where((m) => m['type'] == 'FILE_READY'), isEmpty);
+  });
+
+  test('revocation during slow write aborts without ACK or publication', () async {
+    var active = true;
+    final stage = _BlockingStaging();
+    final channel = _IncomingFixture([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1, 2])},
+      {'type': 'FILE_END', 'bytes': 2, 'sha256': '0' * 64},
+    ]);
+    final receiving = receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'pending.bin',
+      'bytes': 2, 'sha256': '0' * 64,
+    }, approve: (_) async => true, createStaging: (_) async => stage,
+      isSessionActive: () => active);
+    await stage.entered.future;
+    active = false;
+    stage.release.complete();
+    await expectLater(receiving, throwsStateError);
+    expect(stage.aborted, isTrue);
+    expect(stage.published, isFalse);
+    expect(channel.sent.map((m) => m['type']), ['FILE_READY']);
+  });
+
+  test('revoked session never asks for approval or opens staging', () async {
+    var asked = false;
+    final channel = _IncomingFixture([]);
+    await expectLater(receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'not-allowed.bin',
+      'bytes': 1, 'sha256': '0' * 64,
+    }, isSessionActive: () => false,
+      approve: (_) async { asked = true; return true; },
+      createStaging: (_) async => _StagingFixture()), throwsStateError);
+    expect(asked, isFalse);
+    expect(channel.sent, isEmpty);
   });
 
 }

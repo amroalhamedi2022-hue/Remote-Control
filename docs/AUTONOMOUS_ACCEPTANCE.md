@@ -129,3 +129,10 @@ AUTOMATION_COMPLETE: BLOCKED
 | A8 Release readiness, independent security review, MediaProjection/control/visual/performance completeness | FAIL | major product scope remains unimplemented or unverified |
 
 **Count at this source checkpoint:** 3 PASS (source evidence), 4 NOT TESTED, 1 FAIL. Prior [CI #40150631263](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40150631263) **FAILED** on redundant Dart import at the earlier `f4389fe` head; that import was removed. No successful CI run has yet been observed for the newer source head. Targeted Android build is justified because the new Kotlin `MainActivity` is not checked by Flutter analyzer. Do not claim APK/Windows artifacts or device acceptance until proven.
+
+
+## 2026-10-25 — M12: Stop/revoke guarded file transfer (pending exact-SHA CI)
+- Production: signed-file-intent Dart sender and receiver now accept a session-lifecycle guard. Check after approval, after chunk ACK, after native staging allocation/write, and immediately before file publication. PairingLab supplies its existing ticket lifecycle, so Stop invalidates a transfer without trusting a late consent/staging result.
+- Regression: revoked sender cancels before FILE_END; late native staging aborts without FILE_READY; revoked slow write aborts without ACK or publish; pre-revoked session does not request consent.
+- Security boundary: cooperative checks, not OS-level interruption. A native SAF commit already in progress cannot be rolled back atomically across all providers. Real-device Stop/revoke during publish and cross-device LAN remain NOT TESTED. No new package or paid API; reviewed Dart async cancellation behavior.
+- Gate at commit: source patch PRESENT; Flutter analyzer/tests and Android/Windows binaries NOT TESTED on this SHA; real hardware NOT TESTED; final release FAIL. Update PR with exact-SHA CI results.

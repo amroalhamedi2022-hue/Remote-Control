@@ -425,6 +425,7 @@ class PairingLab {
         if (fileToSend != null) {
           _lifecycle.requireCurrent(ticket);
           final sent = await sendLabFile(channel, fileToSend,
+              isSessionActive: () => _lifecycle.isCurrent(ticket),
               onProgress: (bytes, total, verified) {
                 if (!_lifecycle.isCurrent(ticket)) {
                   throw StateError('File transfer cancelled');
@@ -482,6 +483,7 @@ class PairingLab {
           Directory? chosen;
           String? chosenSafTree;
           final received = await receiveLabFile(channel, offer,
+            isSessionActive: () => _lifecycle.isCurrent(ticket),
             approve: (request) async {
               _lifecycle.requireCurrent(ticket);
               if (Platform.isWindows) {

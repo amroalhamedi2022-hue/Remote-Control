@@ -50,13 +50,21 @@ Future<FileSendResult> sendLabFile(
   // CrossFile.fromData ignores its 'name' argument on Dart IO; this override
   // lets in-memory protocol tests provide the original picker filename.
   String? selectedName,
+  bool Function()? isSessionActive,
 }) async {
+  void requireActiveSession() {
+    if (isSessionActive?.call() == false) {
+      throw StateError('File transfer session revoked');
+    }
+  }
+  requireActiveSession();
   final name = validateLabFileName(selectedName ?? file.name);
   final size = await file.length();
   if (size < 0 || size > maxLabFileBytes) {
     throw const FormatException('Selected file exceeds 64 MiB lab limit');
   }
   final digest = await _hashFile(file);
+  requireActiveSession();
   if (await file.length() != size) {
     throw StateError('Selected file changed while hashing');
   }
@@ -76,9 +84,11 @@ Future<FileSendResult> sendLabFile(
   var seq = 0;
   var finalSent = false;
   try {
+  requireActiveSession();
   await for (final block in file.openRead()) {
     var offset = 0;
     while (offset < block.length) {
+      requireActiveSession();
       final count = block.length - offset > labFileChunkBytes
           ? labFileChunkBytes : block.length - offset;
       if (sent + count > size) {
@@ -92,6 +102,7 @@ Future<FileSendResult> sendLabFile(
       if (ack['type'] != 'FILE_ACK' || ack['seq'] != seq) {
         throw StateError('Invalid file chunk acknowledgement');
       }
+      requireActiveSession();
       sent += count;
       offset += count;
       seq++;
@@ -102,6 +113,7 @@ Future<FileSendResult> sendLabFile(
       await _hashFile(file) != digest) {
     throw StateError('Selected file changed during transfer');
   }
+  requireActiveSession();
   await channel.send({'type': 'FILE_END', 'bytes': sent, 'sha256': digest});
   finalSent = true;
   final done = await channel.receive().timeout(fileResponseTimeout);
@@ -150,7 +162,14 @@ Future<FileSendResult?> receiveLabFile(
   required Future<LabReceiveStaging> Function(LabIncomingOffer) createStaging,
   void Function(int bytes, int total, bool verified)? onProgress,
   Duration stagingTimeout = fileResponseTimeout,
+  bool Function()? isSessionActive,
 }) async {
+  void requireActiveSession() {
+    if (isSessionActive?.call() == false) {
+      throw StateError('File transfer session revoked');
+    }
+  }
+  requireActiveSession();
   if (offer['type'] != 'FILE_OFFER' ||
       offer['name'] is! String ||
       offer['bytes'] is! int ||
@@ -168,6 +187,7 @@ Future<FileSendResult?> receiveLabFile(
   bool accepted;
   try {
     accepted = await approve(request).timeout(fileResponseTimeout);
+    requireActiveSession();
   } catch (_) {
     // A cancelled picker or revoked session must not strand the sender
     // waiting for FILE_READY until the network timeout.
@@ -202,9 +222,12 @@ Future<FileSendResult?> receiveLabFile(
   var count = 0;
   var sequence = 0;
   try {
+    // Native staging may finish after Stop; abort before FILE_READY.
+    requireActiveSession();
     await channel.send({'type': 'FILE_READY'});
     while (true) {
       final frame = await channel.receive().timeout(fileResponseTimeout);
+      requireActiveSession();
       if (frame['type'] == 'FILE_CANCEL') {
         throw StateError('Sender cancelled incoming file');
       }
@@ -215,7 +238,8 @@ Future<FileSendResult?> receiveLabFile(
             frame['sha256'] != expected || actual != expected) {
           throw StateError('Incoming file size or SHA-256 mismatch');
         }
-        // Commit is the only operation allowed to make the file visible.
+        // Native commit itself cannot be interrupted on all SAF providers.
+        requireActiveSession();
         await staging.commit(name: name, bytes: count, sha256: expected);
         committed = true;
         await channel.send({
@@ -237,7 +261,9 @@ Future<FileSendResult?> receiveLabFile(
           bytes.length > size - count) {
         throw StateError('Incoming file exceeds approved byte budget');
       }
+      requireActiveSession();
       await staging.write(bytes);
+      requireActiveSession();
       hasher.add(bytes);
       count += bytes.length;
       await channel.send({'type': 'FILE_ACK', 'seq': sequence});
