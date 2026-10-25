@@ -204,6 +204,32 @@ void main() {
     ], failCommit: true, shouldSucceed: false);
   });
 
+  test('SAF staging failure denies sender before FILE_READY', () async {
+    final channel = _IncomingFixture([]);
+    final offer = {
+      'type': 'FILE_OFFER', 'name': 'ok.txt', 'bytes': 1,
+      'sha256': '0' * 64,
+    };
+    await expectLater(receiveLabFile(channel, offer,
+      approve: (_) async => true,
+      createStaging: (_) async => throw StateError('SAF provider refused write')),
+      throwsStateError);
+    expect(channel.sent.map((m) => m['type']), ['FILE_DENIED']);
+  });
+
+  test('cancelled or failed approval denies sender without creating staging', () async {
+    final channel = _IncomingFixture([]);
+    var staged = false;
+    await expectLater(receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'ok.txt', 'bytes': 1,
+      'sha256': '0' * 64,
+    }, approve: (_) async => throw StateError('Picker closed'),
+      createStaging: (_) async { staged = true; return _StagingFixture(); }),
+      throwsStateError);
+    expect(staged, isFalse);
+    expect(channel.sent.map((m) => m['type']), ['FILE_DENIED']);
+  });
+
   test('malformed incoming offer is rejected before consent', () async {
     final channel = _IncomingFixture([]);
     var asked = false;
