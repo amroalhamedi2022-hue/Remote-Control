@@ -255,7 +255,7 @@ export async function receiveFolderOnce(channel, begin,
   if (typeof approve!=='function' || typeof directory!=='string')
     throw new Error('Explicit folder receiver approval required');
   const permitted=await receiveWithCancel({receive:()=>approve(begin),lines:channel.lines},
-    signal,idleTimeoutMs);
+    signal,idleTimeoutMs,isSessionActive);
   requireLiveSession();
   if (permitted!==true) {
     channel.send({type:'FOLDER_DENIED'});
@@ -294,7 +294,7 @@ export async function receiveFolderOnce(channel, begin,
   channel.send({type:'FOLDER_READY'});
   for (let i=0;i<begin.count;i++) {
     requireLiveSession();
-    const entry=await receiveWithCancel(channel,signal,idleTimeoutMs);
+    const entry=await receiveWithCancel(channel,signal,idleTimeoutMs,isSessionActive);
     requireLiveSession();
     if (entry?.type!=='FOLDER_ENTRY'||entry.index!==i)
       throw new Error('Invalid folder entry order');
@@ -310,7 +310,7 @@ export async function receiveFolderOnce(channel, begin,
     }
     seen.add(canonical);
     const target=await ensureSafeDirectory(payload,parts.slice(0,-1));
-    const offer=await receiveWithCancel(channel,signal,idleTimeoutMs);
+    const offer=await receiveWithCancel(channel,signal,idleTimeoutMs,isSessionActive);
     requireLiveSession();
     if (offer?.name!==parts.at(-1)) throw new Error('Folder entry filename mismatch');
     // Reject a forged offer before writing any bytes. The sender must stay
@@ -327,7 +327,7 @@ export async function receiveFolderOnce(channel, begin,
     if (total>begin.bytes) throw new Error('Folder exceeded approved byte count');
     onProgress({files:i+1,totalFiles:begin.count,bytes:total,totalBytes:begin.bytes});
   }
-  const end=await receiveWithCancel(channel,signal,idleTimeoutMs);
+  const end=await receiveWithCancel(channel,signal,idleTimeoutMs,isSessionActive);
   requireLiveSession();
   if (end?.type!=='FOLDER_END'||end.count!==begin.count||
       end.bytes!==total||total!==begin.bytes)
