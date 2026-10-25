@@ -214,7 +214,14 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
         } catch(error) {
           // Before the success ACK, a failed unlink or a late revocation
           // must not leave a final file in the approved destination.
-          if(!saved && target) await fsp.unlink(target).catch(()=>{});
+          if(!saved && target) {
+            try {await fsp.unlink(target);}
+            catch(cleanupError) {
+              // Do not hide a failed rollback: the final name may still exist.
+              throw new AggregateError([error, cleanupError],
+                'File receive failed and final-file rollback failed');
+            }
+          }
           throw error;
         }
       }
