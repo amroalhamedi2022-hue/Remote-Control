@@ -80,7 +80,8 @@ export class PreviewAssembler {
 /** Source process must be killed on disconnect. Backpressure drops whole frames, never partial frames.
  * Encrypted envelope uses small chunks, so each underlying JsonLine remains <8KB.
  */
-export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=640,quality=10,ffmpeg='ffmpeg',maxFrames=Infinity}={}) {
+export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=640,quality=10,ffmpeg='ffmpeg',maxFrames=Infinity,isSessionActive=()=>true}={}) {
+  if (!isSessionActive()) throw new Error('Screen preview trust revoked before capture');
   const args=captureArguments({testPattern,fps,width,quality});
   const child=spawn(ffmpeg,args,{stdio:['ignore','pipe','pipe'],windowsHide:true});
   let stderr='';let stopped=false;let sent=0;let dropped=0;
@@ -97,6 +98,7 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
   try{
     parser=new JpegFrames((jpeg,id)=>{
       if(stopped)return;
+      if(!isSessionActive()) throw new Error('Screen preview trust revoked during capture');
       if(sent>=maxFrames){stopped=true;child.kill();return;}
       if(socket.destroyed||socket.writableLength>MAX_BACKLOG){dropped++;return;}
       for (const message of jpegMessages(jpeg,id))channel.send(message);
@@ -104,6 +106,7 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
     });
     for await (const chunk of child.stdout){
       if(socket.destroyed||stopped)break;
+      if(!isSessionActive()) throw new Error('Screen preview trust revoked during capture');
       parser.push(chunk);
     }
     if(!child.killed&&!stopped)await done;
