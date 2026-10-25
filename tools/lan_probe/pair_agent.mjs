@@ -90,7 +90,9 @@ async function withTransferCancellation(run) {
 async function interact(socket,role) {
   try {
     const {fingerprint,channel,known,peerIntent}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve,
-      intent:role==='client' ? ((opt('send-file') || opt('send-folder')) ? 'file' : flag('send-clipboard') ? 'clipboard' : null) : null});
+      intent:role==='client' ? ((opt('send-file') || opt('send-folder')) ? 'file' :
+        flag('send-clipboard') ? 'clipboard' :
+        (flag('view-screen') || flag('view-h264') || flag('watch-h264')) ? 'screen' : null) : null});
     saveTrust();
     // A separate --revoke process edits trusted.json while this listener is
     // active. Re-check the pinned identity on disk at privileged action gates.
@@ -244,6 +246,9 @@ async function interact(socket,role) {
         return;
       }
       if(flag('share-screen') || flag('share-h264')) {
+        // A paired PING or file/clipboard session must never be upgraded to
+        // screen access; the viewer must sign this intent before SAS approval.
+        requireSignedIntent(peerIntent, 'screen');
         const req=await channel.receive();
         if(req?.type==='H264_START') {
           if(!flag('share-h264') || req.mode!=='view-only' ||
