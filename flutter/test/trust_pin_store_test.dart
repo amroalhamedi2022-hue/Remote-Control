@@ -23,7 +23,11 @@ void main() {
         isCurrent: () => active);
     await entered.future;
     active = false;
+    // Mirrors PairingLab.stop(): queue the current snapshot while the stale
+    // candidate write is still pending, then let storage finish.
+    final stopFlush = store.persistCurrent();
     release.complete();
+    await stopFlush;
 
     await expectLater(pending, throwsStateError);
     expect(store.values, isEmpty);
