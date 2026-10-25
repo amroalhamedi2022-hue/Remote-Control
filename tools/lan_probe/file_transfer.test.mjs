@@ -358,3 +358,40 @@ test('Windows receive rolls back newly linked file when staging cleanup fails',(
     assert.deepEqual(outgoing,['FILE_READY']);
   } finally {fs.unlink=originalUnlink;}
 }));
+
+
+test('failed Windows final-file rollback is reported instead of silently accepted',()=>sandbox(async dir=>{
+  const destination=path.join(dir,'received');await fs.mkdir(destination);
+  const hash=crypto.createHash('sha256').update('').digest('hex');
+  const offer={type:'FILE_OFFER',name:'rollback-error.txt',bytes:0,sha256:hash};
+  const [sender,receiver]=channels(),sent=[];
+  const channel={send:frame=>{sent.push(frame.type);receiver.send(frame);},
+    receive:()=>receiver.receive()};
+  const originalUnlink=fs.unlink;
+  let failStaging=true,failFinal=true;
+  fs.unlink=async file=>{
+    const name=String(file);
+    if(failStaging && name.endsWith('.part')) {
+      failStaging=false;
+      throw Object.assign(new Error('Staging cleanup denied'),{code:'EACCES'});
+    }
+    if(failFinal && name.endsWith('rollback-error.txt')) {
+      failFinal=false;
+      throw Object.assign(new Error('Final rollback denied'),{code:'EACCES'});
+    }
+    return originalUnlink(file);
+  };
+  try {
+    const receiving=receiveFileOnce(channel,offer,{directory:destination,approve:async()=>true});
+    assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+    sender.send({type:'FILE_END',bytes:0,sha256:hash});
+    await assert.rejects(receiving,error=>
+      error instanceof AggregateError &&
+      /rollback failed/.test(error.message) &&
+      error.errors.length===2);
+    assert.deepEqual(sent,['FILE_READY']);
+    // The filesystem refused deletion. The error must explicitly surface
+    // that a final file could remain; never claim cleanup succeeded.
+    assert.deepEqual(await fs.readdir(destination),['rollback-error.txt']);
+  } finally {fs.unlink=originalUnlink;}
+}));
