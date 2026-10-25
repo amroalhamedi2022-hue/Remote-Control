@@ -322,3 +322,37 @@ test('startup recovery refuses unsafe thresholds and oversized candidate scans',
   await assert.rejects(cleanupStaleFolderTransfers(root,{maxCandidates:1}),/scan limit/);
   assert.ok(await fs.lstat(candidate));
 }));
+
+test('revoked folder trust during consent cannot create staging or send READY',()=>sandbox(async root=>{
+  const dest=path.join(root,'dest');await fs.mkdir(dest);
+  const [sender,receiver]=channels();let trusted=true;
+  const begin={type:'FOLDER_BEGIN',folder:'photos',count:0,bytes:0,directories:[]};
+  const incoming=receiveFolderOnce(receiver,begin,{
+    directory:dest,isSessionActive:()=>trusted,
+    approve:async()=>{trusted=false;return true;}
+  });
+  await assert.rejects(incoming,{name:'AbortError'});
+  assert.deepEqual(await fs.readdir(dest),[]);
+}));
+
+test('trust revoke during final folder rename rolls back published payload before OK',()=>sandbox(async root=>{
+  const dest=path.join(root,'dest');await fs.mkdir(dest);
+  const [sender,receiver]=channels();let trusted=true;
+  const begin={type:'FOLDER_BEGIN',folder:'photos',count:0,bytes:0,directories:[]};
+  const frames=[],channel={
+    send:frame=>{frames.push(frame.type);receiver.send(frame);},
+    receive:()=>receiver.receive()
+  };
+  const originalRename=fs.rename;
+  fs.rename=async (...args)=>{await originalRename(...args);trusted=false;};
+  try {
+    const incoming=receiveFolderOnce(channel,begin,{
+      directory:dest,approve:async()=>true,isSessionActive:()=>trusted
+    });
+    assert.deepEqual(await sender.receive(),{type:'FOLDER_READY'});
+    sender.send({type:'FOLDER_END',count:0,bytes:0});
+    await assert.rejects(incoming,{name:'AbortError'});
+    assert.deepEqual(frames,['FOLDER_READY']);
+    assert.deepEqual(await fs.readdir(dest),[]);
+  } finally {fs.rename=originalRename;}
+}));
