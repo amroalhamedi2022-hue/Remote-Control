@@ -103,8 +103,9 @@ export class H264Assembler {
 
 /** Source read from FFmpeg stdout; never spawn a shell, only allow listed codecs. */
 export async function sendH264(channel, socket, options = {}) {
-  const {ffmpeg = 'ffmpeg', ...rawProfile} = options;
+  const {ffmpeg = 'ffmpeg', isSessionActive = () => true, ...rawProfile} = options;
   const profile = checkProfile(rawProfile);
+  if (!isSessionActive()) throw new Error('H.264 screen trust revoked before capture');
   const child = spawn(ffmpeg, h264Arguments(profile), {stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true});
   let stderr = '';
   let size = 0;
@@ -121,9 +122,11 @@ export async function sendH264(channel, socket, options = {}) {
   try {
     for await (const bytes of child.stdout) {
       if (socket.destroyed) throw new Error('Viewer disconnected');
+      if (!isSessionActive()) throw new Error('H.264 screen trust revoked during capture');
       pending = Buffer.concat([pending, bytes]);
       // Send only a full number of MPEG-TS packets (188 bytes). Every chunk <=2400 bytes.
       while (pending.length >= 188) {
+        if (!isSessionActive()) throw new Error('H.264 screen trust revoked during capture');
         const length = Math.floor(Math.min(TS_CHUNK_BYTES, pending.length) / 188) * 188;
         const packet = pending.subarray(0, length);
         pending = pending.subarray(length);
@@ -140,6 +143,7 @@ export async function sendH264(channel, socket, options = {}) {
         }
       }
     }
+    if (!isSessionActive()) throw new Error('H.264 screen trust revoked before completion');
     if (pending.length) throw new Error('Truncated MPEG-TS packet');
     status = await ended;
     if (status !== 0 || !size) throw new Error(`FFmpeg failed (${status}): ${stderr}`);
