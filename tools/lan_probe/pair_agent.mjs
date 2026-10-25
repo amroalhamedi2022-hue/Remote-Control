@@ -92,6 +92,17 @@ async function interact(socket,role) {
     const {fingerprint,channel,known,peerIntent}=await pairSocket(socket,{role,identity,trustStore:trusted,onCode:approve,
       intent:role==='client' ? ((opt('send-file') || opt('send-folder')) ? 'file' : flag('send-clipboard') ? 'clipboard' : null) : null});
     saveTrust();
+    // A separate --revoke process edits trusted.json while this listener is
+    // active. Re-check the pinned identity on disk at privileged action gates.
+    // This remains a lab guard, not a substitute for a reviewed trust store.
+    const trustedPeerSessionActive = () => {
+      if (socket.destroyed || socket.writableEnded || !trusted.has(fingerprint)) return false;
+      try {
+        const current=JSON.parse(fs.readFileSync(trustFile,'utf8'));
+        return Object.hasOwn(current,fingerprint) &&
+          current[fingerprint]===trusted.get(fingerprint);
+      } catch { return false; }
+    };
     console.log(`PAIR_OK ${fingerprint.slice(0,20)} (${known?'recognized':'new'}) — encrypted channel active`);
     if(role==='client') {
       channel.send({type:'PING',sentAt:Date.now()});
@@ -182,6 +193,7 @@ async function interact(socket,role) {
         const begin=await channel.receive();
         const received=await withTransferCancellation(signal=>receiveFolderOnce(channel,begin,{
           directory:opt('receive-folder'),signal,
+          isSessionActive:trustedPeerSessionActive,
           onProgress:p=>console.log('FOLDER_RECEIVE_PROGRESS',p.files,p.totalFiles,p.bytes,p.totalBytes),
           approve:async ({folder,count,bytes})=>{
             console.log('Folder offer',folder,count,'files',bytes,'bytes from',fingerprint.slice(0,20));
@@ -198,7 +210,7 @@ async function interact(socket,role) {
         const offer=await channel.receive();
         const received=await withTransferCancellation(signal=>receiveFileOnce(channel,offer,{
           directory:opt('receive-file'),
-          signal,
+          signal,isSessionActive:trustedPeerSessionActive,
           onProgress:fileProgress('RECEIVE'),
           approve:async ({name,bytes})=>{
             console.log('One-shot file offer from',fingerprint.slice(0,20),name,bytes,'bytes');
@@ -217,17 +229,9 @@ async function interact(socket,role) {
         // A separate --revoke process edits trusted.json while this listener
         // remains alive. Re-check pinned identity on disk at consent, write,
         // and ACK boundaries; never trust the stale in-memory Map alone.
-        const clipboardSessionActive = () => {
-          if (socket.destroyed || socket.writableEnded || !trusted.has(fingerprint)) return false;
-          try {
-            const current=JSON.parse(fs.readFileSync(trustFile,'utf8'));
-            return Object.hasOwn(current,fingerprint) &&
-              current[fingerprint]===trusted.get(fingerprint);
-          } catch { return false; }
-        };
         const accepted = await withTransferCancellation(signal=>
           acceptClipboardRequest(channel, req, {
-            signal, isSessionActive:clipboardSessionActive,
+            signal, isSessionActive:trustedPeerSessionActive,
             approve: async () => {
               console.log('One-shot clipboard request from paired peer', fingerprint.slice(0, 20));
               const answer = await askWithDeadline(rl.question.bind(rl),
