@@ -239,3 +239,52 @@ test('signed sender FILE_CANCEL promptly deletes partial receiver staging',()=>s
   await assert.rejects(receiving,{name:'AbortError',message:'File transfer cancelled'});
   assert.deepEqual(await fs.readdir(destination),[]);
 }));
+
+
+test('Node sender sends FILE_CANCEL on local failure after FILE_READY; receiver removes partial bytes',()=>sandbox(async dir=>{
+  const source=path.join(dir,'cancel-midstream.bin'),dest=path.join(dir,'dest');
+  await fs.writeFile(source,crypto.randomBytes(9000));await fs.mkdir(dest);
+  const [sender,receiver]=channels();
+  const receiving=(async()=>receiveFileOnce(receiver,await receiver.receive(),{
+    directory:dest,approve:async()=>true,idleTimeoutMs:1000
+  }))();
+  const sending=sendFileOnce(sender,source,{
+    onProgress:()=>{throw new Error('Local sender stopped after first ACK');}
+  });
+  await assert.rejects(sending,/Local sender stopped after first ACK/);
+  await assert.rejects(receiving,{name:'AbortError',message:'File transfer cancelled'});
+  assert.deepEqual(await fs.readdir(dest),[]);
+}));
+
+test('Node sender rejects bad FILE_ACK and cancels without sending FILE_END',()=>sandbox(async dir=>{
+  const source=path.join(dir,'bad-ack.bin');await fs.writeFile(source,Buffer.from('payload'));
+  const [sender,receiver]=channels();
+  const sending=sendFileOnce(sender,source,{idleTimeoutMs:1000});
+  assert.equal((await receiver.receive()).type,'FILE_OFFER');
+  receiver.send({type:'FILE_READY'});
+  assert.equal((await receiver.receive()).type,'FILE_CHUNK');
+  receiver.send({type:'FILE_ACK',seq:999});
+  await assert.rejects(sending,/Invalid file chunk acknowledgement/);
+  assert.deepEqual(await receiver.receive(),{type:'FILE_CANCEL'});
+}));
+
+test('Node sender never cancels after FILE_END when final ACK is invalid',()=>sandbox(async dir=>{
+  const source=path.join(dir,'after-end.bin'),dest=path.join(dir,'dest');
+  await fs.writeFile(source,Buffer.from('verified but ACK corrupted'));await fs.mkdir(dest);
+  const [originalSender,receiver]=channels(),types=[];
+  const sender={
+    send:(frame)=>{types.push(frame.type);originalSender.send(frame);},
+    receive:async()=>{
+      const frame=await originalSender.receive();
+      return frame.type==='FILE_OK'?{...frame,sha256:'0'.repeat(64)}:frame;
+    }
+  };
+  const receiving=(async()=>receiveFileOnce(receiver,await receiver.receive(),{
+    directory:dest,approve:async()=>true
+  }))();
+  await assert.rejects(sendFileOnce(sender,source),/Invalid file completion acknowledgement/);
+  const saved=await receiving;
+  assert.equal(saved.bytes,(await fs.readFile(source)).length);
+  assert.equal(types.at(-1),'FILE_END');
+  assert.equal(types.includes('FILE_CANCEL'),false);
+}));

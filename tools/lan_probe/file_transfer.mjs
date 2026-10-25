@@ -101,10 +101,16 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
     const name=safeTransferName(path.basename(filePath));
     const digest=await hashHandle(handle,st.size,signal);
     checkCancelled(signal);
+    // Once FILE_READY arrives, every local failure before FILE_END must tell
+    // the peer to discard its staged bytes rather than wait for idle timeout.
+    // FILE_END is the publication boundary: never cancel after it was sent.
+    let receiverReady=false, endSent=false;
+    try {
     channel.send({type:'FILE_OFFER',name,bytes:st.size,sha256:digest});
     const ready=await receiveWithCancel(channel,signal,idleTimeoutMs);
     if(ready?.type==='FILE_DENIED')throw new Error('Receiver denied file transfer');
     if(ready?.type!=='FILE_READY')throw new Error('Invalid file transfer approval');
+    receiverReady=true;
     const buf=Buffer.alloc(FILE_CHUNK_BYTES);
     let offset=0,seq=0;
     while(offset<st.size) {
@@ -122,11 +128,20 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
       throw new Error('Source file changed during transfer');
     checkCancelled(signal);
     channel.send({type:'FILE_END',bytes:offset,sha256:digest});
+    endSent=true;
     const done=await receiveWithCancel(channel,signal,idleTimeoutMs);
     if(done?.type!=='FILE_OK'||done.bytes!==offset||done.sha256!==digest)
       throw new Error('Invalid file completion acknowledgement');
     onProgress({bytes:offset,total:st.size,verified:true});
     return {bytes:offset,sha256:digest};
+    } catch (error) {
+      if (receiverReady && !endSent) {
+        // Best effort: a revoked/destroyed socket cannot always carry CANCEL.
+        // The receiver's idle timeout and private staging cleanup still apply.
+        try {channel.send({type:'FILE_CANCEL'});} catch { /* disconnected */ }
+      }
+      throw error;
+    }
   } finally {await handle.close();}
 }
 

@@ -242,6 +242,10 @@ Future<FileSendResult?> receiveLabFile(
         requireActiveSession();
         await staging.commit(name: name, bytes: count, sha256: expected);
         committed = true;
+        // A SAF provider may finish a non-cancellable commit after Stop/revoke.
+        // Never acknowledge a now-revoked session as a verified success.
+        // Publication may already have happened: this is NOT rollback.
+        requireActiveSession();
         await channel.send({
           'type': 'FILE_OK', 'bytes': count, 'sha256': expected,
         });

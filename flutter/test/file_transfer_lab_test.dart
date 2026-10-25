@@ -118,6 +118,18 @@ class _BlockingStaging extends _StagingFixture {
   }
 }
 
+class _BlockingCommitStaging extends _StagingFixture {
+  final Completer<void> entered = Completer<void>();
+  final Completer<void> release = Completer<void>();
+  @override
+  Future<void> commit({required String name, required int bytes,
+      required String sha256}) async {
+    entered.complete();
+    await release.future;
+    await super.commit(name: name, bytes: bytes, sha256: sha256);
+  }
+}
+
 void main() {
   test('validates cross-platform filename safety before sending', () {
     for (final name in [
@@ -343,6 +355,28 @@ void main() {
     expect(stage.aborted, isTrue);
     expect(stage.published, isFalse);
     expect(channel.sent.map((m) => m['type']), ['FILE_READY']);
+  });
+
+  test('revoke during native commit suppresses FILE_OK (SAF publish may already exist)', () async {
+    const digest = '74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0';
+    final stage = _BlockingCommitStaging();
+    final channel = _IncomingFixture([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1, 2, 3, 4, 5])},
+      {'type': 'FILE_END', 'bytes': 5, 'sha256': digest},
+    ]);
+    var active = true;
+    final receiving = receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'late-publish.bin',
+      'bytes': 5, 'sha256': digest,
+    }, approve: (_) async => true, createStaging: (_) async => stage,
+      isSessionActive: () => active);
+    await stage.entered.future;
+    active = false;
+    stage.release.complete();
+    await expectLater(receiving, throwsStateError);
+    expect(stage.published, isTrue); // No portable SAF atomic rollback guarantee.
+    expect(stage.aborted, isFalse); // Commit completed before revocation check.
+    expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
   });
 
   test('revoked session never asks for approval or opens staging', () async {
