@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import {spawnSync} from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {h264Arguments,H264Assembler,sendH264,assertTransportStream,MAX_TS_BYTES} from './h264_transport.mjs';
 
 const tsPacket = Buffer.concat([Buffer.from([0x47]), Buffer.alloc(187)]);
@@ -74,4 +77,24 @@ test('Revoked peer cannot start H.264 capture',async()=>{
   await assert.rejects(sendH264({send:()=>{throw Error('unexpected send');}},
     {destroyed:false,writableLength:0},{isSessionActive:()=>false}),
     /trust revoked before capture/);
+});
+
+
+test('Revoking trust while FFmpeg is silent terminates H.264 capture', {timeout:5000}, async t => {
+  if(process.platform==='win32'){t.skip('POSIX executable fixture');return;}
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-idle-h264-'));
+  try {
+    const fake=path.join(dir,'ffmpeg-stall');
+    await fs.writeFile(fake, `#!/bin/sh\nexec "${process.execPath}" -e 'setTimeout(() => {}, 10000)'\n`);
+    await fs.chmod(fake,0o755);
+    let checks=0;
+    const messages=[];
+    const started=Date.now();
+    await assert.rejects(sendH264({send:message=>messages.push(message)},
+      {destroyed:false,writableLength:0},{ffmpeg:fake,isSessionActive:()=>++checks===1}),
+      /trust revoked/);
+    assert.ok(Date.now()-started<3000,'revoked idle capture should terminate promptly');
+    assert.ok(messages.some(message=>message.type==='H264_BEGIN'));
+    assert.ok(!messages.some(message=>message.type==='H264_PART'||message.type==='H264_END'));
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
