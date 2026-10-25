@@ -7,12 +7,12 @@ export const PAIR_PROTOCOL = 'liquidremote.pair.v1';
 
 /**
  * Signed session intent is a separate capability gate from trust and consent.
- * A normal authenticated PING session must never be promoted to clipboard or
- * file access simply because the receiving host enabled that feature.
+ * A normal authenticated PING session must never be promoted to clipboard, file or
+ * screen-preview access simply because the receiving host enabled that feature.
  * Caller must ALSO require local one-shot human approval for the action.
  */
 export function requireSignedIntent(peerIntent, capability) {
-  if (!['clipboard', 'file'].includes(capability))
+  if (!['clipboard', 'file', 'screen'].includes(capability))
     throw new Error('Unsupported privileged session capability');
   if (peerIntent !== capability)
     throw new Error(`Signed ${capability} intent required`);
@@ -42,7 +42,7 @@ function privateIdentity(identity) {
   return key;
 }
 function validateHello(h, kind) {
-  if (h?.intent !== undefined && (kind !== 'CLIENT_HELLO' || !['clipboard', 'file'].includes(h.intent)))
+  if (h?.intent !== undefined && (kind !== 'CLIENT_HELLO' || !['clipboard', 'file', 'screen'].includes(h.intent)))
     throw new Error('Unsupported signed session intent');
   if (!h || typeof h !== 'object' || Array.isArray(h) || h.v !== PAIR_PROTOCOL || h.type !== kind ||
       !safeB64(h.identity) || !safeB64(h.ephemeral) || !safeB64(h.nonce) || !safeB64(h.sig))
@@ -179,7 +179,7 @@ export class SecureEnvelope {
  */
 export async function pairSocket(socket,{role,identity,onCode,trustStore=new Map(),debugHooks={},consentTimeoutMs=MAX_TIMEOUT_MS,intent=null}) {
   if(!['client','server'].includes(role))throw new Error('Invalid role');
-  if (intent !== null && (role !== 'client' || !['clipboard', 'file'].includes(intent)))
+  if (intent !== null && (role !== 'client' || !['clipboard', 'file', 'screen'].includes(intent)))
     throw new Error('Unsupported client session intent');
   if(typeof onCode!=='function')throw new Error('Local consent callback required');
   if(!Number.isSafeInteger(consentTimeoutMs) || consentTimeoutMs < 1 || consentTimeoutMs > MAX_TIMEOUT_MS)
