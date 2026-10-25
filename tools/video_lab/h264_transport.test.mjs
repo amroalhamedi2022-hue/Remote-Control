@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import {h264Arguments,H264Assembler,assertTransportStream,MAX_TS_BYTES} from './h264_transport.mjs';
+import {spawnSync} from 'node:child_process';
+import {h264Arguments,H264Assembler,sendH264,assertTransportStream,MAX_TS_BYTES} from './h264_transport.mjs';
 
 const tsPacket = Buffer.concat([Buffer.from([0x47]), Buffer.alloc(187)]);
 function mkReceiver(){
@@ -49,4 +50,28 @@ test('H264 receiver rejects wrong digest, missing packets, duplicate chunks',()=
   assert.throws(()=>r.a.ingest({type:'H264_PART',offset:0,data:tsPacket.toString('base64url')}));
   assert.throws(()=>r.a.ingest({type:'H264_END',bytes:188,sha256:'0'.repeat(64)}));
   assert.throws(()=>r.a.ingest({type:'H264_END',bytes:187,sha256:crypto.createHash('sha256').update(tsPacket).digest('hex')}));
+});
+
+test('H.264 stream stops when peer trust is revoked after a sent chunk', {timeout:25000}, async t => {
+  if(spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status!==0){t.skip('FFmpeg not installed');return;}
+  let trusted=true;
+  const messages=[];
+  const channel={send:msg=>{
+    messages.push(msg);
+    if(msg.type==='H264_PART') trusted=false;
+  }};
+  await assert.rejects(
+    sendH264(channel,{destroyed:false,writableLength:0},{
+      testPattern:true,seconds:2,width:320,fps:6,bitrateKbps:300,
+      isSessionActive:()=>trusted
+    }),
+    /trust revoked/
+  );
+  assert.ok(messages.some(m=>m.type==='H264_PART'));
+  assert.ok(!messages.some(m=>m.type==='H264_END'));
+});
+test('Revoked peer cannot start H.264 capture',async()=>{
+  await assert.rejects(sendH264({send:()=>{throw Error('unexpected send');}},
+    {destroyed:false,writableLength:0},{isSessionActive:()=>false}),
+    /trust revoked before capture/);
 });
