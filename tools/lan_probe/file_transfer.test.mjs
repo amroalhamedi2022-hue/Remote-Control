@@ -288,3 +288,73 @@ test('Node sender never cancels after FILE_END when final ACK is invalid',()=>sa
   assert.equal(types.at(-1),'FILE_END');
   assert.equal(types.includes('FILE_CANCEL'),false);
 }));
+
+
+test('revocation during Windows hard-link publication removes final and staging files',()=>sandbox(async dir=>{
+  const destination=path.join(dir,'received');await fs.mkdir(destination);
+  const hash=crypto.createHash('sha256').update('').digest('hex');
+  const offer={type:'FILE_OFFER',name:'revoked.txt',bytes:0,sha256:hash};
+  const [sender,receiver]=channels(),controller=new AbortController();
+  const outgoing=[];
+  const channel={
+    send:frame=>{outgoing.push(frame.type);receiver.send(frame);},
+    receive:()=>receiver.receive()
+  };
+  const originalLink=fs.link;
+  let enterLink,releaseLink;
+  const linked=new Promise(resolve=>{enterLink=resolve;});
+  const release=new Promise(resolve=>{releaseLink=resolve;});
+  fs.link=async (...args)=>{
+    await originalLink(...args);
+    enterLink();
+    await release;
+  };
+  try {
+    const receiving=receiveFileOnce(channel,offer,{
+      directory:destination,approve:async()=>true,signal:controller.signal
+    });
+    assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+    sender.send({type:'FILE_END',bytes:0,sha256:hash});
+    await linked;
+    controller.abort();
+    releaseLink();
+    await assert.rejects(receiving,{name:'AbortError'});
+    assert.deepEqual(await fs.readdir(destination),[]);
+    assert.deepEqual(outgoing,['FILE_READY']);
+  } finally {
+    releaseLink();
+    fs.link=originalLink;
+  }
+}));
+
+test('Windows receive rolls back newly linked file when staging cleanup fails',()=>sandbox(async dir=>{
+  const destination=path.join(dir,'received');await fs.mkdir(destination);
+  const hash=crypto.createHash('sha256').update('').digest('hex');
+  const offer={type:'FILE_OFFER',name:'cleanup-failed.txt',bytes:0,sha256:hash};
+  const [sender,receiver]=channels();
+  const outgoing=[];
+  const channel={
+    send:frame=>{outgoing.push(frame.type);receiver.send(frame);},
+    receive:()=>receiver.receive()
+  };
+  const originalUnlink=fs.unlink;
+  let injected=false;
+  fs.unlink=async file=>{
+    if(!injected && String(file).endsWith('.part')) {
+      injected=true;
+      const error=new Error('Simulated staging unlink failure');
+      error.code='EACCES';
+      throw error;
+    }
+    return originalUnlink(file);
+  };
+  try {
+    const receiving=receiveFileOnce(channel,offer,{directory:destination,approve:async()=>true});
+    assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+    sender.send({type:'FILE_END',bytes:0,sha256:hash});
+    await assert.rejects(receiving,/Simulated staging unlink failure/);
+    assert.equal(injected,true);
+    assert.deepEqual(await fs.readdir(destination),[]);
+    assert.deepEqual(outgoing,['FILE_READY']);
+  } finally {fs.unlink=originalUnlink;}
+}));
