@@ -60,6 +60,10 @@ class TrustPinStore {
     _revision++;
   }
 
+  /// Waits for all earlier writes and persists the current in-memory set.
+  /// Pairing Stop uses this as a barrier after invalidating its generation.
+  Future<void> persistCurrent() => _enqueue(Map<String, String>.of(_pins));
+
   /// Removes the pin from memory before awaiting storage, so a concurrent
   /// in-flight pin commit sees the revision change and cannot overwrite revoke.
   Future<bool> revoke(String fingerprint) async {
