@@ -74,6 +74,8 @@ Future<FileSendResult> sendLabFile(
 
   var sent = 0;
   var seq = 0;
+  var finalSent = false;
+  try {
   await for (final block in file.openRead()) {
     var offset = 0;
     while (offset < block.length) {
@@ -101,6 +103,7 @@ Future<FileSendResult> sendLabFile(
     throw StateError('Selected file changed during transfer');
   }
   await channel.send({'type': 'FILE_END', 'bytes': sent, 'sha256': digest});
+  finalSent = true;
   final done = await channel.receive().timeout(fileResponseTimeout);
   if (done['type'] != 'FILE_OK' ||
       done['bytes'] != sent || done['sha256'] != digest) {
@@ -108,6 +111,15 @@ Future<FileSendResult> sendLabFile(
   }
   onProgress?.call(sent, size, true);
   return FileSendResult(sent, digest);
+  } catch (_) {
+    // A sender that stops after FILE_READY must release the receiver's
+    // private staging promptly, rather than waiting for the idle timeout.
+    // Never send cancellation after FILE_END: the peer may have published.
+    if (!finalSent) {
+      try { await channel.send({'type': 'FILE_CANCEL'}); } catch (_) {}
+    }
+    rethrow;
+  }
 }
 
 
@@ -137,6 +149,7 @@ Future<FileSendResult?> receiveLabFile(
   required Future<bool> Function(LabIncomingOffer) approve,
   required Future<LabReceiveStaging> Function(LabIncomingOffer) createStaging,
   void Function(int bytes, int total, bool verified)? onProgress,
+  Duration stagingTimeout = fileResponseTimeout,
 }) async {
   if (offer['type'] != 'FILE_OFFER' ||
       offer['name'] is! String ||
@@ -169,9 +182,17 @@ Future<FileSendResult?> receiveLabFile(
   // A failed SAF provider/open must be denied BEFORE FILE_READY. No staging
   // exists yet, so there is nothing to publish or abort.
   late final LabReceiveStaging staging;
+  // Future.timeout does not cancel the underlying async native/desktop
+  // allocation. A late completion MUST abort its staging to avoid orphaned
+  // private files or SAF sessions after FILE_DENIED was sent.
+  final pendingStaging =
+      Future<LabReceiveStaging>.sync(() => createStaging(request));
   try {
-    staging = await createStaging(request).timeout(fileResponseTimeout);
+    staging = await pendingStaging.timeout(stagingTimeout);
   } catch (_) {
+    unawaited(pendingStaging.then((lateStage) async {
+      try { await lateStage.abort(); } catch (_) { /* best effort cleanup */ }
+    }, onError: (Object _, StackTrace __) {}));
     try { await channel.send({'type': 'FILE_DENIED'}); } catch (_) {}
     rethrow;
   }
@@ -184,6 +205,9 @@ Future<FileSendResult?> receiveLabFile(
     await channel.send({'type': 'FILE_READY'});
     while (true) {
       final frame = await channel.receive().timeout(fileResponseTimeout);
+      if (frame['type'] == 'FILE_CANCEL') {
+        throw StateError('Sender cancelled incoming file');
+      }
       if (frame['type'] == 'FILE_END') {
         hasher.close();
         final actual = sink.value?.toString();
