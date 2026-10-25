@@ -202,7 +202,7 @@ class MainActivity : FlutterActivity() {
         val pending = picker ?: return
         picker = null
         val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
-        if (uri != null && DocumentsContract.isTreeUri(uri) &&
+        if (uri != null && data != null && DocumentsContract.isTreeUri(uri) &&
             (data.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) {
             approvedTree = uri
             pending.success(uri.toString())
