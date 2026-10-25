@@ -93,6 +93,15 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
   // async iterator finishes. Attach a rejection handler immediately so Node
   // does not terminate on an unhandled rejection; the later await still throws.
   void done.catch(() => {});
+  let trustRevoked=false;
+  // Trust must be polled even while FFmpeg emits no bytes; a stalled capture
+  // must not outlive peer revocation merely because stdout is quiet.
+  const trustWatch=setInterval(()=>{
+    let active=false;
+    try { active=isSessionActive(); } catch { /* fail closed */ }
+    if(!active){trustRevoked=true;if(!child.killed)child.kill();}
+  },100);
+  trustWatch.unref?.();
   child.stderr.on('data',b=>{stderr+=b.toString().slice(0,512);stderr=stderr.slice(-2048);});
   let parser;
   try{
@@ -110,7 +119,9 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
       parser.push(chunk);
     }
     if(!child.killed&&!stopped)await done;
+    if(trustRevoked||!isSessionActive())throw new Error('Screen preview trust revoked while capture was idle');
   }finally{
+    clearInterval(trustWatch);
     if(!child.killed)child.kill();
   }
   if(sent===0&&!socket.destroyed)throw new Error('No frames captured. '+stderr.slice(-220));
