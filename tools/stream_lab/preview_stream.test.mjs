@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {JpegFrames, jpegMessages, PreviewAssembler, sendPreview, captureArguments} from './preview_stream.mjs';
 const mini = Buffer.from([0xff,0xd8,0x31,0x42,0xff,0xd9]);
 test('fragmented JPEG stream and two concatenated frames',()=>{
@@ -63,4 +66,21 @@ test('Revoked peer cannot start MJPEG capture',async()=>{
   await assert.rejects(sendPreview({send:()=>{throw Error('unexpected send');}},
     {destroyed:false,writableLength:0},{isSessionActive:()=>false}),
     /trust revoked before capture/);
+});
+
+
+test('Revoking trust while FFmpeg is silent terminates the capture process', {timeout:5000}, async t => {
+  if(process.platform==='win32'){t.skip('POSIX executable fixture');return;}
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-idle-preview-'));
+  try {
+    const fake=path.join(dir,'ffmpeg-stall');
+    await fs.writeFile(fake, `#!/bin/sh\nexec "${process.execPath}" -e 'setTimeout(() => {}, 10000)'\n`);
+    await fs.chmod(fake,0o755);
+    let checks=0;
+    const started=Date.now();
+    await assert.rejects(sendPreview({send:()=>assert.fail('silent capture must not send frames')},
+      {destroyed:false,writableLength:0},{ffmpeg:fake,isSessionActive:()=>++checks===1}),
+      /trust revoked/);
+    assert.ok(Date.now()-started<3000,'revoked idle capture should terminate promptly');
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
