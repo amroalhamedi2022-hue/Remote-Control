@@ -218,3 +218,18 @@ jobs:
             app/build-evidence/windows.json
           if-no-files-found: error
           retention-days: 14
+
+  # Process-lifecycle contract is platform-sensitive even when the unit test uses a fake child.
+  # Run it on Windows without producing a Windows bundle or requiring FFmpeg.
+  windows-capture-lifecycle:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test graceful exit, force-stop escalation and cleanup on Windows Node
+        run: node --test tools/stream_lab/child_lifecycle.test.mjs
+      - name: Parse integrated capture modules
+        run: node --check tools/stream_lab/preview_stream.mjs && node --check tools/video_lab/h264_transport.mjs
