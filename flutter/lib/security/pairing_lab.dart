@@ -616,6 +616,16 @@ class PairingLab {
     final server = _server;
     _server = null;
     await server?.close();
+    // Wait behind any in-flight pin write. Even if the pairing future has not
+    // resumed to perform its own rollback yet, Stop durably reasserts the
+    // current pin set before returning to a revoke/UI caller.
+    if (_identity != null) {
+      try {
+        await _trustPins.persistCurrent();
+      } catch (e) {
+        error = 'Could not persist trust state after Stop: $e';
+      }
+    }
     onChange?.call();
   }
 }
