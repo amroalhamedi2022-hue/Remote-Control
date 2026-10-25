@@ -356,3 +356,16 @@ test('trust revoke during final folder rename rolls back published payload befor
     assert.deepEqual(await fs.readdir(dest),[]);
   } finally {fs.rename=originalRename;}
 }));
+
+
+test('revoking trusted folder session interrupts idle entry wait and cleans staging',()=>sandbox(async root=>{
+  const [sender,receiver]=channels();
+  let active=true;
+  const pending=receiveFolderOnce(receiver,{type:'FOLDER_BEGIN',folder:'photos',
+    count:1,bytes:3},{directory:root,approve:async()=>true,
+    isSessionActive:()=>active,idleTimeoutMs:5000});
+  assert.deepEqual(await sender.receive(),{type:'FOLDER_READY'});
+  active=false;
+  await assert.rejects(pending,{name:'AbortError'});
+  assert.deepEqual(await fs.readdir(root),[]);
+}));
