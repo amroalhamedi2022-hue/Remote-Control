@@ -395,3 +395,63 @@ test('failed Windows final-file rollback is reported instead of silently accepte
     assert.deepEqual(await fs.readdir(destination),['rollback-error.txt']);
   } finally {fs.unlink=originalUnlink;}
 }));
+
+test('revoked file trust during consent prevents READY and leaves no file',()=>sandbox(async dir=>{
+  const dest=path.join(dir,'dest');await fs.mkdir(dest);
+  const hash=crypto.createHash('sha256').update('').digest('hex');
+  const offer={type:'FILE_OFFER',name:'consent.txt',bytes:0,sha256:hash};
+  const [sender,receiver]=channels();
+  let trusted=true,approvals=0;
+  const receiving=receiveFileOnce(receiver,offer,{
+    directory:dest,isSessionActive:()=>trusted,
+    approve:async()=>{approvals++;trusted=false;return true;}
+  });
+  await assert.rejects(receiving,{name:'AbortError'});
+  assert.equal(approvals,1);
+  assert.deepEqual(await fs.readdir(dest),[]);
+}));
+
+test('revoked file trust after chunk ACK rejects END and deletes staged bytes',()=>sandbox(async dir=>{
+  const dest=path.join(dir,'dest');await fs.mkdir(dest);
+  const data=Buffer.from('never publish after revoke');
+  const hash=crypto.createHash('sha256').update(data).digest('hex');
+  const offer={type:'FILE_OFFER',name:'revoke.bin',bytes:data.length,sha256:hash};
+  const [sender,receiver]=channels();
+  let trusted=true;const frames=[];
+  const guarded={
+    send:frame=>{frames.push(frame.type);receiver.send(frame);
+      if(frame.type==='FILE_ACK')trusted=false;},
+    receive:()=>receiver.receive()
+  };
+  const receiving=receiveFileOnce(guarded,offer,{
+    directory:dest,approve:async()=>true,isSessionActive:()=>trusted
+  });
+  assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+  sender.send({type:'FILE_CHUNK',seq:0,data:data.toString('base64')});
+  assert.deepEqual(await sender.receive(),{type:'FILE_ACK',seq:0});
+  sender.send({type:'FILE_END',bytes:data.length,sha256:hash});
+  await assert.rejects(receiving,{name:'AbortError'});
+  assert.deepEqual(frames,['FILE_READY','FILE_ACK']);
+  assert.deepEqual(await fs.readdir(dest),[]);
+}));
+
+test('trust revoke during Windows hard-link publication rolls back final file',()=>sandbox(async dir=>{
+  const dest=path.join(dir,'dest');await fs.mkdir(dest);
+  const hash=crypto.createHash('sha256').update('').digest('hex');
+  const offer={type:'FILE_OFFER',name:'revoked-trust.txt',bytes:0,sha256:hash};
+  const [sender,receiver]=channels();let trusted=true;
+  const frames=[],channel={send:frame=>{frames.push(frame.type);receiver.send(frame);},
+    receive:()=>receiver.receive()};
+  const originalLink=fs.link;
+  fs.link=async (...args)=>{await originalLink(...args);trusted=false;};
+  try {
+    const receiving=receiveFileOnce(channel,offer,{
+      directory:dest,approve:async()=>true,isSessionActive:()=>trusted
+    });
+    assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+    sender.send({type:'FILE_END',bytes:0,sha256:hash});
+    await assert.rejects(receiving,{name:'AbortError'});
+    assert.deepEqual(frames,['FILE_READY']);
+    assert.deepEqual(await fs.readdir(dest),[]);
+  } finally {fs.link=originalLink;}
+}));
