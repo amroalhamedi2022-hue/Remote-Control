@@ -12,6 +12,8 @@ cp "$ROOT/flutter/pubspec.yaml" "$APP/pubspec.yaml"
 cp -R "$ROOT/flutter/lib/." "$APP/lib/"
 rm -f "$APP/test/widget_test.dart"
 cp -R "$ROOT/flutter/test/." "$APP/test/"
+# Apply versioned native SAF receiver source after Flutter scaffold generation.
+cp -R "$ROOT/android_overlay/." "$APP/android/"
 python3 - "$APP/android/app/src/main/AndroidManifest.xml" <<'PY'
 from pathlib import Path
 import sys
