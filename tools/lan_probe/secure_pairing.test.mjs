@@ -192,6 +192,28 @@ test('file-transfer intent is signed, bound to the peer and not a generic contro
   assert.equal((await server.channel.receive()).type,'FILE_OFFER');
 });
 
+test('screen preview requires a separately signed view-only intent', async t => {
+  const f=await fixture({intent:'screen'});
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  const [client,server]=await Promise.all([f.clientSide,f.serverSide]);
+  assert.equal(server.peerIntent,'screen');
+  assert.equal(client.peerIntent,null);
+  assert.equal(requireSignedIntent(server.peerIntent,'screen'),true);
+  assert.throws(()=>requireSignedIntent(server.peerIntent,'file'),/Signed file intent required/);
+  assert.throws(()=>requireSignedIntent(server.peerIntent,'clipboard'),/Signed clipboard intent required/);
+  client.channel.send({type:'STREAM_START',mode:'view-only'});
+  assert.deepEqual(await server.channel.receive(),{type:'STREAM_START',mode:'view-only'});
+});
+
+test('tampering with signed screen intent is rejected before trust creation',async t=>{
+  const f=await fixture({intent:'screen',debugHooks:{mutateHello:h=>({...h,intent:'file'})}});
+  t.after(()=>{f.clientSocket.destroy();f.listener.close();});
+  await assert.rejects(f.serverSide,/Invalid identity signature/);
+  await assert.rejects(f.clientSide);
+  assert.equal(f.clientTrust.size,0);
+  assert.equal(f.serverTrust.size,0);
+});
+
 test('tampering with signed file intent prevents trust creation',async t=>{
   const f=await fixture({intent:'file',debugHooks:{mutateHello:h=>({...h,intent:'clipboard'})}});
   t.after(()=>{f.clientSocket.destroy();f.listener.close();});
@@ -232,14 +254,14 @@ test('unsupported client intent is rejected before a network connection', async 
     onCode:async()=>true,intent:'remote-input'}),/Unsupported client session intent/);
 });
 
-test('privileged file/clipboard actions require the exact authenticated session intent', async t => {
+test('privileged file/clipboard/screen actions require the exact authenticated session intent', async t => {
   for (const intent of [null, undefined, 'file', 'clipboard', 'remote-input', {}, '']) {
-    for (const capability of ['file', 'clipboard']) {
+    for (const capability of ['file', 'clipboard', 'screen']) {
       if (intent === capability) {
         assert.equal(requireSignedIntent(intent, capability), true);
       } else {
         assert.throws(() => requireSignedIntent(intent, capability),
-          /Signed (file|clipboard) intent required/);
+          /Signed (file|clipboard|screen) intent required/);
       }
     }
   }
