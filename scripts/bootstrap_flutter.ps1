@@ -18,6 +18,8 @@ Copy-Item -Path (Join-Path $root 'flutter\lib\*') -Destination (Join-Path $appDi
 $generatedTest = Join-Path $appDir 'test\widget_test.dart'
 if (Test-Path $generatedTest) { Remove-Item $generatedTest -Force }
 Copy-Item -Path (Join-Path $root 'flutter\test\*') -Destination (Join-Path $appDir 'test') -Recurse -Force
+# Versioned Android SAF receiver overlays the generated Kotlin MainActivity.
+Copy-Item -Path (Join-Path $root 'android_overlay\*') -Destination (Join-Path $appDir 'android') -Recurse -Force
 $manifestPath = Join-Path $appDir 'android\app\src\main\AndroidManifest.xml'
 $manifest = Get-Content -Path $manifestPath -Raw -Encoding UTF8
 if ($manifest -notmatch 'android.permission.INTERNET') {
