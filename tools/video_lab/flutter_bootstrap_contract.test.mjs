@@ -16,6 +16,8 @@ test('Linux bootstrap copies Liquid Fusion source, writes permissions and minSdk
     mkdirSync(join(tmp,'scripts'),{recursive:true});
     cpSync(join(root,'scripts','bootstrap_flutter.sh'),join(tmp,'scripts','bootstrap_flutter.sh'));
     cpSync(join(root,'flutter'),join(tmp,'flutter'),{recursive:true});
+    // The bootstrap now requires the versioned native SAF overlay as input.
+    cpSync(join(root,'android_overlay'),join(tmp,'android_overlay'),{recursive:true});
     const bin=join(tmp,'bin');mkdirSync(bin);
     const flutterStub=join(bin,'flutter');
     writeFileSync(flutterStub,`#!/usr/bin/env bash
@@ -43,6 +45,8 @@ fi
     assert.match(manifest,/android:allowBackup="false"/);
     assert.match(gradle,/minSdk = 23/);
     assert.ok(existsSync(join(tmp,'app/lib/security/pairing_lab.dart')));
+    assert.ok(existsSync(join(tmp,'app/android/app/src/main/kotlin/com/example/liquid_remote_control/MainActivity.kt')));
+    assert.ok(existsSync(join(tmp,'app/android/app/src/main/kotlin/com/example/liquid_remote_control/SafReceivePolicy.kt')));
     assert.ok(existsSync(join(tmp,'app/test/liquid_ui_smoke_test.dart')));
     assert.ok(!existsSync(join(tmp,'app/test/widget_test.dart')));
     assert.throws(()=>execFileSync('bash',[join(tmp,'scripts/bootstrap_flutter.sh')],{env,stdio:'pipe'}),/already|Existing/);
