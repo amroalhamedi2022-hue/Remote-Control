@@ -42,3 +42,25 @@ test('Missing FFmpeg fails predictably without an unhandled rejection', async ()
     error => error?.code === 'ENOENT'
   );
 });
+
+test('Revoking peer trust during MJPEG preview stops capture before further frames', {timeout:25000}, async t => {
+  if(spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status!==0){t.skip('FFmpeg not installed');return;}
+  let trusted=true;
+  const sent=[];
+  const channel={send:msg=>{
+    sent.push(msg);
+    if(msg.type==='FRAME_END') trusted=false;
+  }};
+  await assert.rejects(
+    sendPreview(channel,{destroyed:false,writableLength:0},{
+      testPattern:true,width:320,fps:4,maxFrames:4,isSessionActive:()=>trusted
+    }),
+    /trust revoked/
+  );
+  assert.equal(sent.filter(m=>m.type==='FRAME_END').length,1);
+});
+test('Revoked peer cannot start MJPEG capture',async()=>{
+  await assert.rejects(sendPreview({send:()=>{throw Error('unexpected send');}},
+    {destroyed:false,writableLength:0},{isSessionActive:()=>false}),
+    /trust revoked before capture/);
+});
