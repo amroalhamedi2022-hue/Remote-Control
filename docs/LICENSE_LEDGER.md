@@ -25,3 +25,9 @@ The preview lab **executes an external `ffmpeg` command** provided by the user/s
 
 ## v0.6: H.264 video lab
 `tools/video_lab/h264_transport.mjs` invokes an **external user-provided** FFmpeg executable to encode H.264 into MPEG-TS. The ZIP includes **no** FFmpeg executable or codecs. Lab tests used external FFmpeg's `libx264` encoder in the local container; a `h264_nvenc` CLI option exists but was NOT hardware-tested. FFmpeg binary licensing depends on its actual build; `libx264` and bundled redistributable codecs may introduce GPL or other obligations. H.264 patent/licensing review will be needed before product distribution. No third-party RustDesk, Sunshine or Moonlight engine code was copied.
+
+## 2026-10-24 — Android→Windows selected-file milestone
+- `file_selector ^1.1.0`: Flutter-team maintained BSD-3-Clause plugin; Android native picker (SAF) and Windows supported. Source/license: https://pub.dev/packages/file_selector and https://pub.dev/packages/file_selector/license. This version is a direct dependency; preserve license notices when distributing.
+- `crypto ^3.0.7`: Dart-team BSD-3-Clause streaming SHA-256. Source/license: https://pub.dev/packages/crypto. Used for file integrity, NOT for session authentication (existing `cryptography` AEAD handles that).
+- Node receiver reuses existing `tools/lan_probe/file_transfer.mjs` without adding native dependencies. No proprietary or paid API.
+- Production security acceptance remains BLOCKED: bespoke SAS/AEAD handshake has not received independent review; Android SAF provider behavior, Windows receiver and permission lifecycle need physical-device tests.

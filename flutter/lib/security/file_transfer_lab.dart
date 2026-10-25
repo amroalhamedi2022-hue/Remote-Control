@@ -1,0 +1,223 @@
+// Android/Windows one-shot FILE_OFFER interoperability with the Node LAN lab.
+// Uses a user-picked XFile stream; never requests broad storage permissions.
+// The enclosing channel MUST be the SAS-confirmed, signed 'file' intent AEAD
+// channel. This fixture is not an audited production remote-access transport.
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart' as crypto;
+import 'package:file_selector/file_selector.dart';
+
+const maxLabFileBytes = 64 * 1024 * 1024;
+const labFileChunkBytes = 3072; // keeps encrypted JSON lines under 8192 bytes
+const fileResponseTimeout = Duration(seconds: 60);
+
+abstract class FileTransferChannel {
+  Future<void> send(Map<String, dynamic> message);
+  Future<Map<String, dynamic>> receive();
+}
+
+class FileSendResult {
+  final int bytes;
+  final String sha256;
+  const FileSendResult(this.bytes, this.sha256);
+}
+
+String validateLabFileName(String name) {
+  if (name.isEmpty || name.length > 180 || name == '.' || name == '..' ||
+      name.endsWith('.') || name.endsWith(' ') ||
+      RegExp(r'[\\/<>:"|?*\x00-\x1f\x7f-\x9f\uFFFD]').hasMatch(name) ||
+      RegExp(r'[\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]').hasMatch(name) ||
+      RegExp(r'[\u{E0000}-\u{E007F}]', unicode: true).hasMatch(name) ||
+      RegExp(r'^\.(liquidremote|netkit)-', caseSensitive: false).hasMatch(name) ||
+      RegExp(r'^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(\.|$)',
+          caseSensitive: false).hasMatch(name)) {
+    throw const FormatException('Unsafe selected filename');
+  }
+  return name;
+}
+
+/// Hashes the stream without loading a large SAF document into memory.
+Future<String> _hashFile(XFile file) async =>
+    (await crypto.sha256.bind(file.openRead()).first).toString();
+
+/// The Node receiver must explicitly approve the signed file intent after
+/// the six-digit pairing check. Each chunk is acknowledged before the next.
+Future<FileSendResult> sendLabFile(
+  FileTransferChannel channel,
+  XFile file, {
+  void Function(int bytes, int total, bool verified)? onProgress,
+  // CrossFile.fromData ignores its 'name' argument on Dart IO; this override
+  // lets in-memory protocol tests provide the original picker filename.
+  String? selectedName,
+}) async {
+  final name = validateLabFileName(selectedName ?? file.name);
+  final size = await file.length();
+  if (size < 0 || size > maxLabFileBytes) {
+    throw const FormatException('Selected file exceeds 64 MiB lab limit');
+  }
+  final digest = await _hashFile(file);
+  if (await file.length() != size) {
+    throw StateError('Selected file changed while hashing');
+  }
+
+  await channel.send({
+    'type': 'FILE_OFFER', 'name': name, 'bytes': size, 'sha256': digest,
+  });
+  final approval = await channel.receive().timeout(fileResponseTimeout);
+  if (approval['type'] == 'FILE_DENIED') {
+    throw StateError('Receiver denied file transfer');
+  }
+  if (approval['type'] != 'FILE_READY') {
+    throw StateError('Invalid file receiver approval');
+  }
+
+  var sent = 0;
+  var seq = 0;
+  await for (final block in file.openRead()) {
+    var offset = 0;
+    while (offset < block.length) {
+      final count = block.length - offset > labFileChunkBytes
+          ? labFileChunkBytes : block.length - offset;
+      if (sent + count > size) {
+        throw StateError('Selected file grew during transfer');
+      }
+      final chunk = block.sublist(offset, offset + count);
+      await channel.send({
+        'type': 'FILE_CHUNK', 'seq': seq, 'data': base64.encode(chunk),
+      });
+      final ack = await channel.receive().timeout(fileResponseTimeout);
+      if (ack['type'] != 'FILE_ACK' || ack['seq'] != seq) {
+        throw StateError('Invalid file chunk acknowledgement');
+      }
+      sent += count;
+      offset += count;
+      seq++;
+      onProgress?.call(sent, size, false);
+    }
+  }
+  if (sent != size || await file.length() != size ||
+      await _hashFile(file) != digest) {
+    throw StateError('Selected file changed during transfer');
+  }
+  await channel.send({'type': 'FILE_END', 'bytes': sent, 'sha256': digest});
+  final done = await channel.receive().timeout(fileResponseTimeout);
+  if (done['type'] != 'FILE_OK' ||
+      done['bytes'] != sent || done['sha256'] != digest) {
+    throw StateError('Receiver did not verify complete file');
+  }
+  onProgress?.call(sent, size, true);
+  return FileSendResult(sent, digest);
+}
+
+
+/// One explicitly approved incoming file. The platform adapter MUST stage
+/// privately and publish atomically only from commit(), never from write().
+/// Android SAF and Windows destination adapters are separate acceptance work.
+abstract class LabReceiveStaging {
+  Future<void> write(List<int> bytes);
+  Future<void> commit({required String name, required int bytes,
+    required String sha256});
+  Future<void> abort();
+}
+
+class LabIncomingOffer {
+  final String name;
+  final int bytes;
+  final String sha256;
+  const LabIncomingOffer(this.name, this.bytes, this.sha256);
+}
+
+/// Dart/Node FILE_OFFER interoperability. Caller must supply a paired,
+/// signed-file-intent AEAD channel and a platform-specific transactional sink.
+/// No file is published on denial, truncation, bad framing or hash mismatch.
+Future<FileSendResult?> receiveLabFile(
+  FileTransferChannel channel,
+  Map<String, dynamic> offer, {
+  required Future<bool> Function(LabIncomingOffer) approve,
+  required Future<LabReceiveStaging> Function(LabIncomingOffer) createStaging,
+  void Function(int bytes, int total, bool verified)? onProgress,
+}) async {
+  if (offer['type'] != 'FILE_OFFER' ||
+      offer['name'] is! String ||
+      offer['bytes'] is! int ||
+      offer['sha256'] is! String) {
+    throw const FormatException('Invalid incoming file offer');
+  }
+  final name = validateLabFileName(offer['name'] as String);
+  final size = offer['bytes'] as int;
+  final expected = offer['sha256'] as String;
+  if (size < 0 || size > maxLabFileBytes ||
+      !RegExp(r'^[0-9a-f]{64}$').hasMatch(expected)) {
+    throw const FormatException('Invalid incoming file size or digest');
+  }
+  final request = LabIncomingOffer(name, size, expected);
+  final accepted = await approve(request).timeout(fileResponseTimeout);
+  if (!accepted) {
+    await channel.send({'type': 'FILE_DENIED'});
+    return null;
+  }
+
+  // Never acknowledge readiness until a private staging target exists.
+  final staging = await createStaging(request).timeout(fileResponseTimeout);
+  var committed = false;
+  final sink = _LabDigestSink();
+  final hasher = crypto.sha256.startChunkedConversion(sink);
+  var count = 0;
+  var sequence = 0;
+  try {
+    await channel.send({'type': 'FILE_READY'});
+    while (true) {
+      final frame = await channel.receive().timeout(fileResponseTimeout);
+      if (frame['type'] == 'FILE_END') {
+        hasher.close();
+        final actual = sink.value?.toString();
+        if (count != size || frame['bytes'] != count ||
+            frame['sha256'] != expected || actual != expected) {
+          throw StateError('Incoming file size or SHA-256 mismatch');
+        }
+        // Commit is the only operation allowed to make the file visible.
+        await staging.commit(name: name, bytes: count, sha256: expected);
+        committed = true;
+        await channel.send({
+          'type': 'FILE_OK', 'bytes': count, 'sha256': expected,
+        });
+        onProgress?.call(count, size, true);
+        return FileSendResult(count, expected);
+      }
+      final encoded = frame['data'];
+      if (frame['type'] != 'FILE_CHUNK' ||
+          frame['seq'] is! int || frame['seq'] != sequence ||
+          encoded is! String || encoded.isEmpty ||
+          encoded.length > ((labFileChunkBytes + 2) ~/ 3) * 4 ||
+          !_canonicalLabBase64.hasMatch(encoded)) {
+        throw const FormatException('Invalid incoming file chunk');
+      }
+      final bytes = base64.decode(encoded);
+      if (bytes.isEmpty || bytes.length > labFileChunkBytes ||
+          bytes.length > size - count) {
+        throw StateError('Incoming file exceeds approved byte budget');
+      }
+      await staging.write(bytes);
+      hasher.add(bytes);
+      count += bytes.length;
+      await channel.send({'type': 'FILE_ACK', 'seq': sequence});
+      sequence++;
+      onProgress?.call(count, size, false);
+    }
+  } finally {
+    if (!committed) await staging.abort();
+  }
+}
+
+final RegExp _canonicalLabBase64 = RegExp(
+  r'^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$',
+);
+
+class _LabDigestSink implements Sink<crypto.Digest> {
+  crypto.Digest? value;
+  @override
+  void add(crypto.Digest data) { value = data; }
+  @override
+  void close() {}
+}

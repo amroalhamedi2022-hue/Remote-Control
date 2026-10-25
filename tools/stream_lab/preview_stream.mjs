@@ -88,6 +88,10 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
     child.on('error',reject);
     child.on('close',code=>resolve(code));
   });
+  // A missing/broken FFmpeg executable can emit 'error' before stdout's
+  // async iterator finishes. Attach a rejection handler immediately so Node
+  // does not terminate on an unhandled rejection; the later await still throws.
+  void done.catch(() => {});
   child.stderr.on('data',b=>{stderr+=b.toString().slice(0,512);stderr=stderr.slice(-2048);});
   let parser;
   try{

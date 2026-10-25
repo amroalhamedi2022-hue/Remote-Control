@@ -33,3 +33,12 @@ test('FFmpeg test pattern produces actual encrypted-ready frames (local-only)',{
   wire.forEach(msg=>asm.ingest(msg));
   assert.equal(got.length,2);assert.ok(got.every(j=>j.length>1000));
 });
+
+test('Missing FFmpeg fails predictably without an unhandled rejection', async () => {
+  const socket = {destroyed:false,writableLength:0};
+  const channel = {send:() => { throw Error('No frames should be sent'); }};
+  await assert.rejects(
+    sendPreview(channel,socket,{testPattern:true,ffmpeg:'__liquid_remote_missing_ffmpeg_test__',maxFrames:1}),
+    error => error?.code === 'ENOENT'
+  );
+});

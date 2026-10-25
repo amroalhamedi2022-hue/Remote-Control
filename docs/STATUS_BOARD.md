@@ -1,35 +1,37 @@
-> **Authoritative role correction:** Work only creates/imports the private repository; all programming and management is performed in the current chat. See `docs/OPERATING_MODEL.md`.
+# Remote Control — Live engineering status
 
-# Remote Control — ADMIN status ledger
+Date: **2026-10-23**. Canonical repo: **https://github.com/amroalhamedi2022-hue/Remote-Control** (PUBLIC at owner's explicit direction).
 
-**Last administrative baseline:** 2026-10-23 | **Project** v0.8 | **Admin chat** current ChatGPT conversation | **Executor** THIS normal ChatGPT conversation; **Work** GitHub bootstrap/import only.
+## Operating contract
 
-## Actual state
+- **This normal ChatGPT conversation** manages development, source edits, tests, GitHub Actions, pull requests and milestone verification.
+- **ChatGPT Work is not responsible for implementation** and need not be invoked for routine steps.
+- No Codex, no access to other projects (including NetKit).
+- Search for reputable, licensed, maintained implementations before reinventing cryptography, protocols, codecs or capture components.
+- Visual source of truth: `design/LIQUID_FUSION_MASTER_REFERENCE.png` (original byte-for-byte).
+- Never mark hardware/OS functionality verified from a screenshot or synthetic media test.
 
-- Repo target: `amroalhamedi2022-hue/remote-control-liquid-fusion` — **NOT VERIFIED CREATED**. Must remain PRIVATE; GitHub creation needs Work Cloud Browser or owner action because available GitHub connector cannot create repositories.
-- Archive root: `Remote_Control_Liquid_Fusion_v0.8/`; flatten this directory before initial push.
-- Verified now: v0.8 Node 22 integration suites **31 passed, 0 failed** from source; see `docs/BASELINE_VERIFY_2026-10-23.md`.
-- CI: `.github/workflows/ci.yml` exists in archive, **NO GitHub run yet**.
-- Flutter: code exists, SDK/analyze/build **not verified**.
-- Android APK: **not built**. Windows EXE/runner: **not built**.
-- Real device stream/control (MSI Sword 15 ↔ Xiaomi Pad 5, Android phone): **not verified**.
-- Protocol: custom experimental Node pairing with plaintext lab key storage; **not approved for privileged production features**.
-- Locked design master: `design/LIQUID_FUSION_MASTER_REFERENCE.png`.
+## Milestone gates
 
-## Gate tracker
-
-| Gate | State | GitHub/this-chat evidence required |
+| Milestone | Verified evidence | Status |
 |---|---|---|
-| M0 Import/audit | NOT STARTED on GitHub | Private repo URL, source/commit SHA, first Actions URL |
-| M1 Builds | NOT STARTED | Android APK SHA/size, Windows bundle SHA/size, analyzer & widget tests |
-| M2 Offline LAN and trusted pairing | PARTIAL LAB ONLY | Real offline network, security test logs |
-| M3 Windows → Android view | PARTIAL LAB ONLY | Real screenshot/live stream + metrics |
-| M4 Windows input | NOT STARTED | Device input/negative security tests |
-| M5 Android host | NOT STARTED | Consent/API-limited host tests |
-| M6 Android ↔ Android | NOT STARTED | Two-direction phone-tablet test |
-| M7 Integration | NOT STARTED | Clipboard/file/audio/multi-session test matrix |
-| M8 Performance and release | NOT STARTED | Reproducible release and evidence |
+| M0 Source migration | 77 baseline source/asset files, source + design checksums | **DONE** |
+| M1 Android and Windows debug builds | `flutter analyze`, widget tests, real signed/debug binary structures, SHA-256 manifests, GitHub Actions URL | **IN PROGRESS** — verifier added; CI results pending |
+| M2 Secure LAN/pairing | On-device offline trials; vetted transport; peer/key recovery tests | **LAB ONLY**, custom protocol not approved for privileged features |
+| M3 Windows host → Android viewer | Real MSI desktop capture + Pad 5 playback + measured latency | **NOT VERIFIED** |
+| M4 Remote keyboard/mouse | Opt-in host authorisation, safe input boundaries, device tests | **NOT STARTED** |
+| M5 Android Host | MediaProjection, Accessibility and OEM consent evidence | **NOT STARTED** |
+| M6 Bidirectional Android ↔ Android | Phone/tablet physical tests | **NOT STARTED** |
+| M7 Clipboard/files/audio/multisession | Explicit permissions, independent integration tests | **NOT STARTED** |
+| M8 Performance/security/release | Measured performance + real hardware + release gates | **NOT STARTED** |
 
-## Update rule
+## Evidence separation
 
-The main ChatGPT conversation updates this ledger in the **same PR as relevant implementation**, identifying commit SHA, Actions run URL, concrete file paths, original test command, output summary, artifact hashes, and a separate physical-device verification field. This chat reviews the ledger against real GitHub source, CI, artifacts and on-device proof. Do not mark DONE based on any prose-only report.
+- **Previously verified locally**: 31/31 Node lab protocol/media tests using local processes and synthetic FFmpeg input.
+- **New v0.9 local unit tests**: 5/5 artifact validator tests, intentionally including malformed APK and fake Windows exe rejection.
+- **Not verified yet**: Flutter analysis, compiled Flutter APK/Windows executable, real device LAN, interactive input, commercial-quality codec latency or security audit.
+- CI only closes an individual build sub-gate after its artifact verifier passes and the binary is retrievable; it does NOT close device experience milestones.
+
+## Next admin action
+
+Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read the failing job log, fix the code in this chat and rerun until the build is reproducible. Preserve architectural separation and the design master asset.

@@ -1,7 +1,8 @@
-/// v0.5 experimental signed pairing and view-only MJPEG LAN preview.
-/// All screen sharing requires an extra LOCAL host approval (SHARE on Node agent).
-/// No remote input, files, clipboard or unattended access is authorized.
-/// The bespoke handshake MUST be replaced/audited before product release.
+// v0.5 experimental signed pairing and view-only MJPEG LAN preview.
+// All screen sharing requires an extra LOCAL host approval (SHARE on Node agent).
+// Clipboard is permitted only through an explicit, encrypted one-shot intent
+// with a separate local receiver approval. No input, files or unattended access.
+// The bespoke handshake MUST be replaced/audited before product release.
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
@@ -11,6 +12,14 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:file_selector/file_selector.dart';
+import 'file_transfer_lab.dart';
+import 'desktop_file_staging.dart';
+import '../network/lan_address_policy.dart';
+import 'pair_session_ledger.dart';
+import 'pair_consent_policy.dart';
+import 'pairing_lifecycle.dart';
+import 'clipboard_policy.dart';
 
 const pairingPort = 43829;
 const _protocol = 'liquidremote.pair.v1';
@@ -74,16 +83,30 @@ class PairingLab {
   Socket? _previewSocket;
   bool _previewCancelled = false;
   bool _busy = false;
+  final PairingLifecycle _lifecycle = PairingLifecycle();
+  Socket? _activePairSocket;
   final Map<String, String> _trust = {};
-  final Map<String, String> _sessionAddresses = {};
+  final PairSessionLedger _sessionAddresses = PairSessionLedger();
   SimpleKeyPair? _identity;
   List<int>? _identitySpki;
   final signature = Ed25519();
   final keyExchange = X25519();
   String? error;
   void Function()? onChange;
+  // A receiver is disabled until the UI installs BOTH callbacks. No unattended
+  // clipboard writes, background sync, or clipboard reads.
+  Future<bool> Function(String fingerprint, String text)? onClipboardConsent;
+  Future<void> Function(String text)? onClipboardWrite;
+  // Windows desktop only: the local user must explicitly approve each file
+  // and select the destination folder. Android SAF is NOT wired yet.
+  Future<Directory?> Function(String fingerprint, LabIncomingOffer offer)?
+      onFileReceiveRequest;
+  void Function(FileSendResult result)? onFileReceiveCompleted;
   bool get listening => _server != null;
-  bool isPairedInThisSession(String address) => _sessionAddresses.containsKey(address);
+  bool isPairedInThisSession(String address) {
+    final fingerprint = _sessionAddresses.fingerprintFor(address);
+    return fingerprint != null && _trust.containsKey(fingerprint);
+  }
   int get trustedCount => _trust.length;
   String? get localFingerprint => _localFingerprint;
   String? _localFingerprint;
@@ -122,16 +145,37 @@ class PairingLab {
 
   Future<void> startListening(AskForPairConsent ask) async {
     if (_server != null) return;
+    final ticket = _lifecycle.ticket;
     try {
       await _init();
+      _lifecycle.requireCurrent(ticket);
       final server = await ServerSocket.bind(InternetAddress.anyIPv4, pairingPort);
+      if (!_lifecycle.isCurrent(ticket)) {
+        await server.close();
+        return;
+      }
       _server = server;
       server.listen((socket) async {
+        if (!identical(_server, server) || !_lifecycle.isCurrent(ticket)) {
+          socket.destroy();
+          return;
+        }
+        // Binding on all interfaces is needed for LAN reachability, but a
+        // forwarded public connection must never reach the pairing UI.
+        if (!isLocalLanIpv4(socket.remoteAddress, allowLoopback: true)) {
+          socket.destroy();
+          return;
+        }
         if (_busy) { socket.destroy(); return; }
         _busy = true;
-        try { await _pair(socket, isClient: false, ask: ask); }
+        _activePairSocket = socket;
+        try { await _pair(socket, isClient: false, ask: ask, ticket: ticket); }
         catch (e) { error = 'Incoming pairing: $e'; onChange?.call(); }
-        finally { socket.destroy(); _busy = false; }
+        finally {
+          socket.destroy();
+          if (identical(_activePairSocket, socket)) _activePairSocket = null;
+          _busy = false;
+        }
       }, onError: (Object e) { error = 'Pair listener: $e'; onChange?.call(); });
       error = null;
     } catch (e) { error = 'Pair listener unavailable: $e'; }
@@ -139,33 +183,105 @@ class PairingLab {
   }
 
   Future<PairResult> connect(String ip, AskForPairConsent ask) async {
+    final ticket = _lifecycle.ticket;
     await _init();
+    _lifecycle.requireCurrent(ticket);
     if (_busy) throw StateError('Already pairing another device');
     final parsed = InternetAddress.tryParse(ip);
-    if (parsed == null || parsed.type != InternetAddressType.IPv4 || parsed.isMulticast ||
-        parsed.isLoopback || parsed.address == '255.255.255.255') {
+    if (!isLocalLanIpv4(parsed)) {
       throw const FormatException('Enter a valid LAN IPv4 address');
     }
     _busy = true;
     Socket? socket;
     try {
       socket = await Socket.connect(ip, pairingPort, timeout: const Duration(seconds: 4));
-      final result = await _pair(socket, isClient: true, ask: ask);
+      _lifecycle.requireCurrent(ticket);
+      _activePairSocket = socket;
+      final result = await _pair(socket, isClient: true, ask: ask, ticket: ticket);
       error = null;
       onChange?.call();
       return result;
-    } finally { socket?.destroy(); _busy = false; }
+    } finally {
+      socket?.destroy();
+      if (identical(_activePairSocket, socket)) _activePairSocket = null;
+      _busy = false;
+    }
+  }
+
+  /// User-entered text only; Android or Windows receiver requires one-shot consent.
+  Future<void> sendClipboard(String ip, AskForPairConsent ask, String text) async {
+    ClipboardPolicy.validate(text);
+    final ticket = _lifecycle.ticket;
+    await _init();
+    _lifecycle.requireCurrent(ticket);
+    if (_busy || _previewSocket != null) throw StateError('Pairing or preview already active');
+    if (!isLocalLanIpv4(InternetAddress.tryParse(ip))) {
+      throw const FormatException('Enter a valid LAN IPv4 address');
+    }
+    _busy = true;
+    Socket? socket;
+    try {
+      socket = await Socket.connect(ip, pairingPort, timeout: const Duration(seconds: 4));
+      _lifecycle.requireCurrent(ticket);
+      _activePairSocket = socket;
+      await _pair(socket, isClient: true, ask: ask, ticket: ticket, clipboardText: text);
+    } finally {
+      socket?.destroy();
+      if (identical(_activePairSocket, socket)) _activePairSocket = null;
+      _busy = false;
+      onChange?.call();
+    }
+  }
+
+  /// One-shot file transfer to a Windows Node lab host with --receive-file.
+  /// The picker provides scoped access; the host must approve FILE locally.
+  Future<FileSendResult> sendFile(String ip, AskForPairConsent ask, XFile file,
+      {void Function(int bytes, int total, bool verified)? onProgress}) async {
+    final ticket = _lifecycle.ticket;
+    await _init();
+    _lifecycle.requireCurrent(ticket);
+    if (_busy || _previewSocket != null) {
+      throw StateError('Pairing or preview already active');
+    }
+    if (!isLocalLanIpv4(InternetAddress.tryParse(ip))) {
+      throw const FormatException('Enter a valid LAN IPv4 address');
+    }
+    // Reject unsafe names before connecting or asking for pairing.
+    validateLabFileName(file.name);
+    final size = await file.length();
+    if (size < 0 || size > maxLabFileBytes) {
+      throw const FormatException('Selected file exceeds 64 MiB lab limit');
+    }
+    _busy = true;
+    Socket? socket;
+    try {
+      socket = await Socket.connect(ip, pairingPort,
+          timeout: const Duration(seconds: 4));
+      _lifecycle.requireCurrent(ticket);
+      _activePairSocket = socket;
+      FileSendResult? result;
+      await _pair(socket, isClient: true, ask: ask, ticket: ticket,
+          fileToSend: file, onFileProgress: onProgress,
+          onFileResult: (value) { result = value; });
+      return result ?? (throw StateError('File transfer did not complete'));
+    } finally {
+      socket?.destroy();
+      if (identical(_activePairSocket, socket)) _activePairSocket = null;
+      _busy = false;
+      onChange?.call();
+    }
   }
 
   /// This is a diagnostic MJPEG proof, NOT production streaming. Connect only to
   /// a manually approved Node Windows host started with --share-screen.
   Future<void> preview(String ip, AskForPairConsent ask,
       void Function(Uint8List frame) onFrame) async {
+    final ticket = _lifecycle.ticket;
     await _init();
+    _lifecycle.requireCurrent(ticket);
     if (_busy || _previewSocket != null) throw StateError('Pairing or preview already active');
     final parsed = InternetAddress.tryParse(ip);
-    if (parsed == null || parsed.type != InternetAddressType.IPv4 || parsed.isMulticast ||
-        parsed.isLoopback || parsed.address == '255.255.255.255') {
+    if (!isLocalLanIpv4(parsed)) {
       throw const FormatException('Enter a valid LAN IPv4 address');
     }
     _busy = true;
@@ -173,11 +289,14 @@ class PairingLab {
     Socket? socket;
     try {
       socket = await Socket.connect(ip, pairingPort, timeout: const Duration(seconds: 4));
+      _lifecycle.requireCurrent(ticket);
       _previewSocket = socket;
-      await _pair(socket, isClient: true, ask: ask, previewReceiver: onFrame);
+      _activePairSocket = socket;
+      await _pair(socket, isClient: true, ask: ask, previewReceiver: onFrame, ticket: ticket);
     } finally {
       socket?.destroy();
       _previewSocket = null;
+      if (identical(_activePairSocket, socket)) _activePairSocket = null;
       _busy = false;
       onChange?.call();
     }
@@ -191,19 +310,24 @@ class PairingLab {
   }
 
   Future<void> revoke(String fingerprint) async {
-    if (_trust.remove(fingerprint) == null) return;
-    _sessionAddresses.removeWhere((_, f) => f == fingerprint);
-    await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
+    final wasTrusted = _trust.remove(fingerprint) != null;
+    // Remove ephemeral session indicators even if the pin was already absent.
+    _sessionAddresses.revokeFingerprint(fingerprint);
+    if (wasTrusted) {
+      await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
+    }
     onChange?.call();
   }
   Map<String, String> get trusted => Map.unmodifiable(_trust);
 
-  Future<Map<String, dynamic>> _hello(String type, SimpleKeyPair eph, {String? clientHash}) async {
+  Future<Map<String, dynamic>> _hello(String type, SimpleKeyPair eph,
+      {String? clientHash, String? intent}) async {
     final ephPublic = await eph.extractPublicKey();
     final data = <String, dynamic>{
       'v': _protocol, 'type': type, 'identity': _b64(_identitySpki!),
       'ephemeral': _b64(_spki(_xSpki, ephPublic.bytes)), 'nonce': _b64(_rand(24)),
       if (clientHash != null) 'clientHash': clientHash,
+      if (intent != null) 'intent': intent,
     };
     final signed = await signature.sign(utf8.encode(jsonEncode(data)), keyPair: _identity!);
     data['sig'] = _b64(signed.bytes);
@@ -212,6 +336,10 @@ class PairingLab {
 
   Future<SimplePublicKey> _verifyHello(Map<String, dynamic> frame, String expectedType) async {
     if (frame['v'] != _protocol || frame['type'] != expectedType) throw const FormatException('Invalid hello type');
+    if (frame.containsKey('intent') &&
+        (expectedType != 'CLIENT_HELLO' || !['clipboard', 'file'].contains(frame['intent']))) {
+      throw const FormatException('Unsupported signed session intent');
+    }
     for (final field in ['identity', 'ephemeral', 'nonce', 'sig']) {
       final value = frame[field];
       if (value is! String || !RegExp(r'^[A-Za-z0-9_-]{1,255}$').hasMatch(value)) {
@@ -231,7 +359,11 @@ class PairingLab {
   }
 
   Future<PairResult> _pair(Socket socket, {required bool isClient,
-      required AskForPairConsent ask, void Function(Uint8List frame)? previewReceiver}) async {
+      required AskForPairConsent ask, required int ticket,
+      void Function(Uint8List frame)? previewReceiver, String? clipboardText,
+      XFile? fileToSend,
+      void Function(int bytes, int total, bool verified)? onFileProgress,
+      void Function(FileSendResult result)? onFileResult}) async {
     final io = _JsonLines(socket);
     final ephemeral = await keyExchange.newKeyPair();
     try {
@@ -239,7 +371,9 @@ class PairingLab {
       late final Map<String, dynamic> serverHello;
       late final SimplePublicKey remoteEph;
       if (isClient) {
-        clientHello = await _hello('CLIENT_HELLO', ephemeral);
+        clientHello = await _hello('CLIENT_HELLO', ephemeral,
+          intent: fileToSend != null ? 'file' :
+            clipboardText == null ? null : 'clipboard');
         await io.send(clientHello);
         serverHello = await io.receive();
         remoteEph = await _verifyHello(serverHello, 'SERVER_HELLO');
@@ -263,8 +397,10 @@ class PairingLab {
       final mac = await Hmac.sha256().calculateMac(transcriptHash, secretKey: SecretKey(sharedBytes));
       final codeInteger = ByteData.sublistView(Uint8List.fromList(mac.bytes)).getUint32(0) % 1000000;
       final code = codeInteger.toString().padLeft(6, '0');
-      final allow = await ask(PairChallenge(code, fingerprint, pinned == remotePublic));
+      final allow = await PairConsentPolicy.awaitApproval(
+        () => ask(PairChallenge(code, fingerprint, pinned == remotePublic)));
       if (!allow) throw StateError('Local user declined pairing');
+      _lifecycle.requireCurrent(ticket);
       final channel = _SealedChannel(io, sharedBytes, transcriptHash, isClient: isClient);
       await channel.send({'type': 'CONFIRM'});
       final confirmation = await channel.receive();
@@ -274,11 +410,36 @@ class PairingLab {
         await channel.send({'type': 'PING', 'sentAt': DateTime.now().millisecondsSinceEpoch});
         final pong = await channel.receive();
         if (pong['type'] != 'PONG') throw StateError('Encrypted PING failed');
+        if (clipboardText != null) {
+          _lifecycle.requireCurrent(ticket);
+          final bytes = ClipboardPolicy.validate(clipboardText);
+          await channel.send({'type':'CLIPBOARD_PUT', 'text':clipboardText});
+          final reply = await channel.receive().timeout(const Duration(seconds: 55));
+          if (reply['type'] != 'CLIPBOARD_OK' || reply['bytes'] != bytes) {
+            throw StateError('Receiver denied or failed clipboard transfer');
+          }
+          _lifecycle.requireCurrent(ticket);
+        }
+        if (fileToSend != null) {
+          _lifecycle.requireCurrent(ticket);
+          final sent = await sendLabFile(channel, fileToSend,
+              onProgress: (bytes, total, verified) {
+                if (!_lifecycle.isCurrent(ticket)) {
+                  throw StateError('File transfer cancelled');
+                }
+                onFileProgress?.call(bytes, total, verified);
+              });
+          _lifecycle.requireCurrent(ticket);
+          onFileResult?.call(sent);
+        }
         if (previewReceiver != null) {
-          // Pairing identity is pinned after authenticated PING, before view-only request.
+          // Stopping a listener must not allow a pending pairing to grant trust.
+          _lifecycle.requireCurrent(ticket);
           _trust[fingerprint] = remotePublic;
           await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
-          _sessionAddresses[socket.remoteAddress.address] = fingerprint;
+          // Stop may have invalidated the session while secure storage awaited.
+          _lifecycle.requireCurrent(ticket);
+          _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
           onChange?.call();
           await channel.send({'type':'STREAM_START', 'mode':'view-only'});
           final status = await channel.receive();
@@ -291,11 +452,63 @@ class PairingLab {
         final ping = await channel.receive();
         if (ping['type'] != 'PING') throw StateError('Only encrypted PING permitted');
         await channel.send({'type': 'PONG'});
+        if (clientHello['intent'] == 'clipboard') {
+          // A signed intent avoids waiting on an ordinary PING-only pairing.
+          // Every clipboard operation requires a separate local approval.
+          final request = await channel.receive().timeout(const Duration(seconds: 55));
+          final content = request['text'];
+          if (request['type'] != 'CLIPBOARD_PUT' || content is! String) {
+            throw const FormatException('Unexpected clipboard request');
+          }
+          final bytes = ClipboardPolicy.validate(content);
+          final consent = onClipboardConsent;
+          final write = onClipboardWrite;
+          if (consent == null || write == null ||
+              !await PairConsentPolicy.awaitApproval(() => consent(fingerprint, content))) {
+            await channel.send({'type': 'CLIPBOARD_DENIED'});
+            throw StateError('Android clipboard transfer denied');
+          }
+          _lifecycle.requireCurrent(ticket);
+          await write(content);
+          _lifecycle.requireCurrent(ticket);
+          await channel.send({'type': 'CLIPBOARD_OK', 'bytes': bytes});
+        }
+        if (clientHello['intent'] == 'file') {
+          // FILE_OFFER is accepted only inside this signed, SAS-approved,
+          // encrypted session. No default directory and no unattended writes.
+          final offer = await channel.receive().timeout(fileResponseTimeout);
+          Directory? chosen;
+          final received = await receiveLabFile(channel, offer,
+            approve: (request) async {
+              _lifecycle.requireCurrent(ticket);
+              final select = onFileReceiveRequest;
+              if (!Platform.isWindows || select == null) return false;
+              chosen = await select(fingerprint, request);
+              _lifecycle.requireCurrent(ticket);
+              return chosen != null;
+            },
+            createStaging: (request) {
+              _lifecycle.requireCurrent(ticket);
+              final directory = chosen;
+              if (directory == null) throw StateError('No approved file destination');
+              return DesktopLabReceiveStaging.create(directory, request);
+            },
+            onProgress: (bytes, total, verified) {
+              _lifecycle.requireCurrent(ticket);
+            },
+          );
+          if (received == null) throw StateError('Incoming file was denied');
+          _lifecycle.requireCurrent(ticket);
+          onFileReceiveCompleted?.call(received);
+        }
       }
-      // Trust is recorded ONLY after a successful authenticated round trip.
+      // Trust is recorded ONLY after an authenticated round trip and while
+      // this pairing generation is still active.
+      _lifecycle.requireCurrent(ticket);
       _trust[fingerprint] = remotePublic;
       await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
-      _sessionAddresses[socket.remoteAddress.address] = fingerprint;
+      _lifecycle.requireCurrent(ticket);
+      _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
       onChange?.call();
       return PairResult(fingerprint, pinned == remotePublic, socket.remoteAddress.address);
     } finally { await io.close(); ephemeral.destroy(); }
@@ -351,7 +564,20 @@ class PairingLab {
     }
   }
 
-  Future<void> stop() async { stopPreview(); await _server?.close(); _server = null; onChange?.call(); }
+  Future<void> stop() async {
+    // Close active inbound/outbound pairing as well as the listening socket.
+    // Otherwise a consent dialog could finish after Stop and pin a new peer.
+    _lifecycle.invalidate();
+    // Stop ends this session's UI trust indicators, not persisted public-key pins.
+    _sessionAddresses.clear();
+    _activePairSocket?.destroy();
+    _activePairSocket = null;
+    stopPreview();
+    final server = _server;
+    _server = null;
+    await server?.close();
+    onChange?.call();
+  }
 }
 
 class _JsonLines {
@@ -369,7 +595,7 @@ class _JsonLines {
         if (byte == 10) {
           String line;
           try { line = utf8.decode(_pending); }
-          catch (_) { socket.destroy(); return; }
+          catch (_) { socket.destroy(); _ended(); return; }
           _pending.clear();
           if (_waiter != null) { _waiter!.complete(line); _waiter = null; }
           else { _lines.add(line); if (_lines.length > 512) { socket.destroy(); _ended(); break; } }
@@ -386,8 +612,20 @@ class _JsonLines {
   }
   Future<Map<String, dynamic>> receive() async {
     if (_closed && _lines.isEmpty) throw StateError('Peer disconnected');
-    final text = _lines.isNotEmpty ? _lines.removeFirst() :
-      await (() { final c = Completer<String>(); _waiter = c; return c.future; })().timeout(_timeout);
+    String text;
+    if (_lines.isNotEmpty) {
+      text = _lines.removeFirst();
+    } else {
+      if (_waiter != null) throw StateError('Concurrent frame receives');
+      final waiting = Completer<String>();
+      _waiter = waiting;
+      try {
+        text = await waiting.future.timeout(_timeout);
+      } finally {
+        // A timed-out waiter must never consume a future peer message.
+        if (identical(_waiter, waiting)) _waiter = null;
+      }
+    }
     final x = jsonDecode(text);
     if (x is! Map<String, dynamic>) throw const FormatException('Invalid network frame');
     return x;
@@ -401,11 +639,14 @@ class _JsonLines {
   Future<void> close() async { await _subscription.cancel(); socket.destroy(); _ended(); }
 }
 
-class _SealedChannel {
+class _SealedChannel implements FileTransferChannel {
   final _JsonLines io;
   final List<int> shared, transcript;
   final bool isClient;
   int sent = 0, received = 0;
+  bool _sending = false;
+  bool _receiving = false;
+  bool _terminal = false;
   _SealedChannel(this.io, this.shared, this.transcript, {required this.isClient});
 
   Future<SecretKey> _key(String direction) async =>
@@ -420,30 +661,77 @@ class _SealedChannel {
     bytes.setUint64(4, seq, Endian.big);
     return bytes.buffer.asUint8List();
   }
-  Future<void> send(Map<String, dynamic> message) async {
-    final direction = isClient ? 'C2S1' : 'S2C1';
-    final seq = sent++;
-    final box = await AesGcm.with256bits().encrypt(utf8.encode(jsonEncode(message)),
-      secretKey: await _key(isClient ? 'c2s' : 's2c'), nonce: _nonce(direction, seq),
-      aad: utf8.encode('$_protocol|$direction|$seq'));
-    await io.send({'type': 'SEALED', 'seq': seq, 'data': _b64([...box.cipherText, ...box.mac.bytes])});
+
+  void _failClosed() {
+    _terminal = true;
+    io.socket.destroy();
   }
-  Future<Map<String, dynamic>> receive() async {
-    final frame = await io.receive();
-    if (frame['type'] != 'SEALED' || frame['seq'] != received || frame['data'] is! String) {
-      throw StateError('Unexpected or replayed sealed frame');
+
+  @override
+  Future<void> send(Map<String, dynamic> message) async {
+    if (_terminal) throw StateError('Encrypted channel closed');
+    // Async encryption can complete out of order. Never reuse/reorder sequence
+    // numbers by permitting overlapping writes on the same sealed channel.
+    if (_sending) {
+      _failClosed();
+      throw StateError('Concurrent encrypted sends are forbidden');
     }
-    final direction = isClient ? 'S2C1' : 'C2S1';
-    final seq = received++;
-    final data = _unb64(frame['data'] as String);
-    if (data.length < 16) throw const FormatException('Invalid ciphertext');
-    final output = await AesGcm.with256bits().decrypt(
-      SecretBox(data.sublist(0, data.length - 16), nonce: _nonce(direction, seq),
-        mac: Mac(data.sublist(data.length - 16))),
-      secretKey: await _key(isClient ? 's2c' : 'c2s'),
-      aad: utf8.encode('$_protocol|$direction|$seq'));
-    final value = jsonDecode(utf8.decode(output));
-    if (value is! Map<String, dynamic>) throw const FormatException('Invalid sealed payload');
-    return value;
+    _sending = true;
+    try {
+      final direction = isClient ? 'C2S1' : 'S2C1';
+      final seq = sent;
+      final box = await AesGcm.with256bits().encrypt(utf8.encode(jsonEncode(message)),
+        secretKey: await _key(isClient ? 'c2s' : 's2c'), nonce: _nonce(direction, seq),
+        aad: utf8.encode('$_protocol|$direction|$seq'));
+      if (_terminal) throw StateError('Encrypted channel closed');
+      await io.send({'type': 'SEALED', 'seq': seq,
+        'data': _b64([...box.cipherText, ...box.mac.bytes])});
+      sent = seq + 1;
+    } catch (_) {
+      _failClosed();
+      rethrow;
+    } finally {
+      _sending = false;
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> receive() async {
+    if (_terminal) throw StateError('Encrypted channel closed');
+    // A second caller must not race authentication or advance the replay counter.
+    if (_receiving) {
+      _failClosed();
+      throw StateError('Concurrent encrypted receives are forbidden');
+    }
+    _receiving = true;
+    try {
+      final frame = await io.receive();
+      final seq = received;
+      if (frame['type'] != 'SEALED' || frame['seq'] != seq ||
+          frame['data'] is! String) {
+        throw StateError('Unexpected or replayed sealed frame');
+      }
+      final direction = isClient ? 'S2C1' : 'C2S1';
+      final data = _unb64(frame['data'] as String);
+      if (data.length < 16) throw const FormatException('Invalid ciphertext');
+      final output = await AesGcm.with256bits().decrypt(
+        SecretBox(data.sublist(0, data.length - 16), nonce: _nonce(direction, seq),
+          mac: Mac(data.sublist(data.length - 16))),
+        secretKey: await _key(isClient ? 's2c' : 'c2s'),
+        aad: utf8.encode('$_protocol|$direction|$seq'));
+      final value = jsonDecode(utf8.decode(output));
+      if (value is! Map<String, dynamic>) {
+        throw const FormatException('Invalid sealed payload');
+      }
+      if (_terminal) throw StateError('Encrypted channel closed');
+      // Commit the receive counter ONLY after AEAD and payload validation.
+      received = seq + 1;
+      return value;
+    } catch (_) {
+      _failClosed();
+      rethrow;
+    } finally {
+      _receiving = false;
+    }
   }
 }

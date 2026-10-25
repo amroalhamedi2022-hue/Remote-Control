@@ -46,3 +46,28 @@ test('pairing agent persists pinned fingerprints only after two manual approvals
   await until(()=>client.logs.includes('SECURE_PONG')||client.logs.includes('SESSION_REJECTED'));
   assert.match(client.logs,/SECURE_PONG/);
 });
+
+test('receive-folder listener reclaims only stale marked batches before accepting LAN peers',async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'remote-recovery-host-'));
+  const state=fs.mkdtempSync(path.join(os.tmpdir(),'remote-recovery-state-'));
+  t.after(()=>{fs.rmSync(root,{recursive:true,force:true});fs.rmSync(state,{recursive:true,force:true});});
+  const now=Date.now(),old=now-25*60*60*1000;
+  const id='orphanRecovery123';
+  const staging=path.join(root,'.liquidremote-batch-'+id);
+  fs.mkdirSync(path.join(staging,'payload'),{recursive:true});
+  fs.writeFileSync(path.join(staging,'payload','partial.bin'),'unverified');
+  const marker=path.join(staging,'.liquidremote-batch-recovery.json');
+  fs.writeFileSync(marker,JSON.stringify({version:1,id,createdAt:old}));
+  fs.utimesSync(marker,new Date(old),new Date(old));
+  fs.utimesSync(staging,new Date(old),new Date(old));
+  const untouched=path.join(root,'.liquidremote-batch-unmarked123');
+  fs.mkdirSync(untouched);
+  const port=await freePort();
+  const server=launch(['--listen','--no-discovery',`--port=${port}`,
+    `--state=${state}`,`--receive-folder=${root}`]);
+  t.after(()=>server.stop());
+  await until(()=>server.logs.includes('PAIR_AGENT_READY'),5000);
+  assert.match(server.logs,/FOLDER_STAGING_RECOVERY removed=1 skipped=1/);
+  assert.equal(fs.existsSync(staging),false);
+  assert.equal(fs.existsSync(untouched),true);
+});

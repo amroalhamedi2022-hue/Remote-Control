@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
-import 'dart:typed_data';
+import 'package:file_selector/file_selector.dart';
 import '../network/lan_discovery.dart';
 import '../security/pairing_lab.dart';
+import '../security/file_transfer_lab.dart';
+import '../security/clipboard_peer_policy.dart';
 
 enum AppSection { devices, control, files, clipboard, multiDevice, settings }
 enum InputMode { touch, mouse, keyboard }
@@ -33,6 +35,50 @@ class PrototypeState extends ChangeNotifier {
     final matches = lan.peers.where((p) => p.id == selectedPeerId).toList();
     if (matches.length != 1) throw StateError('Select a discovered device first');
     return pairing.connect(matches.single.address, ask);
+  }
+
+  Future<void> sendClipboardSelected(AskForPairConsent ask) async {
+    final matches = lan.peers.where((p) => p.id == selectedPeerId).toList();
+    if (matches.length != 1) throw StateError('Select a discovered Windows receiver first');
+    if (!ClipboardPeerPolicy.canSendTo(matches.single.platform)) {
+      throw StateError('Clipboard receiver must be Android or Windows');
+    }
+    await pairing.sendClipboard(matches.single.address, ask, clipboardText);
+  }
+
+  bool fileTransferActive = false;
+  int fileTransferredBytes = 0;
+  int fileTotalBytes = 0;
+  bool fileTransferVerified = false;
+
+  Future<FileSendResult> sendFileSelected(
+      AskForPairConsent ask, XFile file) async {
+    final matches = lan.peers.where((p) => p.id == selectedPeerId).toList();
+    if (matches.length != 1) {
+      throw StateError('Select a discovered Android or Windows device first');
+    }
+    if (matches.single.platform != 'Windows') {
+      throw StateError('Android file receiver is not implemented yet');
+    }
+    if (fileTransferActive) throw StateError('File transfer already active');
+    final selectedSize = await file.length();
+    fileTransferActive = true;
+    fileTransferredBytes = 0;
+    fileTotalBytes = selectedSize;
+    fileTransferVerified = false;
+    notifyListeners();
+    try {
+      return await pairing.sendFile(matches.single.address, ask, file,
+          onProgress: (bytes, total, verified) {
+        fileTransferredBytes = bytes;
+        fileTotalBytes = total;
+        fileTransferVerified = verified;
+        notifyListeners();
+      });
+    } finally {
+      fileTransferActive = false;
+      notifyListeners();
+    }
   }
 
   Uint8List? previewImage;

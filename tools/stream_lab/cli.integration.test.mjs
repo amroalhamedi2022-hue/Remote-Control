@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import net from 'node:net';
 import os from 'node:os';
 import fs from 'node:fs';
@@ -20,7 +20,11 @@ function agent(args,onOutput){
   return {child,get stdout(){return stdout;},get stderr(){return stderr;}};
 }
 
-test('real CLI agent: manual pair consent + screen consent + encrypted JPEG received', {timeout:18000},async()=>{
+test('real CLI agent: manual pair consent + screen consent + encrypted JPEG received', {timeout:18000},async t=>{
+  if (spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status !== 0) {
+    t.skip('NOT TESTED: FFmpeg executable unavailable on source-only CI runner');
+    return;
+  }
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'liquidremote-v05-cli-'));
   const port=await vacantPort();
   let hostPairAnswered=false,shareAnswered=false,clientAnswered=false;
