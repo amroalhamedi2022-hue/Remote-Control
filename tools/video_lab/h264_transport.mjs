@@ -114,15 +114,34 @@ export async function sendH264(channel, socket, options = {}) {
     child.once('error', reject);
     child.once('close', code => resolve(code));
   });
+  // Attach immediately: spawn('missing-ffmpeg') may reject before stdout iteration awaits ended.
+  void ended.catch(() => {});
   child.stderr.on('data', b => {stderr = (stderr + b.toString()).slice(-1200);});
   const hash = crypto.createHash('sha256');
   let pending = Buffer.alloc(0);
   let trustRevoked = false;
+  let terminationRequested = false;
+  let forceKillTimer;
+  const requestStop = (revoked = false) => {
+    if (revoked) trustRevoked = true;
+    if (terminationRequested) return;
+    terminationRequested = true;
+    try { child.kill(); } catch { /* close/finally will recheck the process state */ }
+    // ChildProcess.killed means a signal was sent, NOT that FFmpeg exited.
+    // Escalate if a broken capture process ignores graceful termination.
+    forceKillTimer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        try { child.kill('SIGKILL'); } catch { /* final cleanup also attempts a hard stop */ }
+      }
+    }, 500);
+    forceKillTimer.unref?.();
+  };
+  child.once('close', () => { if (forceKillTimer) clearTimeout(forceKillTimer); });
   // A quiet FFmpeg stdout must not postpone revocation until the next frame.
   const trustWatch = setInterval(() => {
     let active = false;
     try { active = isSessionActive(); } catch { /* fail closed */ }
-    if (!active) { trustRevoked = true; if (!child.killed) child.kill(); }
+    if (!active) requestStop(true);
   }, 100);
   trustWatch.unref?.();
   try {
@@ -160,7 +179,11 @@ export async function sendH264(channel, socket, options = {}) {
     return {bytes: size, sha256, fps: profile.fps, width: profile.width, encoder: profile.encoder};
   } finally {
     clearInterval(trustWatch);
-    if (child.exitCode === null && !child.killed) child.kill();
+    if (forceKillTimer) clearTimeout(forceKillTimer);
+    // Never rely on child.killed: it only records that a signal was sent.
+    if (child.exitCode === null && child.signalCode === null) {
+      try { child.kill('SIGKILL'); } catch { /* preserve the original transfer error */ }
+    }
     // Observe child errors / exits even if receiving client disconnects early.
     try {await Promise.race([ended, new Promise(resolve => setTimeout(resolve, 1500))]);} catch { /* reported above */ }
   }

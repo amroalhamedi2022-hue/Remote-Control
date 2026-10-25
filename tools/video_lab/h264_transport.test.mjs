@@ -98,3 +98,22 @@ test('Revoking trust while FFmpeg is silent terminates H.264 capture', {timeout:
     assert.ok(!messages.some(message=>message.type==='H264_PART'||message.type==='H264_END'));
   } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
+
+
+test('Revoked silent H.264 child is force-terminated if it ignores SIGTERM', {timeout:5000}, async t => {
+  if(process.platform==='win32'){t.skip('POSIX signal-handler fixture');return;}
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-hardkill-h264-'));
+  try {
+    const fake=path.join(dir,'ffmpeg-ignore-term');
+    await fs.writeFile(fake, `#!/bin/sh\nexec "${process.execPath}" -e 'process.on("SIGTERM", () => {}); setTimeout(() => {}, 10000)'\n`);
+    await fs.chmod(fake,0o755);
+    let checks=0;
+    const messages=[];
+    const started=Date.now();
+    await assert.rejects(sendH264({send:message=>messages.push(message)},
+      {destroyed:false,writableLength:0},{ffmpeg:fake,isSessionActive:()=>++checks===1}),
+      /trust revoked/);
+    assert.ok(Date.now()-started<3000,'revoked child that ignores SIGTERM must be force-terminated');
+    assert.ok(!messages.some(message=>message.type==='H264_PART'||message.type==='H264_END'));
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});

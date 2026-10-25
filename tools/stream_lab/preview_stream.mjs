@@ -94,12 +94,28 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
   // does not terminate on an unhandled rejection; the later await still throws.
   void done.catch(() => {});
   let trustRevoked=false;
+  let terminationRequested=false;
+  let forceKillTimer;
+  const requestStop=(revoked=false)=>{
+    if(revoked)trustRevoked=true;
+    if(terminationRequested)return;
+    terminationRequested=true;
+    try{child.kill();}catch{/* final cleanup will recheck */}
+    // A sent signal does not prove the capture process has exited.
+    forceKillTimer=setTimeout(()=>{
+      if(child.exitCode===null&&child.signalCode===null){
+        try{child.kill('SIGKILL');}catch{/* final cleanup also attempts a hard stop */}
+      }
+    },500);
+    forceKillTimer.unref?.();
+  };
+  child.once('close',()=>{if(forceKillTimer)clearTimeout(forceKillTimer);});
   // Trust must be polled even while FFmpeg emits no bytes; a stalled capture
   // must not outlive peer revocation merely because stdout is quiet.
   const trustWatch=setInterval(()=>{
     let active=false;
     try { active=isSessionActive(); } catch { /* fail closed */ }
-    if(!active){trustRevoked=true;if(!child.killed)child.kill();}
+    if(!active)requestStop(true);
   },100);
   trustWatch.unref?.();
   child.stderr.on('data',b=>{stderr+=b.toString().slice(0,512);stderr=stderr.slice(-2048);});
@@ -108,7 +124,7 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
     parser=new JpegFrames((jpeg,id)=>{
       if(stopped)return;
       if(!isSessionActive()) throw new Error('Screen preview trust revoked during capture');
-      if(sent>=maxFrames){stopped=true;child.kill();return;}
+      if(sent>=maxFrames){stopped=true;requestStop(false);return;}
       if(socket.destroyed||socket.writableLength>MAX_BACKLOG){dropped++;return;}
       for (const message of jpegMessages(jpeg,id))channel.send(message);
       sent++;
@@ -122,7 +138,11 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
     if(trustRevoked||!isSessionActive())throw new Error('Screen preview trust revoked while capture was idle');
   }finally{
     clearInterval(trustWatch);
-    if(!child.killed)child.kill();
+    if(forceKillTimer)clearTimeout(forceKillTimer);
+    if(child.exitCode===null&&child.signalCode===null){
+      try{child.kill('SIGKILL');}catch{/* preserve the original capture error */}
+    }
+    try{await Promise.race([done,new Promise(resolve=>setTimeout(resolve,1500))]);}catch{/* reported above */}
   }
   if(sent===0&&!socket.destroyed)throw new Error('No frames captured. '+stderr.slice(-220));
   return {sent,dropped};
