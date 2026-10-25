@@ -1,8 +1,6 @@
 // Android-only, user-selected SAF tree receiver for signed FILE_OFFER sessions.
 // No broad storage permission, persisted tree grant, or unattended writes.
 // Native Kotlin keeps bytes in app-private cache until SHA-256 is verified.
-import 'dart:typed_data';
-
 import 'package:flutter/services.dart';
 
 import 'file_transfer_lab.dart';
