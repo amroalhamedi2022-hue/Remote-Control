@@ -242,19 +242,28 @@ export async function sendFolderOnce(channel, folderPath,
   return {count:files.length,bytes};
 }
 export async function receiveFolderOnce(channel, begin,
-    {directory,approve,signal,idleTimeoutMs=FILE_IDLE_TIMEOUT_MS,onProgress=()=>{}}={}) {
+    {directory,approve,signal,isSessionActive=()=>true,
+      idleTimeoutMs=FILE_IDLE_TIMEOUT_MS,onProgress=()=>{}}={}) {
   validateLimit(idleTimeoutMs);
+  if (typeof isSessionActive !== 'function') throw new TypeError('Invalid folder session guard');
+  const requireLiveSession = () => {
+    if (signal?.aborted || !isSessionActive())
+      throw Object.assign(new Error('Folder session revoked or cancelled'),{name:'AbortError'});
+  };
+  requireLiveSession();
   const directories=validBegin(begin);
   if (typeof approve!=='function' || typeof directory!=='string')
     throw new Error('Explicit folder receiver approval required');
   const permitted=await receiveWithCancel({receive:()=>approve(begin),lines:channel.lines},
     signal,idleTimeoutMs);
+  requireLiveSession();
   if (permitted!==true) {
     channel.send({type:'FOLDER_DENIED'});
     return null;
   }
   const root=await fs.realpath(directory);
   if (!(await fs.lstat(root)).isDirectory()) throw new Error('Destination must be a directory');
+  requireLiveSession();
   // Never place partial files in the user-selected directory. Keep all batch
   // writes in a private sibling and publish only after FOLDER_END validates.
   // A crash can leave a hidden staging directory; startup cleanup is still
@@ -281,9 +290,12 @@ export async function receiveFolderOnce(channel, begin,
   // All directory paths were validated before consent. Never create a folder
   // on a denied request; verify each existing component is not a symlink.
   for (const components of directories) await ensureSafeDirectory(payload,components);
+  requireLiveSession();
   channel.send({type:'FOLDER_READY'});
   for (let i=0;i<begin.count;i++) {
+    requireLiveSession();
     const entry=await receiveWithCancel(channel,signal,idleTimeoutMs);
+    requireLiveSession();
     if (entry?.type!=='FOLDER_ENTRY'||entry.index!==i)
       throw new Error('Invalid folder entry order');
     const parts=safeRelativeFile(entry.path);
@@ -299,6 +311,7 @@ export async function receiveFolderOnce(channel, begin,
     seen.add(canonical);
     const target=await ensureSafeDirectory(payload,parts.slice(0,-1));
     const offer=await receiveWithCancel(channel,signal,idleTimeoutMs);
+    requireLiveSession();
     if (offer?.name!==parts.at(-1)) throw new Error('Folder entry filename mismatch');
     // Reject a forged offer before writing any bytes. The sender must stay
     // inside the total size approved by the receiving user.
@@ -306,14 +319,16 @@ export async function receiveFolderOnce(channel, begin,
         offer.bytes>begin.bytes-total)
       throw new Error('Folder entry exceeds approved remaining byte budget');
     const result=await receiveFileOnce(channel,offer,{
-      directory:target,approve:async()=>true,signal,idleTimeoutMs
+      directory:target,approve:async()=>true,signal,isSessionActive,idleTimeoutMs
     });
     if (!result) throw new Error('Approved folder entry unexpectedly denied');
+    requireLiveSession();
     total+=result.bytes;
     if (total>begin.bytes) throw new Error('Folder exceeded approved byte count');
     onProgress({files:i+1,totalFiles:begin.count,bytes:total,totalBytes:begin.bytes});
   }
   const end=await receiveWithCancel(channel,signal,idleTimeoutMs);
+  requireLiveSession();
   if (end?.type!=='FOLDER_END'||end.count!==begin.count||
       end.bytes!==total||total!==begin.bytes)
     throw new Error('Folder transfer size mismatch');
@@ -322,10 +337,26 @@ export async function receiveFolderOnce(channel, begin,
   // The original folder label remains visible. No destination overwrite is
   // attempted, and a collision is rejected instead of retried unsafely.
   const destinationName=`${begin.folder} (received ${crypto.randomUUID()})`;
-  await fs.rename(payload,path.join(root,destinationName));
-  published=true;
-  channel.send({type:'FOLDER_OK',count:begin.count,bytes:total});
-  return {count:begin.count,bytes:total};
+  const finalPath=path.join(root,destinationName);
+  requireLiveSession();
+  await fs.rename(payload,finalPath);
+  try {
+    // A trust revoke can happen while the asynchronous rename is pending.
+    // Before sending FOLDER_OK, remove the newly published folder on revoke.
+    requireLiveSession();
+    channel.send({type:'FOLDER_OK',count:begin.count,bytes:total});
+    published=true;
+    return {count:begin.count,bytes:total};
+  } catch (error) {
+    if (!published) {
+      try { await fs.rm(finalPath,{recursive:true,force:false}); }
+      catch (cleanupError) {
+        throw new AggregateError([error,cleanupError],
+          'Folder receive failed and published-folder rollback failed');
+      }
+    }
+    throw error;
+  }
   } finally {
     await fs.rm(staging,{recursive:true,force:true});
   }
