@@ -145,10 +145,16 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
   } finally {await handle.close();}
 }
 
-export async function receiveFileOnce(channel, offer, {approve,directory,onProgress=()=>{},signal,idleTimeoutMs=FILE_IDLE_TIMEOUT_MS}) {
+export async function receiveFileOnce(channel, offer, {approve,directory,onProgress=()=>{},signal,
+    isSessionActive=()=>true,idleTimeoutMs=FILE_IDLE_TIMEOUT_MS}) {
   if (typeof onProgress !== 'function') throw new TypeError('Progress callback must be a function');
   checkIdleTimeout(idleTimeoutMs);
-  checkCancelled(signal);
+  if (typeof isSessionActive !== 'function') throw new TypeError('Invalid file session guard');
+  const requireLiveSession = () => {
+    checkCancelled(signal);
+    if (!isSessionActive()) throw cancellationError();
+  };
+  requireLiveSession();
   validateOffer(offer);
   if(typeof approve!=='function'||typeof directory!=='string')
     throw new Error('Explicit file receiver approval required');
@@ -158,23 +164,24 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
   const approved=await receiveWithCancel({
     receive:()=>approve(offer), lines:channel.lines
   },signal,idleTimeoutMs);
-  checkCancelled(signal);
+  requireLiveSession();
   if(approved!==true) {
     channel.send({type:'FILE_DENIED'});
     return null;
   }
   const destDir=await fsp.realpath(directory);
   if(!(await fsp.stat(destDir)).isDirectory())throw new Error('Destination must be a directory');
-  checkCancelled(signal);
+  requireLiveSession();
   const tmp=path.join(destDir,`.liquidremote-${crypto.randomUUID()}.part`);
   const file=await fsp.open(tmp,'wx',0o600);
   let saved=false;
   try {
     const h=sha256();let count=0,seq=0;
+    requireLiveSession();
     channel.send({type:'FILE_READY'});
     while(true) {
       const packet=await receiveWithCancel(channel,signal,idleTimeoutMs);
-      checkCancelled(signal);
+      requireLiveSession();
       // Dart sends FILE_CANCEL after FILE_READY when its source disappears,
       // the user cancels, or a chunk ACK is rejected. Never publish a partial.
       if(packet?.type==='FILE_CANCEL')
@@ -184,7 +191,7 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
         if(count!==offer.bytes||packet.bytes!==count||packet.sha256!==digest||
             digest!==offer.sha256)throw new Error('File size or SHA-256 mismatch');
         await file.sync();await file.close();
-        checkCancelled(signal);
+        requireLiveSession();
         // Hard-link is atomic and fails if a destination already exists.
         // Never overwrite an existing file, including case-insensitive aliases.
         const ext=path.extname(offer.name),stem=offer.name.slice(0,offer.name.length-ext.length);
@@ -193,18 +200,19 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
           for(let i=1;i<=100;i++) {
             const candidate=path.join(destDir,i===1?offer.name:`${stem} (${i})${ext}`);
             try {
+              requireLiveSession();
               await fsp.link(tmp,candidate);
               target=candidate;
               // A revoke can arrive while the filesystem is creating the
               // hard-link. Do not publish a newly linked file after cancellation.
-              checkCancelled(signal);
+              requireLiveSession();
               break;
             } catch(e) {if(e.code!=='EEXIST')throw e;}
           }
           if(!target)throw new Error('No available destination filename');
-          checkCancelled(signal);
+          requireLiveSession();
           await fsp.unlink(tmp);
-          checkCancelled(signal);
+          requireLiveSession();
           // Publication boundary: after this point an ACK may have escaped.
           // Never roll back a file the sender may already believe is saved.
           saved=true;
@@ -234,11 +242,12 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
         throw new Error('File transfer exceeds approved size');
       let written=0;
       while(written<data.length) {
-        checkCancelled(signal);
+        requireLiveSession();
         const result=await file.write(data,written,data.length-written,count+written);
         if(result.bytesWritten<=0)throw new Error('Destination write stalled');
         written+=result.bytesWritten;
       }
+      requireLiveSession();
       h.update(data);count+=data.length;
       onProgress({bytes:count,total:offer.bytes,verified:false});
       channel.send({type:'FILE_ACK',seq});
