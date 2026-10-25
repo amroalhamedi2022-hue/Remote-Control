@@ -161,16 +161,17 @@ class MainActivity : FlutterActivity() {
         var temp: Uri? = null
         var published = false
         try {
-            temp = DocumentsContract.createDocument(contentResolver, root,
+            val doc = DocumentsContract.createDocument(contentResolver, root,
                 "application/octet-stream", ".liquidremote-" + unique + ".part")
                 ?: error("SAF create unsupported")
-            contentResolver.openOutputStream(temp, "wt")?.use { output ->
+            temp = doc
+            contentResolver.openOutputStream(doc, "wt")?.use { output ->
                 stage.file.inputStream().use { it.copyTo(output, 65536) }
                 output.flush()
             } ?: error("SAF write unsupported")
             val md = MessageDigest.getInstance("SHA-256")
             var read = 0L
-            contentResolver.openInputStream(temp)?.use { input ->
+            contentResolver.openInputStream(doc)?.use { input ->
                 val buffer = ByteArray(65536)
                 while (true) {
                     val n = input.read(buffer)
@@ -182,14 +183,14 @@ class MainActivity : FlutterActivity() {
                 md.digest().joinToString("") { "%02x".format(it) } == stage.digest) {
                 "SAF readback SHA-256 mismatch"
             }
-            val finalUri = DocumentsContract.renameDocument(contentResolver, temp,
+            val finalUri = DocumentsContract.renameDocument(contentResolver, doc,
                 "Received-" + unique + "-" + stage.name)
                 ?: error("SAF rename unsupported")
             published = true
             return finalUri.toString()
         } finally {
             if (!published && temp != null) {
-                try { DocumentsContract.deleteDocument(contentResolver, temp) }
+                try { temp?.let { DocumentsContract.deleteDocument(contentResolver, it) } }
                 catch (_: Exception) { /* provider cleanup must be tested */ }
             }
         }
