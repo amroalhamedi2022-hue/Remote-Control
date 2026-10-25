@@ -152,14 +152,29 @@ Future<FileSendResult?> receiveLabFile(
     throw const FormatException('Invalid incoming file size or digest');
   }
   final request = LabIncomingOffer(name, size, expected);
-  final accepted = await approve(request).timeout(fileResponseTimeout);
+  bool accepted;
+  try {
+    accepted = await approve(request).timeout(fileResponseTimeout);
+  } catch (_) {
+    // A cancelled picker or revoked session must not strand the sender
+    // waiting for FILE_READY until the network timeout.
+    try { await channel.send({'type': 'FILE_DENIED'}); } catch (_) {}
+    rethrow;
+  }
   if (!accepted) {
     await channel.send({'type': 'FILE_DENIED'});
     return null;
   }
 
-  // Never acknowledge readiness until a private staging target exists.
-  final staging = await createStaging(request).timeout(fileResponseTimeout);
+  // A failed SAF provider/open must be denied BEFORE FILE_READY. No staging
+  // exists yet, so there is nothing to publish or abort.
+  late final LabReceiveStaging staging;
+  try {
+    staging = await createStaging(request).timeout(fileResponseTimeout);
+  } catch (_) {
+    try { await channel.send({'type': 'FILE_DENIED'}); } catch (_) {}
+    rethrow;
+  }
   var committed = false;
   final sink = _LabDigestSink();
   final hasher = crypto.sha256.startChunkedConversion(sink);
