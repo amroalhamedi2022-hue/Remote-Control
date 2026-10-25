@@ -214,15 +214,28 @@ async function interact(socket,role) {
         // Trusted pairing alone never authorizes a privileged clipboard session.
         requireSignedIntent(peerIntent, 'clipboard');
         const req = await channel.receive();
-        const accepted = await acceptClipboardRequest(channel, req, {
-          approve: async () => {
-            console.log('One-shot clipboard request from paired peer', fingerprint.slice(0, 20));
-            const answer = await askWithDeadline(rl.question.bind(rl),
-              'To replace THIS Windows clipboard once, type CLIP: (45s) ');
-            return answer === 'CLIP';
-          },
-          writeClipboard: writeWindowsClipboard,
-        });
+        // A separate --revoke process edits trusted.json while this listener
+        // remains alive. Re-check pinned identity on disk at consent, write,
+        // and ACK boundaries; never trust the stale in-memory Map alone.
+        const clipboardSessionActive = () => {
+          if (socket.destroyed || socket.writableEnded || !trusted.has(fingerprint)) return false;
+          try {
+            const current=JSON.parse(fs.readFileSync(trustFile,'utf8'));
+            return Object.hasOwn(current,fingerprint) &&
+              current[fingerprint]===trusted.get(fingerprint);
+          } catch { return false; }
+        };
+        const accepted = await withTransferCancellation(signal=>
+          acceptClipboardRequest(channel, req, {
+            signal, isSessionActive:clipboardSessionActive,
+            approve: async () => {
+              console.log('One-shot clipboard request from paired peer', fingerprint.slice(0, 20));
+              const answer = await askWithDeadline(rl.question.bind(rl),
+                'To replace THIS Windows clipboard once, type CLIP: (45s) ');
+              return answer === 'CLIP';
+            },
+            writeClipboard: writeWindowsClipboard,
+          }));
         console.log(accepted ? 'CLIPBOARD_WRITTEN_WITH_CONSENT' : 'CLIPBOARD_DENIED');
         return;
       }
