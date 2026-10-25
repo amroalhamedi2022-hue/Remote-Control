@@ -1,6 +1,7 @@
 // Experimental, low-FPS screen preview, NOT production video transport.
 // Requires explicitly approved authenticated pairing and an additional host SHARE confirmation.
 import { spawn } from 'node:child_process';
+import { createChildLifecycle } from './child_lifecycle.mjs';
 
 export const MAX_JPEG_BYTES = 512 * 1024;
 export const CHUNK_BYTES = 2600;
@@ -94,22 +95,11 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
   // does not terminate on an unhandled rejection; the later await still throws.
   void done.catch(() => {});
   let trustRevoked=false;
-  let terminationRequested=false;
-  let forceKillTimer;
+  const lifecycle=createChildLifecycle(child);
   const requestStop=(revoked=false)=>{
     if(revoked)trustRevoked=true;
-    if(terminationRequested)return;
-    terminationRequested=true;
-    try{child.kill();}catch{/* final cleanup will recheck */}
-    // A sent signal does not prove the capture process has exited.
-    forceKillTimer=setTimeout(()=>{
-      if(child.exitCode===null&&child.signalCode===null){
-        try{child.kill('SIGKILL');}catch{/* final cleanup also attempts a hard stop */}
-      }
-    },500);
-    forceKillTimer.unref?.();
+    lifecycle.requestStop();
   };
-  child.once('close',()=>{if(forceKillTimer)clearTimeout(forceKillTimer);});
   // Trust must be polled even while FFmpeg emits no bytes; a stalled capture
   // must not outlive peer revocation merely because stdout is quiet.
   const trustWatch=setInterval(()=>{
@@ -138,10 +128,7 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
     if(trustRevoked||!isSessionActive())throw new Error('Screen preview trust revoked while capture was idle');
   }finally{
     clearInterval(trustWatch);
-    if(forceKillTimer)clearTimeout(forceKillTimer);
-    if(child.exitCode===null&&child.signalCode===null){
-      try{child.kill('SIGKILL');}catch{/* preserve the original capture error */}
-    }
+    lifecycle.cleanup();
     try{await Promise.race([done,new Promise(resolve=>setTimeout(resolve,1500))]);}catch{/* reported above */}
   }
   if(sent===0&&!socket.destroyed)throw new Error('No frames captured. '+stderr.slice(-220));
