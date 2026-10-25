@@ -106,3 +106,26 @@ AUTOMATION_COMPLETE: BLOCKED
 6. Physical Android↔Windows LAN transfer, signed consent, file hashes: **NOT TESTED**.
 
 **Boundary:** This is protocol/transport **lab interoperability**, not production remote access. Never infer actual Android SAF/Windows file transfer or audited encryption from passing Dart tests. No APK/EXE build was requested for this source-only gate.
+
+## 2026-10-25 — M7 Android SAF attended inbound FILE_OFFER (native integration)
+
+**Scope:** PR #1 branch `feature/build-reliability-v0_9` only; no NetKit PR #6/#7 or main edits. This milestone extends the existing Windows inbound receiver to Android, without broad storage permissions, root, or unattended writes.
+
+**Implementation:** `flutter/lib/security/android_saf_staging.dart` provides a MethodChannel-backed `LabReceiveStaging`; `android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/MainActivity.kt` implements per-file `ACTION_OPEN_DOCUMENT_TREE`, private cache staging, bounded 3072-byte chunks, native SHA-256 verification, SAF temporary document write/readback, and unique `Received-*` rename. `pairing_lab.dart` and `main.dart` route a SAS-confirmed signed `intent=file` to an explicit Android consent dialog and fresh folder picker. Both bootstrap scripts install the versioned Kotlin overlay. Failed picker or staging setup now sends `FILE_DENIED` before `FILE_READY`.
+
+**Critical limitations:** Android DocumentsProviders do not guarantee atomic file publication. A temporary `.part` document can be visible during the final copy; if readback/rename/delete is unsupported, the transfer fails, and cleanup may fail on a hostile provider. The custom pairing protocol remains a laboratory protocol, not independently audited production security. Android↔Android file transport, permission revocation, provider interoperability and physical devices have NOT been accepted.
+
+**Acceptance matrix (8 independent gates; code presence is not device acceptance):**
+
+| Gate | State | Evidence or required verification |
+| --- | --- | --- |
+| A1 Native Android SAF adapter, bounded private cache and SHA/readback/rename logic present | PASS (source only) | `android_overlay/.../MainActivity.kt`, `flutter/lib/security/android_saf_staging.dart` |
+| A2 Explicit per-file consent and picker in signed paired channel; no all-files permission | PASS (source only) | `flutter/lib/main.dart`, `flutter/lib/security/pairing_lab.dart` |
+| A3 Negative-path Dart regression tests added (cancel, bad chunks, staging failure, abort) | PASS (source presence) | `flutter/test/android_saf_staging_test.dart`, `flutter/test/file_transfer_lab_test.dart` |
+| A4 Flutter analyzer + Dart/Node tests on exact new head SHA | NOT TESTED (new CI not yet confirmed) | inspect GitHub Actions for the final PR #1 head; do not reuse older PASS |
+| A5 Android Kotlin bridge compiles into verified debug APK | NOT TESTED (targeted CI build requested) | `.github/workflows/ci.yml` job `android-saf-milestone-build`; record APK SHA-256/artifact only after success |
+| A6 Real SAF providers: local/cloud, Arabic name, zero bytes, 64 MiB, deny/revoke/crash, rename/readback failure | NOT TESTED | Xiaomi Pad 5 Android hardware logs and independent SHA-256 |
+| A7 Real Android↔Windows and Android↔Android LAN transfer, offline and permission rejection | NOT TESTED | physical devices; host and receiver hashes must match |
+| A8 Release readiness, independent security review, MediaProjection/control/visual/performance completeness | FAIL | major product scope remains unimplemented or unverified |
+
+**Count at this source checkpoint:** 3 PASS (source evidence), 4 NOT TESTED, 1 FAIL. Prior [CI #40150631263](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40150631263) **FAILED** on redundant Dart import at the earlier `f4389fe` head; that import was removed. No successful CI run has yet been observed for the newer source head. Targeted Android build is justified because the new Kotlin `MainActivity` is not checked by Flutter analyzer. Do not claim APK/Windows artifacts or device acceptance until proven.
