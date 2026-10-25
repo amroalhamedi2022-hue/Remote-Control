@@ -189,17 +189,34 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
         // Never overwrite an existing file, including case-insensitive aliases.
         const ext=path.extname(offer.name),stem=offer.name.slice(0,offer.name.length-ext.length);
         let target;
-        for(let i=1;i<=100;i++) {
-          const candidate=path.join(destDir,i===1?offer.name:`${stem} (${i})${ext}`);
-          try {await fsp.link(tmp,candidate);target=candidate;break;}
-          catch(e){if(e.code!=='EEXIST')throw e;}
+        try {
+          for(let i=1;i<=100;i++) {
+            const candidate=path.join(destDir,i===1?offer.name:`${stem} (${i})${ext}`);
+            try {
+              await fsp.link(tmp,candidate);
+              target=candidate;
+              // A revoke can arrive while the filesystem is creating the
+              // hard-link. Do not publish a newly linked file after cancellation.
+              checkCancelled(signal);
+              break;
+            } catch(e) {if(e.code!=='EEXIST')throw e;}
+          }
+          if(!target)throw new Error('No available destination filename');
+          checkCancelled(signal);
+          await fsp.unlink(tmp);
+          checkCancelled(signal);
+          // Publication boundary: after this point an ACK may have escaped.
+          // Never roll back a file the sender may already believe is saved.
+          saved=true;
+          channel.send({type:'FILE_OK',bytes:count,sha256:digest});
+          onProgress({bytes:count,total:offer.bytes,verified:true});
+          return {path:target,bytes:count,sha256:digest};
+        } catch(error) {
+          // Before the success ACK, a failed unlink or a late revocation
+          // must not leave a final file in the approved destination.
+          if(!saved && target) await fsp.unlink(target).catch(()=>{});
+          throw error;
         }
-        if(!target)throw new Error('No available destination filename');
-        saved=true;
-        await fsp.unlink(tmp);
-        channel.send({type:'FILE_OK',bytes:count,sha256:digest});
-        onProgress({bytes:count,total:offer.bytes,verified:true});
-        return {path:target,bytes:count,sha256:digest};
       }
       if(packet?.type!=='FILE_CHUNK'||packet.seq!==seq||typeof packet.data!=='string'||
           packet.data.length>Math.ceil(FILE_CHUNK_BYTES*4/3)+4||
