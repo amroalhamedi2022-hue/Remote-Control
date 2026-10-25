@@ -26,15 +26,19 @@ function cancellationError() {
 function checkCancelled(signal) {
   if (signal?.aborted) throw cancellationError();
 }
-export async function receiveWithCancel(channel, signal, idleTimeoutMs) {
+export async function receiveWithCancel(channel, signal, idleTimeoutMs, isSessionActive) {
   checkCancelled(signal);
+  if (isSessionActive !== undefined && typeof isSessionActive !== 'function')
+    throw new TypeError('Invalid file session guard');
+  if (isSessionActive && !isSessionActive()) throw cancellationError();
   return new Promise((resolve, reject) => {
     let settled = false;
-    let timer;
+    let timer, revocationPoll;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearInterval(revocationPoll);
       signal?.removeEventListener('abort', onAbort);
       fn(value);
     };
@@ -50,6 +54,13 @@ export async function receiveWithCancel(channel, signal, idleTimeoutMs) {
       finish(reject, error);
     };
     timer = setTimeout(onTimeout, idleTimeoutMs);
+    // A trust revoke can happen while no frames arrive or while a consent
+    // dialog is pending. Do not wait for the full network idle deadline.
+    if (isSessionActive) revocationPoll = setInterval(() => {
+      let active = false;
+      try { active = isSessionActive(); } catch { /* fail closed */ }
+      if (!active) {terminatePeerWait();finish(reject,cancellationError());}
+    }, 100);
     signal?.addEventListener('abort', onAbort, {once: true});
     if (signal?.aborted) {onAbort(); return;}
     Promise.resolve().then(() => channel.receive()).then(
@@ -163,7 +174,7 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
   // stuck dialog cannot keep a receiver session alive indefinitely.
   const approved=await receiveWithCancel({
     receive:()=>approve(offer), lines:channel.lines
-  },signal,idleTimeoutMs);
+  },signal,idleTimeoutMs,isSessionActive);
   requireLiveSession();
   if(approved!==true) {
     channel.send({type:'FILE_DENIED'});
@@ -180,7 +191,7 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
     requireLiveSession();
     channel.send({type:'FILE_READY'});
     while(true) {
-      const packet=await receiveWithCancel(channel,signal,idleTimeoutMs);
+      const packet=await receiveWithCancel(channel,signal,idleTimeoutMs,isSessionActive);
       requireLiveSession();
       // Dart sends FILE_CANCEL after FILE_READY when its source disappears,
       // the user cancels, or a chunk ACK is rejected. Never publish a partial.
