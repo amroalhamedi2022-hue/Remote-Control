@@ -263,10 +263,12 @@ async function interact(socket,role) {
             channel.send({type:'H264_DENIED'});
             throw Error('Host denied H.264 screen sharing');
           }
+          if(!trustedPeerSessionActive()) throw Error('Peer trust revoked before H.264 capture');
           const selectedEncoder=opt('encoder')||'libx264';
           channel.send({type:'H264_READY', profile:'h264-mpegts-lab', seconds:req.seconds});
           const result=await sendH264(channel, socket, {testPattern:flag('test-pattern'),
-            seconds:req.seconds, fps:12, width:640, encoder:selectedEncoder});
+            seconds:req.seconds, fps:12, width:640, encoder:selectedEncoder,
+            isSessionActive:trustedPeerSessionActive});
           console.log('H264_SHARE_CLOSED', result);
           return;
         }
@@ -279,8 +281,10 @@ async function interact(socket,role) {
           channel.send({type:'STREAM_DENIED'});
           throw Error('Host denied screen access');
         }
+        if(!trustedPeerSessionActive()) throw Error('Peer trust revoked before MJPEG capture');
         channel.send({type:'STREAM_READY',profile:'mjpeg-lab',fps:4,width:640});
-        const result=await sendPreview(channel,socket,{testPattern:flag('test-pattern'),fps:4,width:640});
+        const result=await sendPreview(channel,socket,{testPattern:flag('test-pattern'),fps:4,width:640,
+          isSessionActive:trustedPeerSessionActive});
         console.log('PREVIEW_CLOSED',result);
       }
     }
