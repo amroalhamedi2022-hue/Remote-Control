@@ -7,6 +7,7 @@ import 'models/app_state.dart';
 import 'ui/liquid_theme.dart';
 import 'security/pairing_lab.dart';
 import 'security/file_transfer_lab.dart';
+import 'security/android_saf_staging.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,19 +29,20 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
     app.pairing.onClipboardWrite = (text) async {
       await Clipboard.setData(ClipboardData(text: text));
     };
-    // Desktop inbound files require BOTH pairing consent and an explicit
-    // local folder selection for EACH offer. Android SAF is not ready yet.
+    // Each inbound file needs local approval AND a fresh destination picker.
     if (Platform.isWindows) {
       app.pairing.onFileReceiveRequest = _confirmIncomingFile;
-      app.pairing.onFileReceiveCompleted = (result) {
-        final ctx = navigatorKey.currentContext;
-        if (mounted && ctx != null) {
-          ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-            content: Text('Verified incoming file saved: ${result.bytes} bytes · SHA-256 confirmed'),
-          ));
-        }
-      };
+    } else if (Platform.isAndroid) {
+      app.pairing.onAndroidFileReceiveRequest = _confirmIncomingFileAndroid;
     }
+    app.pairing.onFileReceiveCompleted = (result) {
+      final ctx = navigatorKey.currentContext;
+      if (mounted && ctx != null) {
+        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
+          content: Text('Incoming file verified: ${result.bytes} bytes · SHA-256 confirmed'),
+        ));
+      }
+    };
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) app.startPairHost(_confirmPair);
     });
@@ -92,14 +94,32 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
   }
   Future<Directory?> _confirmIncomingFile(
       String fingerprint, LabIncomingOffer offer) async {
-    if (!Platform.isWindows || !mounted || navigatorKey.currentContext == null) {
+    if (!Platform.isWindows || !await _approveIncomingFile(fingerprint, offer)) {
       return null;
     }
+    final path = await getDirectoryPath(confirmButtonText: 'Receive here');
+    if (!mounted || path == null || path.isEmpty) return null;
+    return Directory(path);
+  }
+
+  Future<String?> _confirmIncomingFileAndroid(
+      String fingerprint, LabIncomingOffer offer) async {
+    if (!Platform.isAndroid || !await _approveIncomingFile(fingerprint, offer)) {
+      return null;
+    }
+    // Native ACTION_OPEN_DOCUMENT_TREE grants one-time scoped write access.
+    // Cancelling the picker denies the transfer; no default save location.
+    final tree = await AndroidSafLabReceiveStaging.pickTree();
+    return mounted ? tree : null;
+  }
+
+  Future<bool> _approveIncomingFile(
+      String fingerprint, LabIncomingOffer offer) async {
+    if (!mounted || navigatorKey.currentContext == null) return false;
     BuildContext? activeDialog;
     Timer? timer;
-    bool approved = false;
     try {
-      approved = await showDialog<bool>(
+      return await showDialog<bool>(
         context: navigatorKey.currentContext!,
         barrierDismissible: false,
         builder: (context) {
@@ -117,13 +137,13 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('A paired device requests ONE file transfer. Choose a local folder only if you recognize this request.'),
+                const Text('Approve ONE file, then select a local destination. The sender cannot choose it.'),
                 const SizedBox(height: 12),
                 SelectableText('Peer: ${fingerprint.substring(0, 20)}…'),
                 SelectableText('Name: ${offer.name}'),
                 Text('Size: ${offer.bytes} bytes (64 MiB lab limit)'),
                 const SizedBox(height: 8),
-                const Text('No overwrite: verified files are published in a unique Received-* folder.'),
+                const Text('Verified files use unique Received-* names. Android SAF requires readback and rename support; unsupported providers are rejected.'),
               ],
             )),
             actions: [
@@ -138,12 +158,6 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
     } finally {
       timer?.cancel();
     }
-    if (!approved || !mounted) return null;
-    // file_selector uses the native Windows folder picker; a cancelled picker
-    // is a denial. No remote peer can choose or override the destination.
-    final path = await getDirectoryPath(confirmButtonText: 'Receive here');
-    if (!mounted || path == null || path.isEmpty) return null;
-    return Directory(path);
   }
 
   Future<bool> _confirmClipboard(String fingerprint, String text) async {
