@@ -71,3 +71,20 @@ test('receive-folder listener reclaims only stale marked batches before acceptin
   assert.equal(fs.existsSync(staging),false);
   assert.equal(fs.existsSync(untouched),true);
 });
+
+test('CLI screen viewer signs view-only intent before host stream consent',async t=>{
+  const a=fs.mkdtempSync(path.join(os.tmpdir(),'remote-screen-host-'));
+  const b=fs.mkdtempSync(path.join(os.tmpdir(),'remote-screen-viewer-'));
+  t.after(()=>{fs.rmSync(a,{recursive:true,force:true});fs.rmSync(b,{recursive:true,force:true});});
+  const port=await freePort();
+  const server=launch(['--listen','--no-discovery','--share-screen',`--port=${port}`,`--state=${a}`]);
+  t.after(()=>server.stop());
+  await until(()=>server.logs.includes('PAIR_AGENT_READY'));
+  const client=launch([`--connect=127.0.0.1:${port}`,`--state=${b}`,'--view-screen','--max-frames=1']);
+  t.after(()=>client.stop());
+  // No SHARE consent is sent, so this test verifies intent negotiation only:
+  // the host must reach its local screen permission prompt, not stream a frame.
+  await until(()=>server.logs.includes('VIEW-ONLY screen request'),6000);
+  assert.doesNotMatch(server.logs,/Signed screen intent required|SESSION_REJECTED/);
+  assert.doesNotMatch(client.logs,/ENCRYPTED_PREVIEW_JPEG/);
+});
