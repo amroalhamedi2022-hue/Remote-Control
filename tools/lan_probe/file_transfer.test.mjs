@@ -221,3 +221,21 @@ test('cancelling pending receiver consent does not create or acknowledge a file'
   await new Promise(resolve=>setImmediate(resolve));
   assert.deepEqual(await fs.readdir(dir),[]);
 }));
+
+
+test('signed sender FILE_CANCEL promptly deletes partial receiver staging',()=>sandbox(async dir=>{
+  const destination=path.join(dir,'received');await fs.mkdir(destination);
+  const payload=Buffer.from('cancelled payload');
+  const offer={type:'FILE_OFFER',name:'cancelled.txt',bytes:payload.length,
+    sha256:crypto.createHash('sha256').update(payload).digest('hex')};
+  const [sender,receiver]=channels();
+  const receiving=receiveFileOnce(receiver,offer,{
+    directory:destination,approve:async()=>true,idleTimeoutMs:1000
+  });
+  assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+  sender.send({type:'FILE_CHUNK',seq:0,data:payload.subarray(0,4).toString('base64')});
+  assert.deepEqual(await sender.receive(),{type:'FILE_ACK',seq:0});
+  sender.send({type:'FILE_CANCEL'});
+  await assert.rejects(receiving,{name:'AbortError',message:'File transfer cancelled'});
+  assert.deepEqual(await fs.readdir(destination),[]);
+}));
