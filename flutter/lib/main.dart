@@ -212,6 +212,7 @@ class _LiquidRemoteControlPrototypeState extends State<LiquidRemoteControlProtot
     app.pairing.onClipboardConsent = null;
     app.pairing.onClipboardWrite = null;
     app.pairing.onFileReceiveRequest = null;
+    app.pairing.onAndroidFileReceiveRequest = null;
     app.pairing.onFileReceiveCompleted = null;
     app.dispose();
     super.dispose();
@@ -881,7 +882,7 @@ class _FileCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _PanelHeading(title:'File Transfer',
-          subtitle:'Android → Windows · one-shot encrypted lab',
+          subtitle:'Android ↔ Windows / Android · attended encrypted lab',
           icon:Icons.folder_copy_outlined),
         Container(
           padding:const EdgeInsets.all(14),
@@ -891,16 +892,16 @@ class _FileCard extends StatelessWidget {
           child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
             Text(active ? 'Transferring: $sent / $total bytes' :
               app.fileTransferVerified ? 'Last transfer verified by receiver' :
-              'Choose a file with the Android system picker',
+              'Choose a file with the system picker',
               style:TextStyle(color:c.text,fontWeight:FontWeight.w600)),
             const SizedBox(height:10),
             LinearProgressIndicator(value:total > 0 ? (sent/total).clamp(0.0,1.0).toDouble() : (active ? null : 0.0),
               minHeight:5),
             const SizedBox(height:8),
-            Text('Maximum 64 MiB. Select a discovered Windows host running the Node lab with --listen --receive-file=<folder>. Verify six-digit pairing on both devices; the Windows receiver must type FILE to approve.',
+            Text('Maximum 64 MiB. Select a discovered Android receiver with this app open, or a Windows Node lab receiver using --listen --receive-file=<folder>. Compare six-digit pairing codes on both devices. Every incoming file requires a separate approval.',
               style:TextStyle(color:c.muted,fontSize:11)),
             const SizedBox(height:6),
-            Text('No background file access, no Android receiver yet. The custom lab handshake is not approved for production.',
+            Text('Android and Windows receivers require separate approval and a freshly selected folder. Android SAF stages privately, verifies SHA-256, and requires provider readback/rename support. No unattended access; experimental pairing is not production-audited.',
               style:TextStyle(color:c.muted,fontSize:10)),
           ]),
         ),
@@ -917,7 +918,7 @@ class _FileCard extends StatelessWidget {
                 (challenge) => _pairDialog(context, challenge), file);
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                  content:Text('Windows verified ${result.bytes} bytes · SHA-256 ${result.sha256.substring(0,16)}…')));
+                  content:Text('Receiver verified ${result.bytes} bytes · SHA-256 ${result.sha256.substring(0,16)}…')));
               }
             } catch (e) {
               if (context.mounted) {
