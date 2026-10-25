@@ -20,6 +20,7 @@ import '../network/lan_address_policy.dart';
 import 'pair_session_ledger.dart';
 import 'pair_consent_policy.dart';
 import 'pairing_lifecycle.dart';
+import 'trust_pin_store.dart';
 import 'clipboard_policy.dart';
 
 const pairingPort = 43829;
@@ -88,7 +89,10 @@ class PairingLab {
   Socket? _activePairSocket;
   // Fingerprint of the in-flight pairing/transfer; revoke must terminate it.
   String? _activePeerFingerprint;
-  final Map<String, String> _trust = {};
+  late final TrustPinStore _trustPins = TrustPinStore(
+    writeSnapshot: (snapshot) => storage.write(
+      key: 'liquidremote.trust.v1', value: jsonEncode(snapshot)),
+  );
   final PairSessionLedger _sessionAddresses = PairSessionLedger();
   SimpleKeyPair? _identity;
   List<int>? _identitySpki;
@@ -109,9 +113,9 @@ class PairingLab {
   bool get listening => _server != null;
   bool isPairedInThisSession(String address) {
     final fingerprint = _sessionAddresses.fingerprintFor(address);
-    return fingerprint != null && _trust.containsKey(fingerprint);
+    return fingerprint != null && _trustPins.containsKey(fingerprint);
   }
-  int get trustedCount => _trust.length;
+  int get trustedCount => _trustPins.length;
   String? get localFingerprint => _localFingerprint;
   String? _localFingerprint;
 
@@ -128,6 +132,7 @@ class PairingLab {
       await storage.write(key: 'liquidremote.ed25519.seed.v1', value: _b64(seed));
     }
     final trustText = await storage.read(key: 'liquidremote.trust.v1');
+    final loadedTrust = <String, String>{};
     if (trustText != null) {
       final decoded = jsonDecode(trustText);
       if (decoded is! Map<String, dynamic>) throw const FormatException('Invalid trust database');
@@ -138,9 +143,10 @@ class PairingLab {
         final peerPublic = _readSpki(entry.value as String, _edSpki, KeyPairType.ed25519);
         final digest = _hex(await _sha(_spki(_edSpki, peerPublic.bytes)));
         if (digest != entry.key) throw const FormatException('Invalid fingerprint pin');
-        _trust[entry.key] = entry.value as String;
+        loadedTrust[entry.key] = entry.value as String;
       }
     }
+    _trustPins.load(loadedTrust);
     _identity = keyPair;
     _identitySpki = _spki(_edSpki, pub.bytes);
     _localFingerprint = _hex(await _sha(_identitySpki!));
@@ -318,15 +324,15 @@ class PairingLab {
     // in-flight FILE_END/SAF staging cannot re-pin the peer after deletion.
     // This also closes the listener; the user must explicitly restart it.
     if (_activePeerFingerprint == fingerprint) await stop();
-    final wasTrusted = _trust.remove(fingerprint) != null;
+    final wasTrusted = _trustPins.containsKey(fingerprint);
     // Remove ephemeral session indicators even if the pin was already absent.
     _sessionAddresses.revokeFingerprint(fingerprint);
     if (wasTrusted) {
-      await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
+      await _trustPins.revoke(fingerprint);
     }
     onChange?.call();
   }
-  Map<String, String> get trusted => Map.unmodifiable(_trust);
+  Map<String, String> get trusted => _trustPins.values;
 
   Future<Map<String, dynamic>> _hello(String type, SimpleKeyPair eph,
       {String? clientHash, String? intent}) async {
@@ -399,7 +405,7 @@ class PairingLab {
       final fingerprint = _hex(await _sha(_unb64(remotePublic)));
       peerForThisSession = fingerprint;
       _activePeerFingerprint = fingerprint;
-      final pinned = _trust[fingerprint];
+      final pinned = _trustPins[fingerprint];
       if (pinned != null && pinned != remotePublic) throw const FormatException('Identity pin mismatch');
       final transcriptHash = await _sha(utf8.encode(jsonEncode([clientHello, serverHello])));
       final sharedKey = await keyExchange.sharedSecretKey(keyPair: ephemeral,
@@ -447,9 +453,8 @@ class PairingLab {
         if (previewReceiver != null) {
           // Stopping a listener must not allow a pending pairing to grant trust.
           _lifecycle.requireCurrent(ticket);
-          _trust[fingerprint] = remotePublic;
-          await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
-          // Stop may have invalidated the session while secure storage awaited.
+          await _trustPins.pinIfCurrent(fingerprint, remotePublic,
+              isCurrent: () => _lifecycle.isCurrent(ticket));
           _lifecycle.requireCurrent(ticket);
           _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
           onChange?.call();
@@ -534,8 +539,8 @@ class PairingLab {
       // Trust is recorded ONLY after an authenticated round trip and while
       // this pairing generation is still active.
       _lifecycle.requireCurrent(ticket);
-      _trust[fingerprint] = remotePublic;
-      await storage.write(key: 'liquidremote.trust.v1', value: jsonEncode(_trust));
+      await _trustPins.pinIfCurrent(fingerprint, remotePublic,
+          isCurrent: () => _lifecycle.isCurrent(ticket));
       _lifecycle.requireCurrent(ticket);
       _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
       onChange?.call();
