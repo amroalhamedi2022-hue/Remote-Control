@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -146,7 +147,8 @@ void main() {
     final channel = _NodeReceiverFixture(wrongAck:true);
     final file = XFile.fromData(Uint8List.fromList([1,2,3]),name:'x.bin');
     await expectLater(sendLabFile(channel,file,selectedName:'x.bin'), throwsStateError);
-    expect(channel.sent.map((m) => m['type']), ['FILE_OFFER','FILE_CHUNK']);
+    expect(channel.sent.map((m) => m['type']),
+      ['FILE_OFFER','FILE_CHUNK','FILE_CANCEL']);
   });
 
   test('empty file still receives a SHA-256 verified completion', () async {
@@ -239,6 +241,42 @@ void main() {
        createStaging: (_) async => _StagingFixture()), throwsFormatException);
     expect(asked, isFalse);
     expect(channel.sent, isEmpty);
+  });
+
+
+  test('explicit sender cancellation aborts staged bytes without FILE_OK', () async {
+    final channel = _IncomingFixture([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1, 2])},
+      {'type': 'FILE_CANCEL'},
+    ]);
+    final stage = _StagingFixture();
+    await expectLater(receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'partial.bin', 'bytes': 3,
+      'sha256': '0' * 64,
+    }, approve: (_) async => true, createStaging: (_) async => stage),
+      throwsStateError);
+    expect(stage.aborted, isTrue);
+    expect(stage.published, isFalse);
+    expect(channel.sent.map((m) => m['type']), ['FILE_READY', 'FILE_ACK']);
+  });
+
+  test('late native staging completion after deadline is aborted', () async {
+    final pending = Completer<LabReceiveStaging>();
+    final channel = _IncomingFixture([]);
+    final stage = _StagingFixture();
+    final receiving = receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'late.bin', 'bytes': 1,
+      'sha256': '0' * 64,
+    }, approve: (_) async => true,
+      createStaging: (_) => pending.future,
+      stagingTimeout: const Duration(milliseconds: 5));
+    await expectLater(receiving, throwsA(isA<TimeoutException>()));
+    expect(channel.sent.map((m) => m['type']), ['FILE_DENIED']);
+    pending.complete(stage);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(stage.aborted, isTrue);
+    expect(stage.published, isFalse);
+    expect(channel.sent.where((m) => m['type'] == 'FILE_READY'), isEmpty);
   });
 
 }
