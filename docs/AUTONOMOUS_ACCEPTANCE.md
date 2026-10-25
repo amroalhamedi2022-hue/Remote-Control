@@ -136,3 +136,7 @@ AUTOMATION_COMPLETE: BLOCKED
 - Regression: revoked sender cancels before FILE_END; late native staging aborts without FILE_READY; revoked slow write aborts without ACK or publish; pre-revoked session does not request consent.
 - Security boundary: cooperative checks, not OS-level interruption. A native SAF commit already in progress cannot be rolled back atomically across all providers. Real-device Stop/revoke during publish and cross-device LAN remain NOT TESTED. No new package or paid API; reviewed Dart async cancellation behavior.
 - Gate at commit: source patch PRESENT; Flutter analyzer/tests and Android/Windows binaries NOT TESTED on this SHA; real hardware NOT TESTED; final release FAIL. Update PR with exact-SHA CI results.
+
+### M12 security follow-up (2026-10-25)
+- `PairingLab.revoke(fingerprint)` now stops an active session with that fingerprint BEFORE removing its persisted trust pin. The Stop invalidates the lifecycle ticket, closes the active socket/listener, and prevents an in-flight transfer from silently re-pinning a revoked peer. Listener restart requires explicit user action. This is cooperative application-level revocation; native SAF commit already underway may still publish and requires device testing.
+- The in-flight peer fingerprint is set only after signed hello identity verification and cleared on session exit. Exact-SHA Flutter CI required; no binary/device claim from source changes alone.

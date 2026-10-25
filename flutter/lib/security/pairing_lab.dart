@@ -86,6 +86,8 @@ class PairingLab {
   bool _busy = false;
   final PairingLifecycle _lifecycle = PairingLifecycle();
   Socket? _activePairSocket;
+  // Fingerprint of the in-flight pairing/transfer; revoke must terminate it.
+  String? _activePeerFingerprint;
   final Map<String, String> _trust = {};
   final PairSessionLedger _sessionAddresses = PairSessionLedger();
   SimpleKeyPair? _identity;
@@ -312,6 +314,10 @@ class PairingLab {
   }
 
   Future<void> revoke(String fingerprint) async {
+    // Revoking a peer is also an active-session operation. Stop first so an
+    // in-flight FILE_END/SAF staging cannot re-pin the peer after deletion.
+    // This also closes the listener; the user must explicitly restart it.
+    if (_activePeerFingerprint == fingerprint) await stop();
     final wasTrusted = _trust.remove(fingerprint) != null;
     // Remove ephemeral session indicators even if the pin was already absent.
     _sessionAddresses.revokeFingerprint(fingerprint);
@@ -368,6 +374,7 @@ class PairingLab {
       void Function(FileSendResult result)? onFileResult}) async {
     final io = _JsonLines(socket);
     final ephemeral = await keyExchange.newKeyPair();
+    String? peerForThisSession;
     try {
       late final Map<String, dynamic> clientHello;
       late final Map<String, dynamic> serverHello;
@@ -390,6 +397,8 @@ class PairingLab {
       }
       final remotePublic = isClient ? serverHello['identity'] as String : clientHello['identity'] as String;
       final fingerprint = _hex(await _sha(_unb64(remotePublic)));
+      peerForThisSession = fingerprint;
+      _activePeerFingerprint = fingerprint;
       final pinned = _trust[fingerprint];
       if (pinned != null && pinned != remotePublic) throw const FormatException('Identity pin mismatch');
       final transcriptHash = await _sha(utf8.encode(jsonEncode([clientHello, serverHello])));
@@ -531,7 +540,13 @@ class PairingLab {
       _sessionAddresses.remember(socket.remoteAddress.address, fingerprint);
       onChange?.call();
       return PairResult(fingerprint, pinned == remotePublic, socket.remoteAddress.address);
-    } finally { await io.close(); ephemeral.destroy(); }
+    } finally {
+      if (_activePeerFingerprint == peerForThisSession) {
+        _activePeerFingerprint = null;
+      }
+      await io.close();
+      ephemeral.destroy();
+    }
   }
 
   Future<void> _receivePreview(_SealedChannel channel,
