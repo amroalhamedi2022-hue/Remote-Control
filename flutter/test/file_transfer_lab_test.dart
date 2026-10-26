@@ -295,14 +295,15 @@ void main() {
 
 
   test('explicit sender cancellation aborts staged bytes without FILE_OK', () async {
+    final firstChunk = List<int>.generate(labFileChunkBytes, (i) => i % 251);
     final channel = _IncomingFixture([
-      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1, 2])},
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode(firstChunk)},
       {'type': 'FILE_CANCEL'},
     ]);
     final stage = _StagingFixture();
     await expectLater(receiveLabFile(channel, {
-      'type': 'FILE_OFFER', 'name': 'partial.bin', 'bytes': 3,
-      'sha256': '0' * 64,
+      'type': 'FILE_OFFER', 'name': 'partial.bin',
+      'bytes': labFileChunkBytes + 1, 'sha256': '0' * 64,
     }, approve: (_) async => true, createStaging: (_) async => stage),
       throwsStateError);
     expect(stage.aborted, isTrue);
