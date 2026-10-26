@@ -290,7 +290,13 @@ Future<FileSendResult?> receiveLabFile(
     rethrow;
   }
   if (!accepted) {
-    await sendFrame({'type': 'FILE_DENIED'});
+    // Explicit denial is terminal for this one-shot file-intent channel too.
+    // Always revoke it, even if notifying the peer fails for a non-timeout reason.
+    try {
+      await sendFrame({'type': 'FILE_DENIED'});
+    } finally {
+      if (channel is AbortableFileTransferChannel) channel.abort();
+    }
     return null;
   }
 
