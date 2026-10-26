@@ -23,6 +23,7 @@ import 'pairing_lifecycle.dart';
 import 'pairing_nonce_guard.dart';
 import 'trust_pin_store.dart';
 import 'clipboard_policy.dart';
+import 'clipboard_receive_policy.dart';
 
 const pairingPort = 43829;
 const _protocol = 'liquidremote.pair.v1';
@@ -490,17 +491,22 @@ class PairingLab {
           if (request['type'] != 'CLIPBOARD_PUT' || content is! String) {
             throw const FormatException('Unexpected clipboard request');
           }
-          final bytes = ClipboardPolicy.validate(content);
           final consent = onClipboardConsent;
           final write = onClipboardWrite;
-          if (consent == null || write == null ||
-              !await PairConsentPolicy.awaitApproval(() => consent(fingerprint, content))) {
+          if (consent == null || write == null) {
             await channel.send({'type': 'CLIPBOARD_DENIED'});
             throw StateError('Android clipboard transfer denied');
           }
-          _lifecycle.requireCurrent(ticket);
-          await write(content);
-          _lifecycle.requireCurrent(ticket);
+          final bytes = await ClipboardReceivePolicy.acceptOnce(
+            text: content,
+            isSessionActive: () => _lifecycle.isCurrent(ticket),
+            requestConsent: () => consent(fingerprint, content),
+            write: write,
+          );
+          if (bytes == null) {
+            await channel.send({'type': 'CLIPBOARD_DENIED'});
+            throw StateError('Android clipboard transfer denied');
+          }
           await channel.send({'type': 'CLIPBOARD_OK', 'bytes': bytes});
         }
         if (clientHello['intent'] == 'file') {
