@@ -143,7 +143,8 @@ jobs:
           retention-days: 7
 
   android-debug-apk:
-    if: github.event_name == 'workflow_dispatch' && inputs.release_approved == true
+    # One-off Android device-test package is allowed only with the explicit commit marker.
+    if: (github.event_name == 'workflow_dispatch' && inputs.release_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[device-test-build]'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: node-protocol-tests
@@ -182,7 +183,8 @@ jobs:
 
   windows-debug-bundle:
     # Only the final approved build or the explicit M34 platform compile marker may package Windows.
-    if: (github.event_name == 'workflow_dispatch' && inputs.release_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[m34-platform-compile]'))
+    # The marker creates a short-lived Windows debug bundle for explicit LAN device acceptance only.
+    if: (github.event_name == 'workflow_dispatch' && inputs.release_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[m34-platform-compile]')) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[device-test-build]'))
     runs-on: windows-latest
     timeout-minutes: 60
     needs: node-protocol-tests
