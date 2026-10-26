@@ -220,3 +220,16 @@ No merge, no main changes, no new dependency or paid API.
 
 No merge, no `main` changes, no new dependency, and no paid API.
 
+
+
+## M54 — Native Android SAF filename-policy parity (2026-10-27)
+
+- **Production change:** `SafReceivePolicy.validFileName` now normalizes the Windows device-name stem by trimming ASCII spaces/dots before its extension and rejects `CONIN$`/`CONOUT$` as well as `CON`, `PRN`, `AUX`, `NUL`, and COM/LPT 1–9 (including superscript digits). This closes a defense-in-depth gap where the Dart sender rejected aliases such as `CON .txt` but the native Kotlin SAF boundary did not.
+- **Regression coverage:** added `CON .txt`, `NUL .bin`, `COM1 .log`, `AUX .cfg`, `CONIN$.txt`, `CONOUT$.txt`, `LPT3 .txt`, and console aliases with spaces before the extension; ordinary `CON-notes.txt` and `COM10.txt` remain valid.
+- **Source commit:** `a4f3cd19fe31c4179a7b64cdce106d4876ce4a98`
+- **Test commit:** `c3435564f9209bb730f9c27d6e2cbab1aa40bb90`
+- **Workflow change:** `da63a93143db17b34d018b3c14cd7d25a6eac5b9` adds an opt-in `android-saf-policy-tests` job, triggered by `[saf-policy-test]`, which compiles/runs the native policy tests without creating an APK or Windows bundle.
+- **Local test:** Kotlin/JVM compile and policy test execution **PASS** on the available JDK 17/Kotlin 2.4.21 runtime; the run printed `PASS: SAF filename parity, Unicode spoofing, single-stage and cache quotas`.
+- **GitHub exact-head CI:** **NOT VERIFIED in this run**; the available workflow-run lookup exposes pull-request-triggered runs only, while this branch's current CI is push-triggered. [Remote Control workflow filtered to this branch](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/workflows/ci.yml?query=branch%3Afeature%2Fbuild-reliability-v0_9).
+- **Acceptance:** native policy compile/regression locally **PASS**; GitHub exact-head job **NOT VERIFIED**; Flutter/Node CI on the final documentation head **NOT VERIFIED**; Android APK/Windows bundle and physical-device acceptance **NOT TESTED**.
+- **Safety:** no merge, no `main` changes, no new dependency or paid API. The new workflow job is source-only and does not build APK/EXE. Pairing cryptography remains experimental and not production-approved.
