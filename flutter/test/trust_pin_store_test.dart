@@ -132,4 +132,42 @@ void main() {
     expect(store.values, isEmpty);
     expect(writes.last, isEmpty);
   });
+
+  test('revoke retry never overwrites a newer concurrent pin snapshot', () async {
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    var attempts = 0;
+    final durable = <Map<String, String>>[];
+    final store = TrustPinStore(writeSnapshot: (snapshot) async {
+      attempts++;
+      if (attempts == 1) {
+        entered.complete();
+        await release.future;
+        throw StateError('simulated uncertain revoke write');
+      }
+      durable.add(Map<String, String>.of(snapshot));
+    });
+    store.load({'peer-old': 'public-key-old'});
+
+    final revoking = store.revoke('peer-old');
+    await entered.future;
+    final pinning = store.pinIfCurrent(
+      'peer-new', 'public-key-new', isCurrent: () => true);
+    release.complete();
+
+    await expectLater(
+      revoking,
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        contains('concurrent trust mutation'),
+      )),
+    );
+    await pinning;
+    expect(store.values, {'peer-new': 'public-key-new'});
+    expect(durable, isNotEmpty);
+    expect(durable.last, {'peer-new': 'public-key-new'});
+    expect(durable.any((snapshot) => snapshot.containsKey('peer-old')), isFalse);
+  });
+
 }
