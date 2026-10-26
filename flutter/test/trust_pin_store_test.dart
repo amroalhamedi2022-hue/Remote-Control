@@ -133,6 +133,42 @@ void main() {
     expect(writes.last, isEmpty);
   });
 
+  test('trust set refuses a 129th peer before any persistence write', () async {
+    final writes = <Map<String, String>>[];
+    final store = TrustPinStore(writeSnapshot: (snapshot) async {
+      writes.add(Map<String, String>.of(snapshot));
+    });
+    final full = <String, String>{
+      for (var i = 0; i < TrustPinStore.maxTrustedPeers; i++)
+        'peer-$i': 'public-key-$i',
+    };
+    store.load(full);
+
+    await expectLater(
+      store.pinIfCurrent(
+        'peer-overflow', 'public-key-overflow', isCurrent: () => true),
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        contains('peer limit reached'),
+      )),
+    );
+    expect(store.length, TrustPinStore.maxTrustedPeers);
+    expect(store.containsKey('peer-overflow'), isFalse);
+    expect(writes, isEmpty);
+  });
+
+  test('oversized persisted trust snapshot is rejected without partial loading', () {
+    final store = TrustPinStore(writeSnapshot: (_) async {});
+    final oversized = <String, String>{
+      for (var i = 0; i <= TrustPinStore.maxTrustedPeers; i++)
+        'peer-$i': 'public-key-$i',
+    };
+    expect(() => store.load(oversized), throwsFormatException);
+    expect(store.values, isEmpty);
+    expect(store.length, 0);
+  });
+
   test('revoke retry never overwrites a newer concurrent pin snapshot', () async {
     final entered = Completer<void>();
     final release = Completer<void>();
