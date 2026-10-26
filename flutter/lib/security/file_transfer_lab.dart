@@ -89,7 +89,10 @@ Future<FileSendResult> sendLabFile(
     throw ArgumentError.value(responseTimeout, 'responseTimeout', 'must be positive');
   }
   var sendTimedOut = false;
+  var channelAborted = false;
   void abortChannel() {
+    if (channelAborted) return;
+    channelAborted = true;
     final current = channel;
     if (current is AbortableFileTransferChannel) {
       try {
@@ -196,6 +199,10 @@ Future<FileSendResult> sendLabFile(
     if (!finalFrameAttempted && !sendTimedOut) {
       try { await sendFrame({'type': 'FILE_CANCEL'}); } catch (_) {}
     }
+    // This is a one-shot file-intent channel. Revoke it after every failed
+    // send path, including non-timeout errors while trying to send FILE_CANCEL
+    // and errors after FILE_END where sending a cancel would be ambiguous.
+    abortChannel();
     rethrow;
   }
 }
