@@ -456,7 +456,7 @@ void main() {
     expect(channel.sent.map((message) => message['type']), ['FILE_READY']);
   });
 
-  test('SAF staging failure denies sender before FILE_READY', () async {
+  test('SAF staging failure denies sender before FILE_READY and aborts channel', () async {
     final channel = _IncomingFixture([]);
     final offer = {
       'type': 'FILE_OFFER', 'name': 'ok.txt', 'bytes': 1,
@@ -467,6 +467,28 @@ void main() {
       createStaging: (_) async => throw StateError('SAF provider refused write')),
       throwsStateError);
     expect(channel.sent.map((m) => m['type']), ['FILE_DENIED']);
+    expect(channel.aborted, isTrue);
+  });
+
+  test('staging timeout aborts channel and cleans up late destination allocation', () async {
+    final channel = _IncomingFixture([]);
+    final pending = Completer<LabReceiveStaging>();
+    final stage = _StagingFixture();
+    final offer = {
+      'type': 'FILE_OFFER', 'name': 'late-stage.txt', 'bytes': 0,
+      'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    };
+    await expectLater(receiveLabFile(channel, offer,
+      approve: (_) async => true,
+      createStaging: (_) => pending.future,
+      stagingTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()));
+    expect(channel.sent.map((m) => m['type']), ['FILE_DENIED']);
+    expect(channel.aborted, isTrue);
+    pending.complete(stage);
+    await Future<void>.delayed(Duration.zero);
+    expect(stage.aborted, isTrue);
+    expect(stage.published, isFalse);
   });
 
   test('cancelled or failed approval denies sender without creating staging', () async {
