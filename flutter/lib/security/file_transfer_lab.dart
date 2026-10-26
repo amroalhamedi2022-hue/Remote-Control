@@ -89,12 +89,23 @@ Future<FileSendResult> sendLabFile(
     throw ArgumentError.value(responseTimeout, 'responseTimeout', 'must be positive');
   }
   var sendTimedOut = false;
+  void abortChannel() {
+    final current = channel;
+    if (current is AbortableFileTransferChannel) {
+      try {
+        current.abort();
+      } catch (_) {
+        // Preserve the original transfer failure if transport cleanup itself fails.
+      }
+    }
+  }
+
   Future<void> sendFrame(Map<String, dynamic> message) async {
     try {
       await channel.send(message).timeout(sendTimeout);
     } on TimeoutException {
       sendTimedOut = true;
-      if (channel is AbortableFileTransferChannel) channel.abort();
+      abortChannel();
       rethrow;
     }
   }
@@ -104,7 +115,7 @@ Future<FileSendResult> sendLabFile(
     } on TimeoutException {
       // A timed-out Future does not cancel the underlying receive. Revoke the
       // transport when possible so the peer cannot keep a stalled session alive.
-      if (channel is AbortableFileTransferChannel) channel.abort();
+      abortChannel();
       rethrow;
     }
   }
@@ -130,9 +141,11 @@ Future<FileSendResult> sendLabFile(
   });
   final approval = await receiveFrame();
   if (approval['type'] == 'FILE_DENIED') {
+    abortChannel();
     throw StateError('Receiver denied file transfer');
   }
   if (approval['type'] != 'FILE_READY') {
+    abortChannel();
     throw StateError('Invalid file receiver approval');
   }
 
