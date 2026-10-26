@@ -18,6 +18,7 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
   bool _aborted = false;
   bool _finalized = false;
   String? _publishedFolderPath;
+  String? _publishedFilePath;
   int _written = 0;
   String? publishedPath;
 
@@ -101,7 +102,8 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
     await _staging.rename(finalFolder.path);
     _committed = true;
     _publishedFolderPath = finalFolder.path;
-    publishedPath = '${finalFolder.path}${Platform.pathSeparator}$name';
+    _publishedFilePath = '${finalFolder.path}${Platform.pathSeparator}$name';
+    publishedPath = _publishedFilePath;
   }
 
   @override
@@ -110,22 +112,34 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
       throw StateError('Desktop publication already crossed the FILE_OK boundary');
     }
     if (!_committed) return;
-    final path = _publishedFolderPath;
-    if (path == null) throw StateError('Published desktop output has no rollback path');
-    final type = await FileSystemEntity.type(path, followLinks: false);
+    final folderPath = _publishedFolderPath;
+    final filePath = _publishedFilePath;
+    if (folderPath == null || filePath == null) {
+      throw StateError('Published desktop output has no rollback path');
+    }
+    if (!filePath.startsWith('$folderPath${Platform.pathSeparator}')) {
+      throw StateError('Published desktop rollback path escaped its private folder');
+    }
+    // Remove only the file created by this transfer. Never recursively delete
+    // the folder: the user may have added another file while publication awaited.
+    final type = await FileSystemEntity.type(filePath, followLinks: false);
     if (type == FileSystemEntityType.notFound) {
-      throw StateError('Published desktop output disappeared before rollback');
+      throw StateError('Published desktop file disappeared before rollback');
     }
     if (type == FileSystemEntityType.link) {
-      await Link(path).delete();
-    } else if (type == FileSystemEntityType.directory) {
-      await Directory(path).delete(recursive: true);
+      await Link(filePath).delete();
+    } else if (type == FileSystemEntityType.file) {
+      await File(filePath).delete();
     } else {
-      await File(path).delete();
+      throw StateError('Published desktop target is no longer a regular file');
     }
+    // The generated folder is private to this transfer. Delete it only if still
+    // empty; preserve unrelated files if the user added anything after commit.
+    try { await Directory(folderPath).delete(); } on FileSystemException { /* non-empty or provider denied cleanup */ }
     _committed = false;
     _aborted = true;
     _publishedFolderPath = null;
+    _publishedFilePath = null;
     publishedPath = null;
   }
 
@@ -134,6 +148,7 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
     if (_committed) {
       _finalized = true;
       _publishedFolderPath = null;
+      _publishedFilePath = null;
     }
   }
 
