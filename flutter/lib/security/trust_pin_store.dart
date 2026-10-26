@@ -17,8 +17,11 @@ class TrustPinStore {
   bool containsKey(String fingerprint) => _pins.containsKey(fingerprint);
   String? operator [](String fingerprint) => _pins[fingerprint];
 
-  /// Loads already-validated pins during startup; does not write them back.
+  /// Loads already-validated pins once, before any mutation or queued write.
   void load(Map<String, String> snapshot) {
+    if (_revision != 0) {
+      throw StateError('Trust snapshot may only be loaded before mutations');
+    }
     _pins
       ..clear()
       ..addAll(snapshot);
@@ -33,23 +36,30 @@ class TrustPinStore {
     if (!isCurrent()) throw StateError('Pairing session was stopped');
     if (_pins[fingerprint] == publicKey) return;
 
-    final revision = _revision;
+    // Reserve the revision before queuing I/O. A newer revoke/stop must make
+    // an older queued snapshot ineligible to become the last durable write.
+    final revision = ++_revision;
     final candidate = Map<String, String>.of(_pins)
       ..[fingerprint] = publicKey;
     try {
-      await _enqueue(candidate);
+      final persisted = await _enqueue(candidate, revision: revision);
+      if (!persisted) throw StateError('Trust set changed during pairing');
     } catch (_) {
       // A platform write can fail after an uncertain partial update. Reassert
-      // the current in-memory snapshot before returning the original failure.
-      try { await _enqueue(Map<String, String>.of(_pins)); } catch (_) {}
+      // the old in-memory snapshot only if no newer mutation owns persistence.
+      if (_revision == revision) {
+        try { await _enqueue(Map<String, String>.of(_pins), revision: revision); } catch (_) {}
+      }
       rethrow;
     }
 
-    // Stop/revoke may run while secure storage is awaiting. Do not publish the
-    // candidate to memory, and serialize a compensating snapshot after any
-    // concurrent write so the stale candidate cannot be the last durable value.
     if (!isCurrent() || _revision != revision) {
-      await _enqueue(Map<String, String>.of(_pins));
+      // A stale candidate may have reached storage while an async write was
+      // in flight. Reassert current state only while this revision still owns
+      // the queue; newer mutations enqueue their own snapshot.
+      if (_revision == revision) {
+        try { await _enqueue(Map<String, String>.of(_pins), revision: revision); } catch (_) {}
+      }
       if (!isCurrent()) throw StateError('Pairing session was stopped');
       throw StateError('Trust set changed during pairing');
     }
@@ -60,38 +70,62 @@ class TrustPinStore {
     _revision++;
   }
 
-  /// Waits for all earlier writes and persists the current in-memory set.
   /// Pairing Stop uses this as a barrier after invalidating its generation.
-  Future<void> persistCurrent() => _enqueue(Map<String, String>.of(_pins));
+  /// Retry if another mutation supersedes this snapshot while storage is awaiting.
+  Future<void> persistCurrent() async {
+    while (true) {
+      final revision = ++_revision;
+      final persisted = await _enqueue(Map<String, String>.of(_pins), revision: revision);
+      if (persisted && revision == _revision) return;
+    }
+  }
 
   /// Removes the pin from memory before awaiting storage, so a concurrent
   /// in-flight pin commit sees the revision change and cannot overwrite revoke.
   Future<bool> revoke(String fingerprint) async {
     if (!_pins.containsKey(fingerprint)) return false;
     _pins.remove(fingerprint);
-    _revision++;
+    final revision = ++_revision;
     final current = Map<String, String>.of(_pins);
     try {
-      await _enqueue(current);
+      final persisted = await _enqueue(current, revision: revision);
+      if (persisted) return true;
     } catch (_, stackTrace) {
-      // Secure storage can report a transient failure after an uncertain write.
-      // Retry the revoked snapshot before returning success, so an older durable
-      // pin is not left behind merely because the first write failed.
-      try {
-        await _enqueue(Map<String, String>.of(_pins));
-      } catch (_) {
+      if (_revision != revision) {
         Error.throwWithStackTrace(
-          StateError('Trust revocation could not be persisted after retry; durable trust may survive restart'),
+          StateError('Trust revocation was superseded by a concurrent trust mutation; durable trust may survive restart'),
           stackTrace,
         );
       }
+      try {
+        final retried = await _enqueue(Map<String, String>.of(_pins), revision: revision);
+        if (retried) return true;
+      } catch (_) {}
+      Error.throwWithStackTrace(
+        StateError('Trust revocation could not be persisted after retry; durable trust may survive restart'),
+        stackTrace,
+      );
     }
-    return true;
+
+    // Never queue an old snapshot after a newer pin/revoke. We cannot claim
+    // durable revocation if a concurrent mutation superseded this write.
+    throw StateError(
+      'Trust revocation was superseded by a concurrent trust mutation; durable trust must be rechecked',
+    );
   }
 
-  Future<void> _enqueue(Map<String, String> snapshot) {
+  Future<bool> _enqueue(
+    Map<String, String> snapshot, {
+    required int revision,
+  }) {
     final stable = Map<String, String>.unmodifiable(snapshot);
-    final operation = _writeTail.then((_) => _writeSnapshot(stable));
+    final operation = _writeTail.then((_) async {
+      // Skip queued snapshots invalidated by a newer mutation. Also report a
+      // write as stale if the revision changed while platform storage awaited.
+      if (revision != _revision) return false;
+      await _writeSnapshot(stable);
+      return revision == _revision;
+    });
     // Keep the queue usable after a failed write; the individual caller still
     // receives that failure from [operation].
     _writeTail = operation.then<void>(
