@@ -127,6 +127,41 @@ void main() {
     expect(staging.publishedPath, isNull);
   });
 
+  test('rollback refuses a published folder replaced by a symlink', () async {
+    final data = utf8.encode('must not delete outside target');
+    final offer = _offer('victim.txt', data);
+    final staging = await DesktopLabReceiveStaging.create(destination,
+      LabIncomingOffer(offer['name'] as String, offer['bytes'] as int,
+        offer['sha256'] as String));
+    await staging.write(data);
+    await staging.commit(name: offer['name'] as String,
+      bytes: offer['bytes'] as int, sha256: offer['sha256'] as String);
+    final publishedPath = staging.publishedPath!;
+    final folderPath = publishedPath.substring(
+      0, publishedPath.lastIndexOf(Platform.pathSeparator));
+    final moved = Directory('$folderPath-original');
+    final outside = Directory('${destination.path}${Platform.pathSeparator}outside');
+    await outside.create();
+    final outsideFile = File('${outside.path}${Platform.pathSeparator}victim.txt');
+    await outsideFile.writeAsString('preserve this file');
+    await Directory(folderPath).rename(moved.path);
+
+    final replacement = Link(folderPath);
+    try {
+      await replacement.create(outside.path);
+    } on FileSystemException {
+      // Some Windows runners do not grant symlink creation. Restore the original
+      // directory and leave cleanup to tearDown rather than testing an unsupported primitive.
+      await moved.rename(folderPath);
+      return;
+    }
+
+    await expectLater(staging.rollbackCommitted(), throwsStateError);
+    expect(await outsideFile.readAsString(), 'preserve this file');
+    expect(await FileSystemEntity.type(folderPath, followLinks: false),
+      FileSystemEntityType.link);
+  });
+
   test('finalized desktop publication cannot be rolled back', () async {
     final data = utf8.encode('accepted');
     final offer = _offer('accepted.txt', data);
