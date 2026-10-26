@@ -6,7 +6,10 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_remote_control/security/file_transfer_lab.dart';
 
-class _NodeReceiverFixture implements FileTransferChannel {
+class _NodeReceiverFixture implements AbortableFileTransferChannel {
+  bool aborted = false;
+  @override
+  void abort() { aborted = true; }
   final bool deny;
   final bool wrongAck;
   final void Function()? onAck;
@@ -42,7 +45,10 @@ class _NodeReceiverFixture implements FileTransferChannel {
 }
 
 
-class _IncomingFixture implements FileTransferChannel {
+class _IncomingFixture implements AbortableFileTransferChannel {
+  bool aborted = false;
+  @override
+  void abort() { aborted = true; }
   final List<Map<String, dynamic>> incoming;
   final String? stallOnSendType;
   final sent = <Map<String, dynamic>>[];
@@ -190,7 +196,7 @@ void main() {
     expect(updates.last, (8000,8000,true));
   });
 
-  test('sender bounds a stalled chunk send and attempts best-effort cancellation', () async {
+  test('sender aborts a stalled chunk transport instead of racing FILE_CANCEL', () async {
     final channel = _NodeReceiverFixture(stallOnSendType: 'FILE_CHUNK');
     final file = XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'stall.bin');
     await expectLater(
@@ -198,8 +204,8 @@ void main() {
         sendTimeout: const Duration(milliseconds: 5)),
       throwsA(isA<TimeoutException>()),
     );
-    expect(channel.sent.map((message) => message['type']),
-      ['FILE_OFFER', 'FILE_CANCEL']);
+    expect(channel.aborted, isTrue);
+    expect(channel.sent.map((message) => message['type']), ['FILE_OFFER']);
   });
 
   test('sender never cancels after a timed-out FILE_END attempt', () async {
@@ -210,6 +216,7 @@ void main() {
         sendTimeout: const Duration(milliseconds: 5)),
       throwsA(isA<TimeoutException>()),
     );
+    expect(channel.aborted, isTrue);
     expect(channel.sent.map((message) => message['type']),
       ['FILE_OFFER', 'FILE_CHUNK']);
   });
@@ -323,6 +330,7 @@ void main() {
     );
     expect(stage.aborted, isTrue);
     expect(stage.published, isFalse);
+    expect(channel.aborted, isTrue);
     expect(channel.sent.map((message) => message['type']), ['FILE_READY']);
   });
 
