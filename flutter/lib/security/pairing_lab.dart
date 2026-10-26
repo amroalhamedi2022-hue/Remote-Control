@@ -174,9 +174,10 @@ class PairingLab {
           socket.destroy();
           return;
         }
-        // Binding on all interfaces is needed for LAN reachability, but a
-        // forwarded public connection must never reach the pairing UI.
-        if (!isLocalLanIpv4(socket.remoteAddress, allowLoopback: true)) {
+        // Binding on all interfaces is needed for LAN reachability, but only
+        // private/link-local LAN sources may reach the pairing UI. Loopback is
+        // a test-only exception and is not enabled by the production listener.
+        if (!isAllowedPairingSource(socket.remoteAddress)) {
           socket.destroy();
           return;
         }
