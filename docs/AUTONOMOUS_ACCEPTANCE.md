@@ -189,3 +189,19 @@ AUTOMATION_COMPLETE: BLOCKED
 - Production crypto/security review: **NOT TESTED**; the custom pairing lab remains experimental.
 
 No merge, no main changes, no new dependency or paid API.
+
+
+### M43 targeted Android + Windows build result — 2026-10-26
+
+- **Exact build head:** `9e1556eb171513912a5a5f6ad5df7f176fbdd041`
+- **CI and both platform builds:** [run 40325451235](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40325451235) — **SUCCESS**.
+- **Android artifact:** ID `12651680282`, [download from GitHub Actions](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40325451235/artifacts/12651680282), expires **2026-11-09**.
+  - Artifact ZIP SHA-256: `b3f9400a9a7c9cdc84841a118f9af395e0dc6f985e79b4be829a24490fac4ea6`
+  - APK size: 159,609,675 bytes.
+  - APK SHA-256: `0225b82b00432d3bca145a12d810587766ef773bf8828346a4a196670eb6fe4a`
+- **Windows artifact:** ID `12651551015`, [download full bundle from GitHub Actions](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40325451235/artifacts/12651551015), expires **2026-11-09**.
+  - Artifact ZIP SHA-256: `d720cbfbbabd9b4668a0af0c6636586a87d15636bbf8214e200f7af805132bce`
+  - `liquid_remote_control.exe` size: 1,271,296 bytes.
+  - EXE SHA-256: `29d635d5d4defbc772ddd955ed921ff7756a07f10b526fb00fb240353dcd55c5`
+- **Local verification:** both ZIPs passed integrity checks; extracted APK and EXE hashes matched their embedded evidence JSON. The Windows EXE is not standalone; use the complete bundle ZIP.
+- **Device acceptance:** physical Android↔Windows transfer, timeout/revoke behavior and final-file SHA-256 equality remain **NOT TESTED**. These are Debug acceptance packages, not releases.
