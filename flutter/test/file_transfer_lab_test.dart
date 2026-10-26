@@ -255,7 +255,7 @@ void main() {
       'type': 'FILE_OFFER',
       'name': 'consent-timeout.bin',
       'bytes': 0,
-      'sha256': e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,
+      'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     };
     await expectLater(
       receiveLabFile(channel, offer,
@@ -282,7 +282,7 @@ void main() {
       'type': 'FILE_OFFER',
       'name': 'consent-timeout.bin',
       'bytes': 0,
-      'sha256': e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,
+      'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     };
     await expectLater(
       receiveLabFile(channel, offer,
