@@ -16,3 +16,8 @@ bool isLocalLanIpv4(InternetAddress? address, {bool allowLoopback = false}) {
       (a == 192 && b == 168) ||
       (a == 169 && b == 254);
 }
+
+/// Production pairing listeners must not accept same-machine loopback sockets.
+/// The optional loopback exception above is reserved for isolated local tests.
+bool isAllowedPairingSource(InternetAddress? address) =>
+    isLocalLanIpv4(address);
