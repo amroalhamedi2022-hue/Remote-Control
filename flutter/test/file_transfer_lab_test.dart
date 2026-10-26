@@ -10,12 +10,16 @@ class _NodeReceiverFixture implements FileTransferChannel {
   final bool deny;
   final bool wrongAck;
   final void Function()? onAck;
+  final String? stallOnSendType;
   final List<Map<String, dynamic>> sent = [];
   _NodeReceiverFixture({this.deny = false, this.wrongAck = false,
-    this.onAck});
+    this.onAck, this.stallOnSendType});
 
   @override
   Future<void> send(Map<String, dynamic> message) async {
+    if (message['type'] == stallOnSendType) {
+      await Completer<void>().future;
+    }
     sent.add(message);
   }
 
@@ -40,10 +44,16 @@ class _NodeReceiverFixture implements FileTransferChannel {
 
 class _IncomingFixture implements FileTransferChannel {
   final List<Map<String, dynamic>> incoming;
+  final String? stallOnSendType;
   final sent = <Map<String, dynamic>>[];
-  _IncomingFixture(this.incoming);
+  _IncomingFixture(this.incoming, {this.stallOnSendType});
   @override
-  Future<void> send(Map<String, dynamic> message) async { sent.add(message); }
+  Future<void> send(Map<String, dynamic> message) async {
+    if (message['type'] == stallOnSendType) {
+      await Completer<void>().future;
+    }
+    sent.add(message);
+  }
   @override
   Future<Map<String, dynamic>> receive() async => incoming.removeAt(0);
 }
@@ -180,6 +190,17 @@ void main() {
     expect(updates.last, (8000,8000,true));
   });
 
+  test('sender bounds a stalled frame send and attempts best-effort cancellation', () async {
+    final channel = _NodeReceiverFixture(stallOnSendType: 'FILE_OFFER');
+    final file = XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'stall.bin');
+    await expectLater(
+      sendLabFile(channel, file, selectedName: 'stall.bin',
+        sendTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(channel.sent.map((message) => message['type']), ['FILE_CANCEL']);
+  });
+
   test('canonical chunk boundary keeps a one-byte final chunk', () async {
     final bytes = Uint8List.fromList(
         List<int>.generate(labFileChunkBytes + 1, (i) => i % 251));
@@ -270,6 +291,26 @@ void main() {
       {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1,2,3,4,5])},
       {'type': 'FILE_END', 'bytes': 5, 'sha256': digest},
     ], failCommit: true, shouldSucceed: false);
+  });
+
+  test('receiver bounds a stalled ACK send and aborts private staging', () async {
+    const digest = '74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0';
+    final channel = _IncomingFixture([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1, 2, 3, 4, 5])},
+    ], stallOnSendType: 'FILE_ACK');
+    final stage = _StagingFixture();
+    await expectLater(
+      receiveLabFile(channel, {
+        'type': 'FILE_OFFER', 'name': 'stalled-ack.bin',
+        'bytes': 5, 'sha256': digest,
+      }, approve: (_) async => true,
+        createStaging: (_) async => stage,
+        sendTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(stage.aborted, isTrue);
+    expect(stage.published, isFalse);
+    expect(channel.sent.map((message) => message['type']), ['FILE_READY']);
   });
 
   test('SAF staging failure denies sender before FILE_READY', () async {
