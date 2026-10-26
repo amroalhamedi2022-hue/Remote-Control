@@ -70,7 +70,22 @@ class TrustPinStore {
     if (!_pins.containsKey(fingerprint)) return false;
     _pins.remove(fingerprint);
     _revision++;
-    await _enqueue(Map<String, String>.of(_pins));
+    final current = Map<String, String>.of(_pins);
+    try {
+      await _enqueue(current);
+    } catch (Object _, StackTrace stackTrace) {
+      // Secure storage can report a transient failure after an uncertain write.
+      // Retry the revoked snapshot before returning success, so an older durable
+      // pin is not left behind merely because the first write failed.
+      try {
+        await _enqueue(Map<String, String>.of(_pins));
+      } catch (_) {
+        Error.throwWithStackTrace(
+          StateError('Trust revocation could not be persisted after retry; durable trust may survive restart'),
+          stackTrace,
+        );
+      }
+    }
     return true;
   }
 
