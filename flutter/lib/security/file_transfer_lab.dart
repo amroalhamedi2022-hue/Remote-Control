@@ -29,6 +29,17 @@ class FileSendResult {
   const FileSendResult(this.bytes, this.sha256);
 }
 
+bool _isWindowsReservedDeviceName(String name) {
+  // Win32 strips trailing ASCII spaces/dots from the device stem before the
+  // extension (for example, "CON .txt"). Test the normalized stem, and include
+  // the two console device aliases as well as the usual DOS device names.
+  final stem = name.split('.').first.replaceFirst(RegExp(r'[ .]+$'), '');
+  return RegExp(
+    r'^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])$',
+    caseSensitive: false,
+  ).hasMatch(stem);
+}
+
 String validateLabFileName(String name) {
   if (name.isEmpty || name.length > 180 || name == '.' || name == '..' ||
       name.endsWith('.') || name.endsWith(' ') ||
@@ -36,8 +47,7 @@ String validateLabFileName(String name) {
       RegExp(r'[\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]').hasMatch(name) ||
       RegExp(r'[\u{E0000}-\u{E007F}]', unicode: true).hasMatch(name) ||
       RegExp(r'^\.(liquidremote|netkit)-', caseSensitive: false).hasMatch(name) ||
-      RegExp(r'^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(\.|$)',
-          caseSensitive: false).hasMatch(name)) {
+      _isWindowsReservedDeviceName(name)) {
     throw const FormatException('Unsafe selected filename');
   }
   return name;
