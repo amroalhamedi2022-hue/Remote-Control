@@ -10,7 +10,7 @@ class ClipboardPolicy {
     for (var i = 0; i < units.length; i++) {
       final c = units[i];
       if (c == 0xfffd || c <= 8 || c == 11 || c == 12 ||
-          (c >= 14 && c <= 31) || c == 127) {
+          (c >= 14 && c <= 31) || c == 127 || (c >= 0x80 && c <= 0x9f)) {
         throw const FormatException('Clipboard text contains invalid characters');
       }
       if (c >= 0xd800 && c <= 0xdbff) {
