@@ -189,7 +189,7 @@ void main() {
   test('validates cross-platform filename safety before sending', () {
     for (final name in [
       '../secret', 'CON.txt', 'nul', 'CON .txt', 'NUL .bin', 'COM1 .log',
-      'AUX .cfg', 'CONIN$.txt', 'CONOUT$.txt', 'bad?.pdf', 'name.', 'name ',
+      'AUX .cfg', 'CONIN\$.txt', 'CONOUT\$.txt', 'bad?.pdf', 'name.', 'name ',
       '.liquidremote-123', 'a\\\\b', 'a\\u202eexe', 'COM¹.txt', 'LPT².log',
       'tag\\u{E0001}.txt',
     ]) {
