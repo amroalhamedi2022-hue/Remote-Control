@@ -27,6 +27,25 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
     this._expectedName, this._writer,
   );
 
+  /// Recheck the publication parent at commit time, not only when the user picks it.
+  /// This catches a destination path replaced while the peer was still sending chunks.
+  /// It narrows path-substitution risk; Dart does not expose an atomic no-follow rename.
+  Future<void> _assertPublishLocationSafe() async {
+    final destinationType = await FileSystemEntity.type(
+        _destination.path, followLinks: false);
+    if (destinationType != FileSystemEntityType.directory) {
+      throw StateError('Receiver destination changed before publication');
+    }
+    if (_staging.parent.path != _destination.path) {
+      throw StateError('Private staging folder escaped the receiver destination');
+    }
+    final stagingType = await FileSystemEntity.type(
+        _staging.path, followLinks: false);
+    if (stagingType != FileSystemEntityType.directory) {
+      throw StateError('Private staging folder changed before publication');
+    }
+  }
+
   /// The folder must be chosen by the local receiver, never by the peer.
   /// Staging stays on the same filesystem to avoid cross-device copy/publish.
   static Future<DesktopLabReceiveStaging> create(
@@ -75,6 +94,7 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
         !RegExp(r'^[0-9a-f]{64}$').hasMatch(sha256)) {
       throw StateError('Desktop staging metadata mismatch');
     }
+    await _assertPublishLocationSafe();
     await _writer!.flush();
     await _writer!.close();
     _writer = null;
@@ -92,13 +112,21 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
     final folder = 'Received-${DateTime.now().toUtc().microsecondsSinceEpoch}-$stageSuffix';
     final finalFolder = Directory(
         '${_destination.path}${Platform.pathSeparator}$folder');
+    await _assertPublishLocationSafe();
     if (await FileSystemEntity.type(finalFolder.path, followLinks: false) !=
         FileSystemEntityType.notFound) {
       throw StateError('Receiver destination collision');
     }
     final finalName = '${_staging.path}${Platform.pathSeparator}$name';
     await _payload.rename(finalName);
-    // Directory rename is same-volume; a failed rename is handled by abort().
+    // Recheck after payload rename and immediately before the directory publication.
+    // A hostile process can still race the final check; atomic no-follow rename is not
+    // available through Dart's portable filesystem API.
+    await _assertPublishLocationSafe();
+    if (await FileSystemEntity.type(finalFolder.path, followLinks: false) !=
+        FileSystemEntityType.notFound) {
+      throw StateError('Receiver destination collision');
+    }
     await _staging.rename(finalFolder.path);
     _committed = true;
     _publishedFolderPath = finalFolder.path;
