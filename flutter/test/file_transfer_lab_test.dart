@@ -180,6 +180,22 @@ void main() {
     expect(updates.last, (8000,8000,true));
   });
 
+  test('canonical chunk boundary keeps a one-byte final chunk', () async {
+    final bytes = Uint8List.fromList(
+        List<int>.generate(labFileChunkBytes + 1, (i) => i % 251));
+    final channel = _NodeReceiverFixture();
+    final result = await sendLabFile(channel,
+        XFile.fromData(bytes, name: 'boundary.bin'),
+        selectedName: 'boundary.bin');
+    final chunks = channel.sent
+        .where((message) => message['type'] == 'FILE_CHUNK').toList();
+    expect(result.bytes, labFileChunkBytes + 1);
+    expect(chunks.map((message) =>
+        base64.decode(message['data'] as String).length), [labFileChunkBytes, 1]);
+    expect(chunks.map((message) => message['seq']), [0, 1]);
+    expect(channel.sent.last['type'], 'FILE_END');
+  });
+
   test('receiver refusal never emits file bytes', () async {
     final channel = _NodeReceiverFixture(deny:true);
     final file = XFile.fromData(Uint8List.fromList([1,2,3]),name:'x.bin');
