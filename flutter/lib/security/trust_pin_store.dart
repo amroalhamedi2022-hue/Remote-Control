@@ -4,6 +4,10 @@
 typedef TrustSnapshotWriter = Future<void> Function(Map<String, String> snapshot);
 
 class TrustPinStore {
+  /// Bound persistent trust growth so repeated approved pairings cannot grow
+  /// secure-storage state without limit. Revoke a peer before adding another.
+  static const int maxTrustedPeers = 128;
+
   TrustPinStore({required TrustSnapshotWriter writeSnapshot})
       : _writeSnapshot = writeSnapshot;
 
@@ -22,6 +26,9 @@ class TrustPinStore {
     if (_revision != 0) {
       throw StateError('Trust snapshot may only be loaded before mutations');
     }
+    if (snapshot.length > maxTrustedPeers) {
+      throw FormatException('Trust database exceeds the $maxTrustedPeers peer limit');
+    }
     _pins
       ..clear()
       ..addAll(snapshot);
@@ -35,6 +42,11 @@ class TrustPinStore {
   }) async {
     if (!isCurrent()) throw StateError('Pairing session was stopped');
     if (_pins[fingerprint] == publicKey) return;
+    if (!_pins.containsKey(fingerprint) && _pins.length >= maxTrustedPeers) {
+      throw StateError(
+        'Trusted peer limit reached; revoke a device before pairing another',
+      );
+    }
 
     // Reserve the revision before queuing I/O. A newer revoke/stop must make
     // an older queued snapshot ineligible to become the last durable write.
