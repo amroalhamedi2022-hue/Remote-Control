@@ -19,6 +19,7 @@ import java.util.concurrent.Executors
 class MainActivity : FlutterActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val sessions = mutableMapOf<String, Stage>() // worker thread only
+    private val committedOutputs = mutableMapOf<String, Uri>() // worker thread only
     private var picker: MethodChannel.Result? = null
     private var approvedTree: Uri? = null
     private val pickerRequest = 42019
@@ -84,15 +85,41 @@ class MainActivity : FlutterActivity() {
                     val bytes = call.argument<Number>("bytes")?.toLong()
                     val digest = call.argument<String>("sha256")
                     runWorker(result) {
-                        val stage = sessions[id] ?: error("Unknown transfer")
+                        val transferId = id ?: error("Missing transfer id")
+                        val stage = sessions[transferId] ?: error("Unknown transfer")
                         require(stage.name == name && stage.size == bytes &&
                             stage.digest == digest && stage.written == stage.size)
-                        try { publish(stage) }
-                        finally {
-                            sessions.remove(id)
+                        try {
+                            val finalUri = Uri.parse(publish(stage))
+                            committedOutputs[transferId] = finalUri
+                            finalUri.toString()
+                        } finally {
+                            sessions.remove(transferId)
                             try { stage.stream.close() } catch (_: Exception) {}
                             stage.file.delete()
                         }
+                    }
+                }
+                "rollbackCommitted" -> {
+                    val id = call.argument<String>("id")
+                    runWorker(result) {
+                        val transferId = id ?: error("Missing transfer id")
+                        val published = committedOutputs[transferId]
+                        if (published != null) {
+                            check(DocumentsContract.deleteDocument(contentResolver, published)) {
+                                "SAF provider refused rollback of just-published document"
+                            }
+                            committedOutputs.remove(transferId)
+                        }
+                        null
+                    }
+                }
+                "finalizeCommitted" -> {
+                    val id = call.argument<String>("id")
+                    runWorker(result) {
+                        val transferId = id ?: error("Missing transfer id")
+                        committedOutputs.remove(transferId)
+                        null
                     }
                 }
                 "abort" -> {
@@ -221,6 +248,7 @@ class MainActivity : FlutterActivity() {
                 it.file.delete()
             }
             sessions.clear()
+            committedOutputs.clear()
         }
         worker.shutdown()
         super.onDestroy()

@@ -143,6 +143,13 @@ abstract class LabReceiveStaging {
   Future<void> commit({required String name, required int bytes,
     required String sha256});
   Future<void> abort();
+
+  /// Removes a just-published file if the session is revoked before FILE_OK.
+  /// Platform providers may refuse deletion; callers must surface that failure.
+  Future<void> rollbackCommitted() async {}
+
+  /// Drops any rollback handle after the publication boundary is accepted.
+  Future<void> finalizeCommitted() async {}
 }
 
 class LabIncomingOffer {
@@ -241,14 +248,33 @@ Future<FileSendResult?> receiveLabFile(
         // Native commit itself cannot be interrupted on all SAF providers.
         requireActiveSession();
         await staging.commit(name: name, bytes: count, sha256: expected);
+        // SAF/desktop commit can be non-cancellable. If Stop/revoke wins while
+        // commit is awaiting, remove the just-published output before reporting
+        // failure. If rollback fails, surface that explicitly: the file may remain.
+        try {
+          requireActiveSession();
+        } catch (failure, stackTrace) {
+          try {
+            await staging.rollbackCommitted();
+          } catch (rollbackFailure) {
+            Error.throwWithStackTrace(
+              StateError('File session was revoked after publication and rollback failed: $rollbackFailure'),
+              stackTrace,
+            );
+          }
+          Error.throwWithStackTrace(failure, stackTrace);
+        }
+        // Once the active-session check passes, publication is accepted. A lost
+        // FILE_OK must not delete a file the sender may already believe is saved.
         committed = true;
-        // A SAF provider may finish a non-cancellable commit after Stop/revoke.
-        // Never acknowledge a now-revoked session as a verified success.
-        // Publication may already have happened: this is NOT rollback.
-        requireActiveSession();
-        await channel.send({
-          'type': 'FILE_OK', 'bytes': count, 'sha256': expected,
-        });
+        try {
+          await channel.send({
+            'type': 'FILE_OK', 'bytes': count, 'sha256': expected,
+          });
+        } finally {
+          // This only drops a rollback handle; it does not touch the saved file.
+          try { await staging.finalizeCommitted(); } catch (_) { /* best-effort handle cleanup */ }
+        }
         onProgress?.call(count, size, true);
         return FileSendResult(count, expected);
       }

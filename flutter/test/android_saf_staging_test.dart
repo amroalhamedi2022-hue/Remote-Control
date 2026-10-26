@@ -25,6 +25,8 @@ void main() {
           return 'stage-1';
         case 'write':
         case 'abort':
+        case 'rollbackCommitted':
+        case 'finalizeCommitted':
           return null;
         case 'commit':
           if (failCommit) throw PlatformException(code: 'SHA_MISMATCH');
@@ -73,6 +75,29 @@ void main() {
     await expectLater(AndroidSafLabReceiveStaging.create(
         'content://test', huge, channel: channel), throwsFormatException);
     expect(calls, isEmpty);
+  });
+
+  test('post-commit revocation rolls back just-published document by staging id', () async {
+    final stage = await AndroidSafLabReceiveStaging.create(
+        'content://test', offer(), channel: channel);
+    await stage.write([1, 2, 3]);
+    await stage.commit(name: offer().name, bytes: 3, sha256: offer().sha256);
+    await stage.rollbackCommitted();
+    final rollback = calls.singleWhere((call) => call.method == 'rollbackCommitted');
+    expect(rollback.arguments, {'id': 'stage-1'});
+    expect(calls.map((call) => call.method),
+        ['begin', 'write', 'commit', 'rollbackCommitted']);
+  });
+
+  test('successful publication finalizes rollback handle after FILE_OK', () async {
+    final stage = await AndroidSafLabReceiveStaging.create(
+        'content://test', offer(), channel: channel);
+    await stage.write([1, 2, 3]);
+    await stage.commit(name: offer().name, bytes: 3, sha256: offer().sha256);
+    await stage.finalizeCommitted();
+    await stage.rollbackCommitted();
+    expect(calls.map((call) => call.method),
+        ['begin', 'write', 'commit', 'finalizeCommitted']);
   });
 
   test('commit error can still abort private staging', () async {

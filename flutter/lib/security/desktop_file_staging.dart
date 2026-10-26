@@ -16,6 +16,8 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
   RandomAccessFile? _writer;
   bool _committed = false;
   bool _aborted = false;
+  bool _finalized = false;
+  String? _publishedFolderPath;
   int _written = 0;
   String? publishedPath;
 
@@ -98,7 +100,41 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
     // Directory rename is same-volume; a failed rename is handled by abort().
     await _staging.rename(finalFolder.path);
     _committed = true;
+    _publishedFolderPath = finalFolder.path;
     publishedPath = '${finalFolder.path}${Platform.pathSeparator}$name';
+  }
+
+  @override
+  Future<void> rollbackCommitted() async {
+    if (_finalized) {
+      throw StateError('Desktop publication already crossed the FILE_OK boundary');
+    }
+    if (!_committed) return;
+    final path = _publishedFolderPath;
+    if (path == null) throw StateError('Published desktop output has no rollback path');
+    final type = await FileSystemEntity.type(path, followLinks: false);
+    if (type == FileSystemEntityType.notFound) {
+      throw StateError('Published desktop output disappeared before rollback');
+    }
+    if (type == FileSystemEntityType.link) {
+      await Link(path).delete();
+    } else if (type == FileSystemEntityType.directory) {
+      await Directory(path).delete(recursive: true);
+    } else {
+      await File(path).delete();
+    }
+    _committed = false;
+    _aborted = true;
+    _publishedFolderPath = null;
+    publishedPath = null;
+  }
+
+  @override
+  Future<void> finalizeCommitted() async {
+    if (_committed) {
+      _finalized = true;
+      _publishedFolderPath = null;
+    }
   }
 
   @override

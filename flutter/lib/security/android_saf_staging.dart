@@ -11,6 +11,7 @@ class AndroidSafLabReceiveStaging implements LabReceiveStaging {
   final MethodChannel _channel;
   final String _id;
   bool _closed = false;
+  String? _committedUri;
 
   AndroidSafLabReceiveStaging._(this._channel, this._id);
 
@@ -65,13 +66,31 @@ class AndroidSafLabReceiveStaging implements LabReceiveStaging {
     if (_closed) throw StateError('Android SAF staging already closed');
     // The native implementation rehashes the private file and reads back the
     // SAF temp document before renaming to a unique final name.
-    await _channel.invokeMethod<String>('commit', {
+    final publishedUri = await _channel.invokeMethod<String>('commit', {
       'id': _id,
       'name': validateLabFileName(name),
       'bytes': bytes,
       'sha256': sha256,
     });
+    if (publishedUri == null || publishedUri.isEmpty) {
+      throw StateError('Android SAF commit did not return the published document URI');
+    }
+    _committedUri = publishedUri;
     _closed = true;
+  }
+
+  @override
+  Future<void> rollbackCommitted() async {
+    if (_committedUri == null) return;
+    await _channel.invokeMethod<void>('rollbackCommitted', {'id': _id});
+    _committedUri = null;
+  }
+
+  @override
+  Future<void> finalizeCommitted() async {
+    if (_committedUri == null) return;
+    await _channel.invokeMethod<void>('finalizeCommitted', {'id': _id});
+    _committedUri = null;
   }
 
   @override

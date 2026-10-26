@@ -53,6 +53,8 @@ class _StagingFixture implements LabReceiveStaging {
   bool published = false;
   bool aborted = false;
   bool rejectCommit = false;
+  bool rejectRollback = false;
+  bool finalized = false;
   @override
   Future<void> write(List<int> data) async { bytes.addAll(data); }
   @override
@@ -63,7 +65,22 @@ class _StagingFixture implements LabReceiveStaging {
     published = true;
   }
   @override
-  Future<void> abort() async { aborted = true; bytes.clear(); }
+  Future<void> rollbackCommitted() async {
+    if (rejectRollback) throw StateError('simulated published-file rollback failure');
+    if (published) {
+      published = false;
+      aborted = true;
+      bytes.clear();
+    }
+  }
+  @override
+  Future<void> finalizeCommitted() async { finalized = true; }
+  @override
+  Future<void> abort() async {
+    if (published) return;
+    aborted = true;
+    bytes.clear();
+  }
 }
 
 Future<void> _verifyReceive(
@@ -97,6 +114,7 @@ Future<void> _verifyReceive(
     expect(staging.bytes, data);
     expect(staging.published, isTrue);
     expect(staging.aborted, isFalse);
+    expect(staging.finalized, isTrue);
     expect(channel.sent.map((e) => e['type']),
       ['FILE_READY', 'FILE_ACK', 'FILE_OK']);
   } else {
@@ -374,8 +392,37 @@ void main() {
     active = false;
     stage.release.complete();
     await expectLater(receiving, throwsStateError);
-    expect(stage.published, isTrue); // No portable SAF atomic rollback guarantee.
-    expect(stage.aborted, isFalse); // Commit completed before revocation check.
+    expect(stage.published, isFalse);
+    expect(stage.aborted, isTrue);
+    expect(stage.finalized, isFalse);
+    expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
+  });
+
+  test('rollback failure after post-commit revocation is explicit and never ACKed', () async {
+    const digest = '74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0';
+    final stage = _BlockingCommitStaging()..rejectRollback = true;
+    final channel = _IncomingFixture([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1, 2, 3, 4, 5])},
+      {'type': 'FILE_END', 'bytes': 5, 'sha256': digest},
+    ]);
+    var active = true;
+    final receiving = receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'rollback-failure.bin',
+      'bytes': 5, 'sha256': digest,
+    }, approve: (_) async => true, createStaging: (_) async => stage,
+      isSessionActive: () => active);
+    await stage.entered.future;
+    active = false;
+    stage.release.complete();
+    await expectLater(
+      receiving,
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        contains('rollback failed'),
+      )),
+    );
+    expect(stage.published, isTrue); // Explicitly reported: provider refused rollback.
     expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
   });
 
