@@ -16,15 +16,20 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
   final void Function()? onAck;
   final String? stallOnSendType;
   final String? stallOnReceiveType;
+  final String? failOnSendType;
   final List<Map<String, dynamic>> sent = [];
   _NodeReceiverFixture({this.deny = false, this.wrongAck = false,
-    this.offerResponseType, this.onAck, this.stallOnSendType, this.stallOnReceiveType});
+    this.offerResponseType, this.onAck, this.stallOnSendType,
+    this.stallOnReceiveType, this.failOnSendType});
 
   @override
   Future<void> send(Map<String, dynamic> message) async {
     if (aborted) throw StateError('Channel aborted');
     if (message['type'] == stallOnSendType) {
       await Completer<void>().future;
+    }
+    if (message['type'] == failOnSendType) {
+      throw StateError('Simulated non-timeout transport write failure');
     }
     sent.add(message);
   }
@@ -366,12 +371,23 @@ void main() {
     expect(channel.sent.map((m) => m['type']), ['FILE_OFFER']);
   });
 
-  test('incorrect chunk ACK fails closed before sending completion', () async {
+  test('incorrect chunk ACK sends FILE_CANCEL then aborts the one-shot channel', () async {
     final channel = _NodeReceiverFixture(wrongAck:true);
     final file = XFile.fromData(Uint8List.fromList([1,2,3]),name:'x.bin');
     await expectLater(sendLabFile(channel,file,selectedName:'x.bin'), throwsStateError);
     expect(channel.sent.map((m) => m['type']),
       ['FILE_OFFER','FILE_CHUNK','FILE_CANCEL']);
+    expect(channel.aborted, isTrue);
+  });
+
+  test('sender aborts when best-effort FILE_CANCEL fails with a non-timeout error', () async {
+    final channel = _NodeReceiverFixture(
+      wrongAck:true, failOnSendType:'FILE_CANCEL');
+    final file = XFile.fromData(Uint8List.fromList([1,2,3]),name:'cancel-write-fails.bin');
+    await expectLater(sendLabFile(channel,file,selectedName:'cancel-write-fails.bin'),
+      throwsStateError);
+    expect(channel.sent.map((m) => m['type']), ['FILE_OFFER','FILE_CHUNK']);
+    expect(channel.aborted, isTrue);
   });
 
   test('empty file still receives a SHA-256 verified completion', () async {
