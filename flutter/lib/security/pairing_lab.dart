@@ -136,6 +136,10 @@ class PairingLab {
     if (trustText != null) {
       final decoded = jsonDecode(trustText);
       if (decoded is! Map<String, dynamic>) throw const FormatException('Invalid trust database');
+      // Reject oversized persisted state before decoding/verifying every key.
+      if (decoded.length > TrustPinStore.maxTrustedPeers) {
+        throw const FormatException('Trust database exceeds supported peer limit');
+      }
       for (final entry in decoded.entries) {
         if (entry.value is! String || !RegExp(r'^[a-f0-9]{64}$').hasMatch(entry.key)) {
           throw const FormatException('Invalid trust record');
