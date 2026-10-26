@@ -17,10 +17,11 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
   final String? stallOnSendType;
   final String? stallOnReceiveType;
   final String? failOnSendType;
+  final String? failOnReceiveType;
   final List<Map<String, dynamic>> sent = [];
   _NodeReceiverFixture({this.deny = false, this.wrongAck = false,
     this.offerResponseType, this.onAck, this.stallOnSendType,
-    this.stallOnReceiveType, this.failOnSendType});
+    this.stallOnReceiveType, this.failOnSendType, this.failOnReceiveType});
 
   @override
   Future<void> send(Map<String, dynamic> message) async {
@@ -39,6 +40,9 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
     final last = sent.last;
     if (last['type'] == stallOnReceiveType) {
       await Completer<void>().future;
+    }
+    if (last['type'] == failOnReceiveType) {
+      throw StateError('Simulated non-timeout transport read failure');
     }
     switch (last['type']) {
       case 'FILE_OFFER':
@@ -211,6 +215,28 @@ void main() {
     expect(chunks.map((m) => m['seq']), [0, 1, 2]);
     expect(channel.sent.last['type'], 'FILE_END');
     expect(updates.last, (8000,8000,true));
+  });
+
+  test('sender aborts one-shot channel when the initial offer write fails', () async {
+    final channel = _NodeReceiverFixture(failOnSendType: 'FILE_OFFER');
+    final file = XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'offer-write.bin');
+    await expectLater(
+      sendLabFile(channel, file, selectedName: 'offer-write.bin'),
+      throwsA(isA<StateError>()),
+    );
+    expect(channel.sent, isEmpty);
+    expect(channel.aborted, isTrue);
+  });
+
+  test('sender aborts one-shot channel when initial approval read fails', () async {
+    final channel = _NodeReceiverFixture(failOnReceiveType: 'FILE_OFFER');
+    final file = XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'approval-read.bin');
+    await expectLater(
+      sendLabFile(channel, file, selectedName: 'approval-read.bin'),
+      throwsA(isA<StateError>()),
+    );
+    expect(channel.sent.map((message) => message['type']), ['FILE_OFFER']);
+    expect(channel.aborted, isTrue);
   });
 
   test('sender aborts one-shot channel after denied or invalid approval', () async {
