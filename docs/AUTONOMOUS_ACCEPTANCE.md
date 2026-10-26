@@ -160,3 +160,32 @@ AUTOMATION_COMPLETE: BLOCKED
 - **Physical Android↔Windows transfer, interruption/revoke, and final-file SHA-256 equality:** **NOT TESTED**.
 - **Boundary:** timeout alone is not transport cancellation. A caller still needs to revoke/close the active session/socket on a hard abort. Lab pairing cryptography remains experimental; no production security approval.
 
+
+
+## M43 — Fail-closed abort for stalled encrypted file-transfer sends (2026-10-26)
+
+**Branch:** `feature/build-reliability-v0_9`  
+**Source/test head:** `ab6daa744689dec67cd484fb24c13baa8c0b1fc1`  
+**CI:** [run 40324836776](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40324836776) — **PASS**.
+
+### Functional change
+- Added the optional `AbortableFileTransferChannel` contract.
+- The production `_SealedChannel` now implements synchronous abort by marking the channel terminal and destroying its underlying socket.
+- On a send timeout, sender/receiver code aborts an abortable transport. The sender no longer tries to send `FILE_CANCEL` over the same channel after that send has timed out; this avoids racing a still-pending write or triggering a concurrent sealed send.
+- Receiver staging is still aborted on an ACK-send timeout; a timeout during `FILE_END` does not generate a contradictory cancel because the peer may already have published the file.
+- Regression fixtures now assert transport abort and the absence of a cancel frame after a timed-out chunk send.
+
+### Verification
+- Flutter analyzer: **PASS — no issues found**.
+- Flutter widget/unit suite: **PASS — 112 tests**.
+- Node LAN/pairing/media protocol suite: **PASS — 24 passed, 0 failed, 7 skipped**.
+- Windows capture lifecycle suite: **PASS**.
+- An intermediate CI run [40324612070](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40324612070) failed on an unused timeout flag in the receiver helper; removed the unused flag and reran the complete suite successfully on the head above.
+
+### Device acceptance
+- Android Debug APK and full Windows Debug bundle: **REQUESTED** by this ledger commit's `[device-test-build]` marker; build results/artifact hashes pending.
+- Physical Android↔Windows transfer, timeout/revoke behavior, and final-file SHA-256 equality: **NOT TESTED**.
+- Screen/audio mirroring and real input control: **NOT TESTED**.
+- Production crypto/security review: **NOT TESTED**; the custom pairing lab remains experimental.
+
+No merge, no main changes, no new dependency or paid API.
