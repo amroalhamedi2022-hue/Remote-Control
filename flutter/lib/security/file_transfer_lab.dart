@@ -110,7 +110,7 @@ Future<FileSendResult> sendLabFile(
 
   var sent = 0;
   var seq = 0;
-  var finalSent = false;
+  var finalFrameAttempted = false;
   try {
   requireActiveSession();
   await for (final chunk in _fixedChunks(file.openRead(), labFileChunkBytes)) {
@@ -135,8 +135,10 @@ Future<FileSendResult> sendLabFile(
     throw StateError('Selected file changed during transfer');
   }
   requireActiveSession();
+  // Once FILE_END send starts, a timeout cannot prove the peer did not receive it.
+  // Suppress FILE_CANCEL after this point because the receiver may already publish.
+  finalFrameAttempted = true;
   await sendFrame({'type': 'FILE_END', 'bytes': sent, 'sha256': digest});
-  finalSent = true;
   final done = await channel.receive().timeout(fileResponseTimeout);
   if (done['type'] != 'FILE_OK' ||
       done['bytes'] != sent || done['sha256'] != digest) {
@@ -147,8 +149,8 @@ Future<FileSendResult> sendLabFile(
   } catch (_) {
     // A sender that stops after FILE_READY must release the receiver's
     // private staging promptly, rather than waiting for the idle timeout.
-    // Never send cancellation after FILE_END: the peer may have published.
-    if (!finalSent) {
+    // Never cancel after FILE_END was attempted: the peer may have received it.
+    if (!finalFrameAttempted) {
       try { await sendFrame({'type': 'FILE_CANCEL'}); } catch (_) {}
     }
     rethrow;
