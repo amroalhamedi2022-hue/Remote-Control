@@ -73,7 +73,7 @@ class TrustPinStore {
     final current = Map<String, String>.of(_pins);
     try {
       await _enqueue(current);
-    } catch (Object _, StackTrace stackTrace) {
+    } catch (_, stackTrace) {
       // Secure storage can report a transient failure after an uncertain write.
       // Retry the revoked snapshot before returning success, so an older durable
       // pin is not left behind merely because the first write failed.
