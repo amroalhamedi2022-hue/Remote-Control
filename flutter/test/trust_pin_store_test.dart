@@ -75,6 +75,46 @@ void main() {
     expect(writes.last, isEmpty);
   });
 
+  test('revoke retries a transient secure-storage failure before succeeding', () async {
+    var attempts = 0;
+    final durable = <Map<String, String>>[
+      {'peer-a': 'public-key-a'},
+    ];
+    final store = TrustPinStore(writeSnapshot: (snapshot) async {
+      attempts++;
+      if (attempts == 1) {
+        throw StateError('simulated transient secure-storage failure');
+      }
+      durable.add(Map<String, String>.of(snapshot));
+    });
+    store.load({'peer-a': 'public-key-a'});
+
+    expect(await store.revoke('peer-a'), isTrue);
+    expect(store.values, isEmpty);
+    expect(attempts, 2);
+    expect(durable.last, isEmpty);
+  });
+
+  test('revoke reports when both durable writes fail instead of claiming persistence', () async {
+    var attempts = 0;
+    final store = TrustPinStore(writeSnapshot: (snapshot) async {
+      attempts++;
+      throw StateError('simulated storage outage');
+    });
+    store.load({'peer-a': 'public-key-a'});
+
+    await expectLater(
+      store.revoke('peer-a'),
+      throwsA(isA<StateError>().having(
+        (error) => error.message,
+        'message',
+        contains('durable trust may survive restart'),
+      )),
+    );
+    expect(store.values, isEmpty);
+    expect(attempts, 2);
+  });
+
   test('failed pin persistence leaves memory unchanged and reasserts current snapshot', () async {
     var firstWrite = true;
     final writes = <Map<String, String>>[];
