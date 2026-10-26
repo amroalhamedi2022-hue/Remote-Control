@@ -20,6 +20,7 @@ import '../network/lan_address_policy.dart';
 import 'pair_session_ledger.dart';
 import 'pair_consent_policy.dart';
 import 'pairing_lifecycle.dart';
+import 'pairing_nonce_guard.dart';
 import 'trust_pin_store.dart';
 import 'clipboard_policy.dart';
 
@@ -94,6 +95,7 @@ class PairingLab {
       key: 'liquidremote.trust.v1', value: jsonEncode(snapshot)),
   );
   final PairSessionLedger _sessionAddresses = PairSessionLedger();
+  final PairingNonceGuard _nonceGuard = PairingNonceGuard();
   SimpleKeyPair? _identity;
   List<int>? _identitySpki;
   final signature = Ed25519();
@@ -374,6 +376,12 @@ class PairingLab {
     final verified = await signature.verify(utf8.encode(jsonEncode(unsigned)),
       signature: Signature(_unb64(frame['sig'] as String), publicKey: pub));
     if (!verified) throw const FormatException('Bad identity signature');
+    // Cache only after the identity signature is valid. This rejects replayed
+    // signed hellos before they can trigger another user-consent dialog.
+    if (!_nonceGuard.remember(
+      frame['identity'] as String, frame['nonce'] as String)) {
+      throw const FormatException('Replayed or capacity-limited pairing nonce');
+    }
     return eph;
   }
 
