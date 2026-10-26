@@ -59,10 +59,14 @@ void main() {
     }
   });
 
-  test('Loopback is permitted only when explicitly opted in for local tests', () {
+  test('Loopback remains test-only and cannot reach the production pairing listener', () {
     final loopback = InternetAddress.loopbackIPv4;
     expect(isLocalLanIpv4(loopback), isFalse);
     expect(isLocalLanIpv4(loopback, allowLoopback: true), isTrue);
+    expect(isAllowedPairingSource(loopback), isFalse);
+    expect(isAllowedPairingSource(InternetAddress('192.168.1.9')), isTrue);
+    expect(isAllowedPairingSource(InternetAddress('8.8.8.8')), isFalse);
+    expect(isAllowedPairingSource(null), isFalse);
   });
 
   test('Manual discovery rejects public addresses without sending packets', () async {
