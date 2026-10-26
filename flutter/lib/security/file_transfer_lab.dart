@@ -296,8 +296,18 @@ Future<FileSendResult?> receiveLabFile(
     final name = validateLabFileName(offer['name'] as String);
     final size = offer['bytes'] as int;
     final expected = offer['sha256'] as String;
-    if (size < 0 || size > maxLabFileBytes ||
-        !RegExp(r'^[0-9a-f]{64}
+    final digestIsLowerHex = expected.length == 64 && expected.codeUnits.every((unit) =>
+        (unit >= 0x30 && unit <= 0x39) || (unit >= 0x61 && unit <= 0x66));
+    if (size < 0 || size > maxLabFileBytes || !digestIsLowerHex) {
+      throw const FormatException('Invalid incoming file size or digest');
+    }
+    request = LabIncomingOffer(name, size, expected);
+  } catch (_) {
+    // A malformed offer is terminal for this one-shot intent channel; don't
+    // leave the transport alive while the caller tears down the failed request.
+    await denyAndAbort();
+    rethrow;
+  }
   bool accepted;
   try {
     accepted = await approve(request).timeout(consentTimeout);
