@@ -180,7 +180,7 @@ class LanDiscovery extends ChangeNotifier {
 
   void _handlePacket(Datagram packet) {
     // Discovery is never trusted; reject Internet/VPN public source addresses.
-    if (!isLocalLanIpv4(packet.address, allowLoopback: true)) return;
+    if (!isLocalLanIpv4(packet.address)) return;
     if (packet.data.length > 1200 || packet.data.isEmpty) return;
     Object payload;
     try { payload = jsonDecode(utf8.decode(packet.data)); } catch (_) { return; }
@@ -208,20 +208,19 @@ class LanDiscovery extends ChangeNotifier {
 
   void _handleProbe(Socket client) => respondToProbe(client);
 
-  /// This is a source-address filter, NOT an authenticated route or a trusted peer.
-  /// Keep loopback available for same-device diagnostics and unit tests.
+  /// Production probe sources must be LAN IPv4. Loopback is test-only.
   @visibleForTesting
   static bool isAllowedProbeSource(InternetAddress address) =>
-      isLocalLanIpv4(address, allowLoopback: true);
+      isLocalLanIpv4(address);
 
   /// Respond to one bounded, newline-terminated TCP reachability probe.
   /// TCP packets are arbitrary chunks: a split PING must not be rejected.
   /// This is deliberately NOT pairing, authentication, or device control.
   @visibleForTesting
-  static void respondToProbe(Socket client) {
-    // TCP reachability is deliberately LAN-only, just like UDP discovery.
-    // A private source is not proof of physical LAN membership or pairing.
-    if (!isAllowedProbeSource(client.remoteAddress)) {
+  static void respondToProbe(Socket client, {bool allowLoopbackForTesting = false}) {
+    // The production listener uses the secure default. Loopback is an explicit
+    // test-only escape hatch for isolated parser tests, never used by the UI.
+    if (!isLocalLanIpv4(client.remoteAddress, allowLoopback: allowLoopbackForTesting)) {
       client.destroy();
       return;
     }
@@ -271,13 +270,13 @@ class LanDiscovery extends ChangeNotifier {
     }, onError: (_) => close(), onDone: close);
   }
 
-  /// Manual IP discovers a LAN agent via UDP. Use 192.168.x.x or IPv4:UDP-port.
-  /// Port override is useful for local test agents, not needed for normal usage.
+  /// Manual IP discovers a LAN agent via UDP. Use private/link-local IPv4 or IPv4:UDP-port.
+  /// Loopback and public addresses are never valid production discovery targets.
   Future<bool> probeManual(String input) async {
     final parts = input.trim().split(':');
     if (parts.isEmpty || parts.length > 2) return false;
     final address = InternetAddress.tryParse(parts.first);
-    if (address == null || !isLocalLanIpv4(address, allowLoopback: true)) {
+    if (address == null || !isLocalLanIpv4(address)) {
       return false;
     }
     final port = parts.length == 2 ? int.tryParse(parts.last) : lanDiscoveryPort;
@@ -293,9 +292,18 @@ class LanDiscovery extends ChangeNotifier {
   }
 
   /// Returns a TCP roundtrip timing, NOT display / input latency.
-  Future<Duration?> ping(LanPeer peer) async {
-    // A forged LanPeer must not turn a reachability test into an Internet probe.
-    if (!isLocalLanIpv4(InternetAddress.tryParse(peer.address), allowLoopback: true)) {
+  Future<Duration?> ping(LanPeer peer) =>
+      _ping(peer, allowLoopbackForTesting: false);
+
+  /// Loopback-only test helper. Production UI must call [ping], never this method.
+  @visibleForTesting
+  Future<Duration?> pingForTesting(LanPeer peer) =>
+      _ping(peer, allowLoopbackForTesting: true);
+
+  Future<Duration?> _ping(LanPeer peer, {required bool allowLoopbackForTesting}) async {
+    // A forged LanPeer must not turn a reachability test into an Internet or localhost probe.
+    if (!isLocalLanIpv4(InternetAddress.tryParse(peer.address),
+        allowLoopback: allowLoopbackForTesting)) {
       return null;
     }
     Socket? socket;

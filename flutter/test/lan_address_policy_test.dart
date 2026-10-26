@@ -48,12 +48,12 @@ void main() {
 
   test('Inbound Flutter TCP responder rejects non-LAN sources', () {
     for (final ip in ['8.8.8.8', '203.0.113.10', '100.64.1.2',
-      '224.0.0.1', '0.0.0.0', 'fe80::1']) {
+      '224.0.0.1', '0.0.0.0', 'fe80::1', '127.0.0.1']) {
       expect(LanDiscovery.isAllowedProbeSource(InternetAddress(ip)),
         isFalse, reason: ip);
     }
     for (final ip in ['192.168.1.5', '172.16.0.1',
-      '10.0.0.8', '169.254.1.2', '127.0.0.1']) {
+      '10.0.0.8', '169.254.1.2']) {
       expect(LanDiscovery.isAllowedProbeSource(InternetAddress(ip)),
         isTrue, reason: ip);
     }
@@ -64,6 +64,7 @@ void main() {
     expect(isLocalLanIpv4(loopback), isFalse);
     expect(isLocalLanIpv4(loopback, allowLoopback: true), isTrue);
     expect(isAllowedPairingSource(loopback), isFalse);
+    expect(LanDiscovery.isAllowedProbeSource(loopback), isFalse);
     expect(isAllowedPairingSource(InternetAddress('192.168.1.9')), isTrue);
     expect(isAllowedPairingSource(InternetAddress('8.8.8.8')), isFalse);
     expect(isAllowedPairingSource(null), isFalse);
@@ -73,6 +74,7 @@ void main() {
     final discovery = LanDiscovery();
     try {
       expect(await discovery.probeManual('8.8.8.8'), isFalse);
+      expect(await discovery.probeManual('127.0.0.1'), isFalse);
       expect(await discovery.probeManual('172.32.0.1:43827'), isFalse);
       expect(await discovery.probeManual('203.0.113.1'), isFalse);
       expect(await discovery.probeManual('0.0.0.0'), isFalse);

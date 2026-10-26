@@ -35,7 +35,7 @@ void main() {
         tcpPort: server.port,
         lastSeen: DateTime.now(),
       );
-      return await discovery.ping(peer);
+      return await discovery.pingForTesting(peer);
     } finally {
       discovery.dispose();
       await subscription.cancel();
@@ -43,9 +43,10 @@ void main() {
     }
   }
 
-  Future<String> runInboundProbe(List<String> chunks) async {
+  Future<String> runInboundProbe(List<String> chunks, {bool allowLoopbackForTesting = false}) async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final subscription = server.listen(LanDiscovery.respondToProbe);
+    final subscription = server.listen((client) =>
+        LanDiscovery.respondToProbe(client, allowLoopbackForTesting: allowLoopbackForTesting));
     final socket = await Socket.connect(InternetAddress.loopbackIPv4, server.port);
     try {
       final response = socket.cast<List<int>>().transform(utf8.decoder)
@@ -67,18 +68,22 @@ void main() {
     }
   }
 
+  test('Production inbound TCP PING rejects loopback clients', () async {
+    expect(await runInboundProbe(['PING\n']), isEmpty);
+  });
+
   test('Inbound TCP PING accepts fragments split across packets', () async {
-    expect(await runInboundProbe(['PI', 'NG\n']), 'PONG\n');
+    expect(await runInboundProbe(['PI', 'NG\n'], allowLoopbackForTesting: true), 'PONG\n');
   });
 
   test('Inbound TCP PING accepts CRLF line endings', () async {
-    expect(await runInboundProbe(['PING\r\n']), 'PONG\n');
+    expect(await runInboundProbe(['PING\r\n'], allowLoopbackForTesting: true), 'PONG\n');
   });
 
   test('Inbound TCP probe rejects malformed and oversized commands', () async {
-    expect(await runInboundProbe(['PONG\n']), isEmpty);
-    expect(await runInboundProbe(['X' * 70]), isEmpty);
-    expect(await runInboundProbe(['PING\nPONG\n']), isEmpty);
+    expect(await runInboundProbe(['PONG\n'], allowLoopbackForTesting: true), isEmpty);
+    expect(await runInboundProbe(['X' * 70], allowLoopbackForTesting: true), isEmpty);
+    expect(await runInboundProbe(['PING\nPONG\n'], allowLoopbackForTesting: true), isEmpty);
   });
 
   test('TCP reachability accepts a PONG fragmented across packets', () async {
