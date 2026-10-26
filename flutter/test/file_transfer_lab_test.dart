@@ -504,7 +504,8 @@ void main() {
     }, approve: (_) async { asked = true; return true; },
        createStaging: (_) async => _StagingFixture()), throwsFormatException);
     expect(asked, isFalse);
-    expect(channel.sent, isEmpty);
+    expect(channel.sent.map((message) => message['type']), ['FILE_DENIED']);
+    expect(channel.aborted, isTrue);
   });
 
 
