@@ -285,6 +285,9 @@ Future<FileSendResult?> receiveLabFile(
     rethrow;
   }
 
+  late final String name;
+  late final int size;
+  late final String expected;
   late final LabIncomingOffer request;
   try {
     if (offer['type'] != 'FILE_OFFER' ||
@@ -293,9 +296,9 @@ Future<FileSendResult?> receiveLabFile(
         offer['sha256'] is! String) {
       throw const FormatException('Invalid incoming file offer');
     }
-    final name = validateLabFileName(offer['name'] as String);
-    final size = offer['bytes'] as int;
-    final expected = offer['sha256'] as String;
+    name = validateLabFileName(offer['name'] as String);
+    size = offer['bytes'] as int;
+    expected = offer['sha256'] as String;
     final digestIsLowerHex = expected.length == 64 && expected.codeUnits.every((unit) =>
         (unit >= 0x30 && unit <= 0x39) || (unit >= 0x61 && unit <= 0x66));
     if (size < 0 || size > maxLabFileBytes || !digestIsLowerHex) {
