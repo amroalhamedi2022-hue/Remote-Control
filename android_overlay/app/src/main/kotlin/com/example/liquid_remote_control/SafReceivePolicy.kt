@@ -16,44 +16,14 @@ internal object SafReceivePolicy {
 
     private fun isWindowsReservedDeviceName(name: String): Boolean {
         // Windows trims ASCII spaces/dots from the device stem before the
-        // extension: "CON .txt" is still a reserved device alias.
+        // extension: a name such as CON followed by a space and .txt is reserved.
         val stem = name.substringBefore('.').trimEnd(' ', '.').uppercase(Locale.ROOT)
-        val reserved = setOf("CON", "PRN", "AUX", "NUL", "CONIN" + '
-        if (name.any { it == '/' || it == '\\' || it == ':' ||
-            it == '<' || it == '>' || it == '"' || it == '|' ||
-            it == '?' || it == '*' }) return false
-        var offset = 0
-        while (offset < name.length) {
-            val cp = Character.codePointAt(name, offset)
-            if (cp < 32 || cp in 0x7f..0x9f || cp == 0xfffd ||
-                cp == 0x00ad || cp == 0x034f || cp == 0x061c || cp == 0x180e ||
-                cp in 0x200b..0x200f || cp in 0x2028..0x202e ||
-                cp in 0x2060..0x206f || cp == 0xfeff ||
-                cp in 0xfff9..0xfffb || cp in 0xe0000..0xe007f) return false
-            offset += Character.charCount(cp)
-        }
-        return true
-    }
-}
-, "CONOUT" + '
-        if (name.any { it == '/' || it == '\\' || it == ':' ||
-            it == '<' || it == '>' || it == '"' || it == '|' ||
-            it == '?' || it == '*' }) return false
-        var offset = 0
-        while (offset < name.length) {
-            val cp = Character.codePointAt(name, offset)
-            if (cp < 32 || cp in 0x7f..0x9f || cp == 0xfffd ||
-                cp == 0x00ad || cp == 0x034f || cp == 0x061c || cp == 0x180e ||
-                cp in 0x200b..0x200f || cp in 0x2028..0x202e ||
-                cp in 0x2060..0x206f || cp == 0xfeff ||
-                cp in 0xfff9..0xfffb || cp in 0xe0000..0xe007f) return false
-            offset += Character.charCount(cp)
-        }
-        return true
-    }
-}
-)
-        return stem in reserved || Regex("^(COM|LPT)[1-9¹²³]$").matches(stem)
+        val reserved = setOf("CON", "PRN", "AUX", "NUL", "CONIN" + 36.toChar(), "CONOUT" + 36.toChar())
+        val suffix = stem.lastOrNull()
+        val numberedDevice = stem.length == 4 &&
+            (stem.startsWith("COM") || stem.startsWith("LPT")) &&
+            suffix != null && suffix in "123456789¹²³"
+        return stem in reserved || numberedDevice
     }
 
     fun validFileName(name: String): Boolean {
