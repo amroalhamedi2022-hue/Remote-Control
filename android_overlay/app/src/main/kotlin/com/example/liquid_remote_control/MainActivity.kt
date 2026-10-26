@@ -12,12 +12,19 @@ import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+
+private const val STAGING_IDLE_TIMEOUT_MILLIS = 120_000L
 
 // Experimental attended SAF receiver. Never requests all-files permission.
 // SAF providers do NOT promise atomic publication; the temporary .part may
 // be visible during copying. Fail closed if readback/rename is unsupported.
 class MainActivity : FlutterActivity() {
-    private val worker = Executors.newSingleThreadExecutor()
+    private val worker = Executors.newSingleThreadScheduledExecutor()
+    private val stageLeaseScheduler = StageLeaseScheduler { delayMillis, action ->
+        val future = worker.schedule(Runnable { action.invoke() }, delayMillis, TimeUnit.MILLISECONDS)
+        StageLeaseCancellation { future.cancel(false) }
+    }
     private val sessions = mutableMapOf<String, Stage>() // worker thread only
     private val committedOutputs = mutableMapOf<String, Uri>() // worker thread only
     private var picker: MethodChannel.Result? = null
@@ -25,7 +32,8 @@ class MainActivity : FlutterActivity() {
     private val pickerRequest = 42019
     private data class Stage(
         val file: File, val stream: FileOutputStream, val tree: Uri,
-        val name: String, val size: Long, val digest: String, var written: Long = 0
+        val name: String, val size: Long, val digest: String, var written: Long = 0,
+        var idleLease: IdleStageLease? = null
     )
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
@@ -76,6 +84,7 @@ class MainActivity : FlutterActivity() {
                         require(stage.written + bytes.size <= stage.size)
                         stage.stream.write(bytes)
                         stage.written += bytes.size
+                        stage.idleLease?.touch()
                         null
                     }
                 }
@@ -89,12 +98,14 @@ class MainActivity : FlutterActivity() {
                         val stage = sessions[transferId] ?: error("Unknown transfer")
                         require(stage.name == name && stage.size == bytes &&
                             stage.digest == digest && stage.written == stage.size)
+                        stage.idleLease?.close() // publication is one bounded commit operation
                         try {
                             val finalUri = Uri.parse(publish(stage))
                             committedOutputs[transferId] = finalUri
                             finalUri.toString()
                         } finally {
                             sessions.remove(transferId)
+                            stage.idleLease?.close()
                             try { stage.stream.close() } catch (_: Exception) {}
                             stage.file.delete()
                         }
@@ -126,6 +137,7 @@ class MainActivity : FlutterActivity() {
                     val id = call.argument<String>("id")
                     runWorker(result) {
                         sessions.remove(id)?.let {
+                            it.idleLease?.close()
                             try { it.stream.close() } finally { it.file.delete() }
                         }
                         null
@@ -155,7 +167,18 @@ class MainActivity : FlutterActivity() {
         val file = File.createTempFile("liquidremote-inbound-", ".part", cacheDir)
         try {
             val id = UUID.randomUUID().toString()
-            sessions[id] = Stage(file, FileOutputStream(file), tree, name, bytes, digest)
+            val stage = Stage(file, FileOutputStream(file), tree, name, bytes, digest)
+            stage.idleLease = IdleStageLease(STAGING_IDLE_TIMEOUT_MILLIS, stageLeaseScheduler) {
+                // The scheduler shares the single worker, so session-map and stream
+                // cleanup remain serialized with write/commit/abort operations.
+                if (sessions[id] === stage) {
+                    sessions.remove(id)
+                    try { stage.stream.close() } catch (_: Exception) {}
+                    stage.file.delete()
+                }
+            }
+            stage.idleLease?.touch()
+            sessions[id] = stage
             return id
         } catch (e: Exception) { file.delete(); throw e }
     }
@@ -244,6 +267,7 @@ class MainActivity : FlutterActivity() {
         approvedTree = null
         worker.execute {
             sessions.values.forEach {
+                it.idleLease?.close()
                 try { it.stream.close() } catch (_: Exception) {}
                 it.file.delete()
             }
