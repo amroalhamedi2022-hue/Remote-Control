@@ -281,7 +281,7 @@ Future<FileSendResult?> receiveLabFile(
   try {
     accepted = await approve(request).timeout(consentTimeout);
     requireActiveSession();
-  } catch (failure) {
+  } catch (_) {
     // A cancelled picker, failed prompt, or revoked session must not strand
     // the sender waiting for FILE_READY. Deny first when possible, then close
     // this one-shot file-intent channel so a late UI completion cannot revive it.
