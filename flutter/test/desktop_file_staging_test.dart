@@ -105,6 +105,43 @@ void main() {
     expect(channel.sent.map((e) => e['type']), ['FILE_READY', 'FILE_OK']);
   });
 
+  test('revocation after commit rolls back only the transferred file', () async {
+    final data = utf8.encode('rollback-safe');
+    final offer = _offer('rollback.txt', data);
+    final staging = await DesktopLabReceiveStaging.create(destination, LabIncomingOffer(
+      offer['name'] as String, offer['bytes'] as int, offer['sha256'] as String));
+    await staging.write(data);
+    await staging.commit(name: offer['name'] as String,
+      bytes: offer['bytes'] as int, sha256: offer['sha256'] as String);
+    final publishedPath = staging.publishedPath!;
+    final folderPath = publishedPath.substring(
+      0, publishedPath.lastIndexOf(Platform.pathSeparator));
+    final extra = File('$folderPath${Platform.pathSeparator}user-added.txt');
+    await extra.writeAsString('keep this unrelated file');
+
+    await staging.rollbackCommitted();
+
+    expect(await File(publishedPath).exists(), isFalse);
+    expect(await extra.readAsString(), 'keep this unrelated file');
+    expect(await Directory(folderPath).exists(), isTrue);
+    expect(staging.publishedPath, isNull);
+  });
+
+  test('finalized desktop publication cannot be rolled back', () async {
+    final data = utf8.encode('accepted');
+    final offer = _offer('accepted.txt', data);
+    final staging = await DesktopLabReceiveStaging.create(destination, LabIncomingOffer(
+      offer['name'] as String, offer['bytes'] as int, offer['sha256'] as String));
+    await staging.write(data);
+    await staging.commit(name: offer['name'] as String,
+      bytes: offer['bytes'] as int, sha256: offer['sha256'] as String);
+    final publishedPath = staging.publishedPath!;
+    await staging.finalizeCommitted();
+
+    await expectLater(staging.rollbackCommitted(), throwsStateError);
+    expect(await File(publishedPath).readAsBytes(), data);
+  });
+
   test('two transfers with identical names never overwrite each other', () async {
     for (final data in <List<int>>[[1, 2], [3, 4, 5]]) {
       await receiveLabFileToDesktopFolder(_validFrames(data),
