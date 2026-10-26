@@ -13,6 +13,7 @@ fun main() {
         "CON", "con.txt", "LPT1.doc", "COM¹.txt", "NUL",
         "CON .txt", "NUL .bin", "COM1 .log", "AUX .cfg",
         "CONIN\$.txt", "CONOUT\$.txt", "CON...txt",
+        "LPT3 .txt", "CONIN\$ .txt", "CONOUT\$ .txt",
         ".liquidremote-hidden",
         ".NETKIT-hidden", "safe\u202Egpj.exe", "safe\u200Bname.txt",
         "bad\u007F.txt", "bad\u0085.txt", "bad\uFFFD.txt",
