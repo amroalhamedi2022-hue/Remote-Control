@@ -21,6 +21,9 @@ void main() {
 
     final pending = store.pinIfCurrent('peer-a', 'public-key-a',
         isCurrent: () => active);
+    // Attach the error expectation immediately: the controlled write can finish
+    // before the stop barrier resumes, and an unobserved expected error is flaky.
+    final pendingFailure = expectLater(pending, throwsStateError);
     await entered.future;
     active = false;
     // Mirrors PairingLab.stop(): queue the current snapshot while the stale
@@ -28,8 +31,7 @@ void main() {
     final stopFlush = store.persistCurrent();
     release.complete();
     await stopFlush;
-
-    await expectLater(pending, throwsStateError);
+    await pendingFailure;
     expect(store.values, isEmpty);
     expect(writes.last, isEmpty);
   });
