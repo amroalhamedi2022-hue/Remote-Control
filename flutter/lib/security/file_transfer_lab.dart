@@ -37,6 +37,28 @@ String validateLabFileName(String name) {
   return name;
 }
 
+/// Re-chunk arbitrary picker/provider stream blocks into canonical protocol chunks.
+/// This keeps the receiver's frame count and per-chunk work bounded even when a
+/// content provider yields unusually small stream blocks.
+Stream<List<int>> _fixedChunks(Stream<List<int>> source, int chunkSize) async* {
+  final pending = <int>[];
+  await for (final block in source) {
+    var offset = 0;
+    while (offset < block.length) {
+      final remaining = chunkSize - pending.length;
+      final available = block.length - offset;
+      final take = remaining < available ? remaining : available;
+      pending.addAll(block.sublist(offset, offset + take));
+      offset += take;
+      if (pending.length == chunkSize) {
+        yield List<int>.from(pending);
+        pending.clear();
+      }
+    }
+  }
+  if (pending.isNotEmpty) yield List<int>.from(pending);
+}
+
 /// Hashes the stream without loading a large SAF document into memory.
 Future<String> _hashFile(XFile file) async =>
     (await crypto.sha256.bind(file.openRead()).first).toString();
@@ -85,29 +107,22 @@ Future<FileSendResult> sendLabFile(
   var finalSent = false;
   try {
   requireActiveSession();
-  await for (final block in file.openRead()) {
-    var offset = 0;
-    while (offset < block.length) {
-      requireActiveSession();
-      final count = block.length - offset > labFileChunkBytes
-          ? labFileChunkBytes : block.length - offset;
-      if (sent + count > size) {
-        throw StateError('Selected file grew during transfer');
-      }
-      final chunk = block.sublist(offset, offset + count);
-      await channel.send({
-        'type': 'FILE_CHUNK', 'seq': seq, 'data': base64.encode(chunk),
-      });
-      final ack = await channel.receive().timeout(fileResponseTimeout);
-      if (ack['type'] != 'FILE_ACK' || ack['seq'] != seq) {
-        throw StateError('Invalid file chunk acknowledgement');
-      }
-      requireActiveSession();
-      sent += count;
-      offset += count;
-      seq++;
-      onProgress?.call(sent, size, false);
+  await for (final chunk in _fixedChunks(file.openRead(), labFileChunkBytes)) {
+    requireActiveSession();
+    if (sent + chunk.length > size) {
+      throw StateError('Selected file grew during transfer');
     }
+    await channel.send({
+      'type': 'FILE_CHUNK', 'seq': seq, 'data': base64.encode(chunk),
+    });
+    final ack = await channel.receive().timeout(fileResponseTimeout);
+    if (ack['type'] != 'FILE_ACK' || ack['seq'] != seq) {
+      throw StateError('Invalid file chunk acknowledgement');
+    }
+    requireActiveSession();
+    sent += chunk.length;
+    seq++;
+    onProgress?.call(sent, size, false);
   }
   if (sent != size || await file.length() != size ||
       await _hashFile(file) != digest) {
@@ -287,9 +302,11 @@ Future<FileSendResult?> receiveLabFile(
         throw const FormatException('Invalid incoming file chunk');
       }
       final bytes = base64.decode(encoded);
-      if (bytes.isEmpty || bytes.length > labFileChunkBytes ||
-          bytes.length > size - count) {
-        throw StateError('Incoming file exceeds approved byte budget');
+      final remaining = size - count;
+      final canonicalLength =
+          remaining < labFileChunkBytes ? remaining : labFileChunkBytes;
+      if (bytes.isEmpty || bytes.length != canonicalLength) {
+        throw StateError('Incoming file chunk has non-canonical size');
       }
       requireActiveSession();
       await staging.write(bytes);
