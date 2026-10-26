@@ -127,6 +127,40 @@ void main() {
     expect(staging.publishedPath, isNull);
   });
 
+  test('commit refuses publication after receiver folder is replaced by a symlink', () async {
+    final data = utf8.encode('must stay in the originally selected folder');
+    final offer = _offer('staged.txt', data);
+    final staging = await DesktopLabReceiveStaging.create(destination,
+      LabIncomingOffer(offer['name'] as String, offer['bytes'] as int,
+        offer['sha256'] as String));
+    await staging.write(data);
+
+    final moved = Directory('${destination.path}-original');
+    final outside = Directory('${destination.path}-outside');
+    await destination.rename(moved.path);
+    await outside.create();
+    final replacement = Link(destination.path);
+    try {
+      await replacement.create(outside.path);
+      await expectLater(staging.commit(name: offer['name'] as String,
+        bytes: offer['bytes'] as int, sha256: offer['sha256'] as String),
+        throwsStateError);
+      expect(await outside.list().toList(), isEmpty);
+      expect(await FileSystemEntity.type(destination.path, followLinks: false),
+        FileSystemEntityType.link);
+    } finally {
+      if (await FileSystemEntity.type(destination.path, followLinks: false) ==
+          FileSystemEntityType.link) {
+        await replacement.delete();
+      }
+      if (await moved.exists() && !await destination.exists()) {
+        await moved.rename(destination.path);
+      }
+      await staging.abort();
+      if (await outside.exists()) await outside.delete(recursive: true);
+    }
+  }, skip: Platform.isWindows ? 'Directory replacement with an open staging handle is not portable on Windows' : false);
+
   test('rollback refuses a published folder replaced by a symlink', () async {
     final data = utf8.encode('must not delete outside target');
     final offer = _offer('victim.txt', data);
