@@ -33,6 +33,23 @@ bool isSafeDiscoveryLabel(String value, int maxLength) {
   return true;
 }
 
+/// Reject malformed or self-referential discovery announcements before they can
+/// steer an automatic TCP probe. The advertised endpoint is protocol-fixed;
+/// manual IP probes remain a separate, explicit user action.
+@visibleForTesting
+bool isValidDiscoveredPeerFields({
+  required String id,
+  required String name,
+  required String platform,
+  required int tcpPort,
+  required String localNodeId,
+}) =>
+    RegExp(r'^[0-9a-f]{32}$').hasMatch(id) &&
+    id != localNodeId &&
+    isSafeDiscoveryLabel(name, 64) &&
+    isSafeDiscoveryLabel(platform, 32) &&
+    tcpPort == lanProbePort;
+
 class LanPeer {
   final String id;
   final String name;
@@ -189,10 +206,11 @@ class LanDiscovery extends ChangeNotifier {
     if (kind != 'DISCOVER' && kind != 'ANNOUNCE') return;
     final id = payload['id'], name = payload['name'], platform = payload['platform'];
     final tcpPort = payload['tcpPort'];
-    if (id is! String || !RegExp(r'^[0-9a-f]{32}$').hasMatch(id) || id == nodeId ||
-        name is! String || !isSafeDiscoveryLabel(name, 64) ||
-        platform is! String || !isSafeDiscoveryLabel(platform, 32) ||
-        tcpPort is! int || tcpPort < 1 || tcpPort > 65535) {
+    if (id is! String || name is! String || platform is! String || tcpPort is! int ||
+        !isValidDiscoveredPeerFields(
+          id: id, name: name, platform: platform,
+          tcpPort: tcpPort, localNodeId: nodeId,
+        )) {
       return;
     }
     // Address comes from datagram source, never from an untrusted JSON field.

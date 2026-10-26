@@ -5,6 +5,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_remote_control/network/lan_discovery.dart';
 
 void main() {
+  group('LAN discovery announcement policy', () {
+    const localId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const peerId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    bool accepts({
+      String id = peerId,
+      String name = 'MSI Sword 15',
+      String platform = 'Windows',
+      int tcpPort = lanProbePort,
+      String localNodeId = localId,
+    }) => isValidDiscoveredPeerFields(
+      id: id, name: name, platform: platform,
+      tcpPort: tcpPort, localNodeId: localNodeId,
+    );
+
+    test('accepts a well-formed peer on the fixed probe port', () {
+      expect(accepts(), isTrue);
+      expect(accepts(name: 'جهاز أندرويد', platform: 'Android'), isTrue);
+    });
+
+    test('rejects advertised ports that could steer probes at unrelated LAN services', () {
+      for (final port in [1, 22, 80, 443, 445, 65535]) {
+        expect(accepts(tcpPort: port), isFalse, reason: 'port $port is not the probe port');
+      }
+    });
+
+    test('rejects self identity, malformed IDs and unsafe display labels', () {
+      expect(accepts(id: localId), isFalse);
+      expect(accepts(id: 'not-a-node-id'), isFalse);
+      expect(accepts(name: 'host\u202Etxt'), isFalse);
+      expect(accepts(platform: ''), isFalse);
+    });
+  });
+
   Future<Duration?> runProbe(List<String> replies) async {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     final subscription = server.listen((client) {
