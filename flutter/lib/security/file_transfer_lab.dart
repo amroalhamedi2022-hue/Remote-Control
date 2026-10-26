@@ -361,7 +361,10 @@ Future<FileSendResult?> receiveLabFile(
     unawaited(pendingStaging.then((lateStage) async {
       try { await lateStage.abort(); } catch (_) { /* best effort cleanup */ }
     }, onError: (Object _, StackTrace __) {}));
-    try { await sendFrame({'type': 'FILE_DENIED'}); } catch (_) {}
+    // A failed or timed-out SAF/desktop staging allocation is terminal for this
+    // one-shot intent. Deny best-effort and revoke the channel even if sending
+    // FILE_DENIED itself fails, matching malformed-offer and consent failures.
+    await denyAndAbort();
     rethrow;
   }
   var committed = false;
