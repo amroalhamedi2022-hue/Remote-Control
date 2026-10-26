@@ -120,6 +120,23 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
     if (!filePath.startsWith('$folderPath${Platform.pathSeparator}')) {
       throw StateError('Published desktop rollback path escaped its private folder');
     }
+    // Rollback is destructive, so re-check every parent before touching the child.
+    // In particular, do not follow a published-folder path that was replaced by a symlink.
+    // This narrows accidental/path-substitution risk; Dart does not provide an atomic
+    // no-follow unlink-at API, so hostile cross-process TOCTOU races remain out of scope.
+    final destinationType = await FileSystemEntity.type(
+        _destination.path, followLinks: false);
+    if (destinationType != FileSystemEntityType.directory) {
+      throw StateError('Receiver destination changed before rollback');
+    }
+    final folderType = await FileSystemEntity.type(
+        folderPath, followLinks: false);
+    if (folderType != FileSystemEntityType.directory) {
+      throw StateError('Published desktop folder was replaced or is no longer a directory');
+    }
+    if (Directory(folderPath).parent.path != _destination.path) {
+      throw StateError('Published desktop folder is no longer a direct child of the receiver destination');
+    }
     // Remove only the file created by this transfer. Never recursively delete
     // the folder: the user may have added another file while publication awaited.
     final type = await FileSystemEntity.type(filePath, followLinks: false);
