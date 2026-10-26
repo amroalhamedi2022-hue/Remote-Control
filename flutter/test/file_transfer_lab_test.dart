@@ -294,6 +294,24 @@ void main() {
     expect(channel.sent, isEmpty);
   });
 
+  test('staging timeout must be positive', () async {
+    final channel = _IncomingFixture([]);
+    final offer = {
+      'type': 'FILE_OFFER',
+      'name': 'staging-timeout.bin',
+      'bytes': 0,
+      'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    };
+    await expectLater(
+      receiveLabFile(channel, offer,
+        approve: (_) async => true,
+        createStaging: (_) async => _StagingFixture(),
+        stagingTimeout: Duration.zero),
+      throwsArgumentError,
+    );
+    expect(channel.sent, isEmpty);
+  });
+
   test('receiver refusal never emits file bytes', () async {
     final channel = _NodeReceiverFixture(deny:true);
     final file = XFile.fromData(Uint8List.fromList([1,2,3]),name:'x.bin');
@@ -415,6 +433,34 @@ void main() {
       throwsStateError);
     expect(staged, isFalse);
     expect(channel.sent.map((m) => m['type']), ['FILE_DENIED']);
+    expect(channel.aborted, isTrue);
+  });
+
+  test('revocation while consent prompt is open aborts without staging', () async {
+    var active = true;
+    final approval = Completer<bool>();
+    final channel = _IncomingFixture([]);
+    var stagingCalls = 0;
+    final offer = {
+      'type': 'FILE_OFFER',
+      'name': 'revoked-consent.bin',
+      'bytes': 0,
+      'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    };
+    final receiving = receiveLabFile(channel, offer,
+      approve: (_) => approval.future,
+      createStaging: (_) async {
+        stagingCalls++;
+        return _StagingFixture();
+      },
+      isSessionActive: () => active);
+    await Future<void>.delayed(Duration.zero);
+    active = false;
+    approval.complete(true);
+    await expectLater(receiving, throwsStateError);
+    expect(channel.sent.map((m) => m['type']), ['FILE_DENIED']);
+    expect(channel.aborted, isTrue);
+    expect(stagingCalls, 0);
   });
 
   test('malformed incoming offer is rejected before consent', () async {
