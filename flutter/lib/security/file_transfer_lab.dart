@@ -80,9 +80,13 @@ Future<FileSendResult> sendLabFile(
   String? selectedName,
   bool Function()? isSessionActive,
   Duration sendTimeout = fileResponseTimeout,
+  Duration responseTimeout = fileResponseTimeout,
 }) async {
   if (sendTimeout <= Duration.zero) {
     throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
+  }
+  if (responseTimeout <= Duration.zero) {
+    throw ArgumentError.value(responseTimeout, 'responseTimeout', 'must be positive');
   }
   var sendTimedOut = false;
   Future<void> sendFrame(Map<String, dynamic> message) async {
@@ -90,6 +94,16 @@ Future<FileSendResult> sendLabFile(
       await channel.send(message).timeout(sendTimeout);
     } on TimeoutException {
       sendTimedOut = true;
+      if (channel is AbortableFileTransferChannel) channel.abort();
+      rethrow;
+    }
+  }
+  Future<Map<String, dynamic>> receiveFrame() async {
+    try {
+      return await channel.receive().timeout(responseTimeout);
+    } on TimeoutException {
+      // A timed-out Future does not cancel the underlying receive. Revoke the
+      // transport when possible so the peer cannot keep a stalled session alive.
       if (channel is AbortableFileTransferChannel) channel.abort();
       rethrow;
     }
@@ -114,7 +128,7 @@ Future<FileSendResult> sendLabFile(
   await sendFrame({
     'type': 'FILE_OFFER', 'name': name, 'bytes': size, 'sha256': digest,
   });
-  final approval = await channel.receive().timeout(fileResponseTimeout);
+  final approval = await receiveFrame();
   if (approval['type'] == 'FILE_DENIED') {
     throw StateError('Receiver denied file transfer');
   }
@@ -135,7 +149,7 @@ Future<FileSendResult> sendLabFile(
     await sendFrame({
       'type': 'FILE_CHUNK', 'seq': seq, 'data': base64.encode(chunk),
     });
-    final ack = await channel.receive().timeout(fileResponseTimeout);
+    final ack = await receiveFrame();
     if (ack['type'] != 'FILE_ACK' || ack['seq'] != seq) {
       throw StateError('Invalid file chunk acknowledgement');
     }
@@ -153,7 +167,7 @@ Future<FileSendResult> sendLabFile(
   // Suppress FILE_CANCEL after this point because the receiver may already publish.
   finalFrameAttempted = true;
   await sendFrame({'type': 'FILE_END', 'bytes': sent, 'sha256': digest});
-  final done = await channel.receive().timeout(fileResponseTimeout);
+  final done = await receiveFrame();
   if (done['type'] != 'FILE_OK' ||
       done['bytes'] != sent || done['sha256'] != digest) {
     throw StateError('Receiver did not verify complete file');
@@ -210,14 +224,28 @@ Future<FileSendResult?> receiveLabFile(
   Duration stagingTimeout = fileResponseTimeout,
   bool Function()? isSessionActive,
   Duration sendTimeout = fileResponseTimeout,
+  Duration responseTimeout = fileResponseTimeout,
 }) async {
   if (sendTimeout <= Duration.zero) {
     throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
+  }
+  if (responseTimeout <= Duration.zero) {
+    throw ArgumentError.value(responseTimeout, 'responseTimeout', 'must be positive');
   }
   Future<void> sendFrame(Map<String, dynamic> message) async {
     try {
       await channel.send(message).timeout(sendTimeout);
     } on TimeoutException {
+      if (channel is AbortableFileTransferChannel) channel.abort();
+      rethrow;
+    }
+  }
+  Future<Map<String, dynamic>> receiveFrame() async {
+    try {
+      return await channel.receive().timeout(responseTimeout);
+    } on TimeoutException {
+      // Revoke the channel on a stalled peer response; staging is rolled back
+      // by receiveLabFile's error path below.
       if (channel is AbortableFileTransferChannel) channel.abort();
       rethrow;
     }
@@ -284,7 +312,7 @@ Future<FileSendResult?> receiveLabFile(
     requireActiveSession();
     await sendFrame({'type': 'FILE_READY'});
     while (true) {
-      final frame = await channel.receive().timeout(fileResponseTimeout);
+      final frame = await receiveFrame();
       requireActiveSession();
       if (frame['type'] == 'FILE_CANCEL') {
         throw StateError('Sender cancelled incoming file');

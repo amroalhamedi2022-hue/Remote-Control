@@ -14,12 +14,14 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
   final bool wrongAck;
   final void Function()? onAck;
   final String? stallOnSendType;
+  final String? stallOnReceiveType;
   final List<Map<String, dynamic>> sent = [];
   _NodeReceiverFixture({this.deny = false, this.wrongAck = false,
-    this.onAck, this.stallOnSendType});
+    this.onAck, this.stallOnSendType, this.stallOnReceiveType});
 
   @override
   Future<void> send(Map<String, dynamic> message) async {
+    if (aborted) throw StateError('Channel aborted');
     if (message['type'] == stallOnSendType) {
       await Completer<void>().future;
     }
@@ -29,6 +31,9 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
   @override
   Future<Map<String, dynamic>> receive() async {
     final last = sent.last;
+    if (last['type'] == stallOnReceiveType) {
+      await Completer<void>().future;
+    }
     switch (last['type']) {
       case 'FILE_OFFER':
         return {'type': deny ? 'FILE_DENIED' : 'FILE_READY'};
@@ -51,17 +56,22 @@ class _IncomingFixture implements AbortableFileTransferChannel {
   void abort() { aborted = true; }
   final List<Map<String, dynamic>> incoming;
   final String? stallOnSendType;
+  final bool stallOnReceive;
   final sent = <Map<String, dynamic>>[];
-  _IncomingFixture(this.incoming, {this.stallOnSendType});
+  _IncomingFixture(this.incoming, {this.stallOnSendType, this.stallOnReceive = false});
   @override
   Future<void> send(Map<String, dynamic> message) async {
+    if (aborted) throw StateError('Channel aborted');
     if (message['type'] == stallOnSendType) {
       await Completer<void>().future;
     }
     sent.add(message);
   }
   @override
-  Future<Map<String, dynamic>> receive() async => incoming.removeAt(0);
+  Future<Map<String, dynamic>> receive() async {
+    if (stallOnReceive) await Completer<void>().future;
+    return incoming.removeAt(0);
+  }
 }
 
 class _StagingFixture implements LabReceiveStaging {
@@ -524,4 +534,37 @@ void main() {
     expect(channel.sent, isEmpty);
   });
 
+
+  test('sender aborts an abortable transport when a peer response stalls', () async {
+    final channel = _NodeReceiverFixture(stallOnReceiveType: 'FILE_CHUNK');
+    final file = XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'ack-timeout.bin');
+    await expectLater(
+      sendLabFile(channel, file, selectedName: 'ack-timeout.bin',
+        responseTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(channel.aborted, isTrue);
+    expect(channel.sent.any((m) => m['type'] == 'FILE_CANCEL'), isFalse);
+  });
+
+  test('receiver aborts a stalled peer and rolls back private staging', () async {
+    final channel = _IncomingFixture([], stallOnReceive: true);
+    final staging = _StagingFixture();
+    final offer = {
+      'type': 'FILE_OFFER',
+      'name': 'response-timeout.bin',
+      'bytes': 1,
+      'sha256': '0' * 64,
+    };
+    await expectLater(
+      receiveLabFile(channel, offer,
+        approve: (_) async => true,
+        createStaging: (_) async => staging,
+        responseTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(channel.aborted, isTrue);
+    expect(staging.aborted, isTrue);
+    expect(channel.sent.where((m) => m['type'] == 'FILE_OK'), isEmpty);
+  });
 }
