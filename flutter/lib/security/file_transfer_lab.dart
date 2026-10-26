@@ -17,6 +17,12 @@ abstract class FileTransferChannel {
   Future<Map<String, dynamic>> receive();
 }
 
+/// Optional hard-abort capability for channels whose underlying transport can
+/// be closed synchronously. A timeout alone does not cancel channel.send().
+abstract class AbortableFileTransferChannel implements FileTransferChannel {
+  void abort();
+}
+
 class FileSendResult {
   final int bytes;
   final String sha256;
@@ -78,8 +84,16 @@ Future<FileSendResult> sendLabFile(
   if (sendTimeout <= Duration.zero) {
     throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
   }
-  Future<void> sendFrame(Map<String, dynamic> message) =>
-      channel.send(message).timeout(sendTimeout);
+  var sendTimedOut = false;
+  Future<void> sendFrame(Map<String, dynamic> message) async {
+    try {
+      await channel.send(message).timeout(sendTimeout);
+    } on TimeoutException {
+      sendTimedOut = true;
+      if (channel is AbortableFileTransferChannel) channel.abort();
+      rethrow;
+    }
+  }
   void requireActiveSession() {
     if (isSessionActive?.call() == false) {
       throw StateError('File transfer session revoked');
@@ -149,8 +163,10 @@ Future<FileSendResult> sendLabFile(
   } catch (_) {
     // A sender that stops after FILE_READY must release the receiver's
     // private staging promptly, rather than waiting for the idle timeout.
+    // A send timeout aborts an abortable transport: sending FILE_CANCEL on the
+    // same stalled channel is not reliable and can race the original write.
     // Never cancel after FILE_END was attempted: the peer may have received it.
-    if (!finalFrameAttempted) {
+    if (!finalFrameAttempted && !sendTimedOut) {
       try { await sendFrame({'type': 'FILE_CANCEL'}); } catch (_) {}
     }
     rethrow;
@@ -198,8 +214,16 @@ Future<FileSendResult?> receiveLabFile(
   if (sendTimeout <= Duration.zero) {
     throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
   }
-  Future<void> sendFrame(Map<String, dynamic> message) =>
-      channel.send(message).timeout(sendTimeout);
+  var sendTimedOut = false;
+  Future<void> sendFrame(Map<String, dynamic> message) async {
+    try {
+      await channel.send(message).timeout(sendTimeout);
+    } on TimeoutException {
+      sendTimedOut = true;
+      if (channel is AbortableFileTransferChannel) channel.abort();
+      rethrow;
+    }
+  }
   void requireActiveSession() {
     if (isSessionActive?.call() == false) {
       throw StateError('File transfer session revoked');
