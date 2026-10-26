@@ -190,15 +190,16 @@ void main() {
     expect(updates.last, (8000,8000,true));
   });
 
-  test('sender bounds a stalled frame send and attempts best-effort cancellation', () async {
-    final channel = _NodeReceiverFixture(stallOnSendType: 'FILE_OFFER');
+  test('sender bounds a stalled chunk send and attempts best-effort cancellation', () async {
+    final channel = _NodeReceiverFixture(stallOnSendType: 'FILE_CHUNK');
     final file = XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'stall.bin');
     await expectLater(
       sendLabFile(channel, file, selectedName: 'stall.bin',
         sendTimeout: const Duration(milliseconds: 5)),
       throwsA(isA<TimeoutException>()),
     );
-    expect(channel.sent.map((message) => message['type']), ['FILE_CANCEL']);
+    expect(channel.sent.map((message) => message['type']),
+      ['FILE_OFFER', 'FILE_CANCEL']);
   });
 
   test('canonical chunk boundary keeps a one-byte final chunk', () async {
