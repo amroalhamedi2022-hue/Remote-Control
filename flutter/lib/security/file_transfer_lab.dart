@@ -214,12 +214,10 @@ Future<FileSendResult?> receiveLabFile(
   if (sendTimeout <= Duration.zero) {
     throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
   }
-  var sendTimedOut = false;
   Future<void> sendFrame(Map<String, dynamic> message) async {
     try {
       await channel.send(message).timeout(sendTimeout);
     } on TimeoutException {
-      sendTimedOut = true;
       if (channel is AbortableFileTransferChannel) channel.abort();
       rethrow;
     }
