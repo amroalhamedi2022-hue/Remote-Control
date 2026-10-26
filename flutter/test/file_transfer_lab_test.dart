@@ -223,6 +223,12 @@ void main() {
     ], shouldSucceed: false);
   });
 
+  test('non-canonical short chunk is rejected before acknowledgement', () async {
+    await _verifyReceive([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1,2])},
+    ], shouldSucceed: false);
+  });
+
   test('incoming size overflow aborts before writing', () async {
     await _verifyReceive([
       {'type': 'FILE_CHUNK', 'seq': 0, 'data': base64.encode([1,2,3,4,5,6])},
