@@ -190,8 +190,8 @@ void main() {
     for (final name in [
       '../secret', 'CON.txt', 'nul', 'CON .txt', 'NUL .bin', 'COM1 .log',
       'AUX .cfg', 'CONIN\$.txt', 'CONOUT\$.txt', 'bad?.pdf', 'name.', 'name ',
-      '.liquidremote-123', 'a\\\\b', 'a\\u202eexe', 'COM¹.txt', 'LPT².log',
-      'tag\\u{E0001}.txt',
+      '.liquidremote-123', 'a\\\\b', 'a\u202eexe', 'COM¹.txt', 'LPT².log',
+      'tag\u{E0001}.txt',
     ]) {
       expect(() => validateLabFileName(name), throwsFormatException,
           reason:name);
