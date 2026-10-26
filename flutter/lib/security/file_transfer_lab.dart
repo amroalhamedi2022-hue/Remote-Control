@@ -139,10 +139,19 @@ Future<FileSendResult> sendLabFile(
     throw StateError('Selected file changed while hashing');
   }
 
-  await sendFrame({
-    'type': 'FILE_OFFER', 'name': name, 'bytes': size, 'sha256': digest,
-  });
-  final approval = await receiveFrame();
+  late final Map<String, dynamic> approval;
+  try {
+    await sendFrame({
+      'type': 'FILE_OFFER', 'name': name, 'bytes': size, 'sha256': digest,
+    });
+    approval = await receiveFrame();
+  } catch (_) {
+    // The initial offer/approval exchange is part of the one-shot intent too.
+    // Non-timeout write/read errors must not leave a half-open channel waiting
+    // for a peer that can no longer complete the handshake.
+    abortChannel();
+    rethrow;
+  }
   if (approval['type'] == 'FILE_DENIED') {
     abortChannel();
     throw StateError('Receiver denied file transfer');
