@@ -6,9 +6,14 @@ fun main() {
     check(policy.validFileName("تقرير طبي 2026.txt"))
     check(policy.validFileName("family-photo 📷.png"))
     check(policy.validFileName("a".repeat(180)))
+    check(policy.validFileName("CON-notes.txt"))
+    check(policy.validFileName("COM10.txt"))
     val forbidden = listOf(
         "", ".", "..", "report.", "report ", "../escape", "folder\\\\file",
-        "CON", "con.txt", "LPT1.doc", "COM¹.txt", "NUL", ".liquidremote-hidden",
+        "CON", "con.txt", "LPT1.doc", "COM¹.txt", "NUL",
+        "CON .txt", "NUL .bin", "COM1 .log", "AUX .cfg",
+        "CONIN\$.txt", "CONOUT\$.txt", "CON...txt",
+        ".liquidremote-hidden",
         ".NETKIT-hidden", "safe\u202Egpj.exe", "safe\u200Bname.txt",
         "bad\u007F.txt", "bad\u0085.txt", "bad\uFFFD.txt",
         "tag\uDB40\uDC20.txt", "a".repeat(181), "a:b.txt"
