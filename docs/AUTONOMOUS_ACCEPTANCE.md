@@ -148,3 +148,14 @@ AUTOMATION_COMPLETE: BLOCKED
 - New negative regressions: Node progress failure and invalid chunk ACK both cancel promptly; a bad final ACK after FILE_END does not send misleading cancel; Dart revocation during a delayed commit never sends FILE_OK.
 - Gate on source change: code and regressions PRESENT. Exact-SHA Node/Flutter CI PENDING, Android/Windows builds NOT RUN for this protocol-only change, physical Windows↔Pad 5/phone LAN file transfer NOT TESTED, production cryptography audit NOT TESTED, final delivery FAIL.
 - Review: reuses existing Node standard-library fs/crypto and Flutter crypto/file_selector dependencies already listed in LICENSE_LEDGER; no external implementation copied. Follow-up: verify CI, test real device Stop/revoke during SAF publish, observe cleanup and whether the provider publishes despite revoke.
+
+## 2026-10-26 — M42: Bounded file-transfer channel sends (targeted device build)
+
+- **Scope:** PR #1, branch `feature/build-reliability-v0_9`; no main or NetKit changes.
+- **Functional change:** `sendLabFile` and `receiveLabFile` now apply a configurable positive `sendTimeout` (default 60 seconds) to each `FileTransferChannel.send`. Timeout bounds the caller's wait; it does **not** cancel the underlying Future or guarantee that a frame was not delivered. In particular, after `FILE_END` send is attempted, the sender no longer emits `FILE_CANCEL` on timeout because the receiver may already have received the final frame and published the file.
+- **Regressions:** stalled `FILE_CHUNK` send times out and attempts best-effort cancellation; stalled `FILE_ACK` send times out and aborts private staging; stalled `FILE_END` send times out without a potentially contradictory `FILE_CANCEL`.
+- **Source CI:** exact source/test SHA `414e9af40092ec304cc3202cf8f8c08e147296d7`, run [40319394869](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40319394869): **PASS** — Flutter analyzer/widget/unit tests (112 passed), Node LAN/protocol tests, and Windows capture-lifecycle tests.
+- **Targeted package build:** requested via the `[device-test-build]` marker on this ledger update because the timeout behavior needs a real Android↔Windows transfer test. Android Debug APK and full Windows Debug bundle results are **PENDING**; this is not a release build.
+- **Physical Android↔Windows transfer, interruption/revoke, and final-file SHA-256 equality:** **NOT TESTED**.
+- **Boundary:** timeout alone is not transport cancellation. A caller still needs to revoke/close the active session/socket on a hard abort. Lab pairing cryptography remains experimental; no production security approval.
+
