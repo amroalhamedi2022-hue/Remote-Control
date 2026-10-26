@@ -12,12 +12,13 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
   void abort() { aborted = true; }
   final bool deny;
   final bool wrongAck;
+  final String? offerResponseType;
   final void Function()? onAck;
   final String? stallOnSendType;
   final String? stallOnReceiveType;
   final List<Map<String, dynamic>> sent = [];
   _NodeReceiverFixture({this.deny = false, this.wrongAck = false,
-    this.onAck, this.stallOnSendType, this.stallOnReceiveType});
+    this.offerResponseType, this.onAck, this.stallOnSendType, this.stallOnReceiveType});
 
   @override
   Future<void> send(Map<String, dynamic> message) async {
@@ -36,7 +37,7 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
     }
     switch (last['type']) {
       case 'FILE_OFFER':
-        return {'type': deny ? 'FILE_DENIED' : 'FILE_READY'};
+        return {'type': offerResponseType ?? (deny ? 'FILE_DENIED' : 'FILE_READY')};
       case 'FILE_CHUNK':
         onAck?.call();
         return {'type':'FILE_ACK', 'seq': wrongAck ? -1 : last['seq']};
@@ -205,6 +206,19 @@ void main() {
     expect(chunks.map((m) => m['seq']), [0, 1, 2]);
     expect(channel.sent.last['type'], 'FILE_END');
     expect(updates.last, (8000,8000,true));
+  });
+
+  test('sender aborts one-shot channel after denied or invalid approval', () async {
+    for (final response in ['FILE_DENIED', 'UNEXPECTED_RESPONSE']) {
+      final channel = _NodeReceiverFixture(offerResponseType: response);
+      final file = XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'denied.bin');
+      await expectLater(
+        sendLabFile(channel, file, selectedName: 'denied.bin'),
+        throwsA(isA<StateError>()),
+      );
+      expect(channel.aborted, isTrue, reason: response);
+      expect(channel.sent.map((message) => message['type']), ['FILE_OFFER']);
+    }
   });
 
   test('sender aborts a stalled chunk transport instead of racing FILE_CANCEL', () async {
