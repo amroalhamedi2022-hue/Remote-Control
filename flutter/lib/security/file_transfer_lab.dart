@@ -236,6 +236,9 @@ Future<FileSendResult?> receiveLabFile(
   if (consentTimeout <= Duration.zero) {
     throw ArgumentError.value(consentTimeout, 'consentTimeout', 'must be positive');
   }
+  if (stagingTimeout <= Duration.zero) {
+    throw ArgumentError.value(stagingTimeout, 'stagingTimeout', 'must be positive');
+  }
   Future<void> sendFrame(Map<String, dynamic> message) async {
     try {
       await channel.send(message).timeout(sendTimeout);
@@ -279,14 +282,11 @@ Future<FileSendResult?> receiveLabFile(
     accepted = await approve(request).timeout(consentTimeout);
     requireActiveSession();
   } catch (failure) {
-    // A cancelled picker or revoked session must not strand the sender
-    // waiting for FILE_READY until the network timeout.
+    // A cancelled picker, failed prompt, or revoked session must not strand
+    // the sender waiting for FILE_READY. Deny first when possible, then close
+    // this one-shot file-intent channel so a late UI completion cannot revive it.
     try { await sendFrame({'type': 'FILE_DENIED'}); } catch (_) {}
-    // A timed-out consent future keeps running in Dart; close an abortable
-    // channel after the denial so late UI completion cannot revive this transfer.
-    if (failure is TimeoutException && channel is AbortableFileTransferChannel) {
-      channel.abort();
-    }
+    if (channel is AbortableFileTransferChannel) channel.abort();
     rethrow;
   }
   if (!accepted) {
