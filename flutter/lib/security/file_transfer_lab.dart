@@ -262,21 +262,187 @@ Future<FileSendResult?> receiveLabFile(
       throw StateError('File transfer session revoked');
     }
   }
-  requireActiveSession();
-  if (offer['type'] != 'FILE_OFFER' ||
-      offer['name'] is! String ||
-      offer['bytes'] is! int ||
-      offer['sha256'] is! String) {
-    throw const FormatException('Invalid incoming file offer');
+  void abortChannel() {
+    final current = channel;
+    if (current is AbortableFileTransferChannel) {
+      try { current.abort(); } catch (_) { /* best-effort transport cleanup */ }
+    }
   }
-  final name = validateLabFileName(offer['name'] as String);
-  final size = offer['bytes'] as int;
-  final expected = offer['sha256'] as String;
-  if (size < 0 || size > maxLabFileBytes ||
-      !RegExp(r'^[0-9a-f]{64}$').hasMatch(expected)) {
-    throw const FormatException('Invalid incoming file size or digest');
+  Future<void> denyAndAbort() async {
+    try {
+      await sendFrame({'type': 'FILE_DENIED'});
+    } catch (_) {
+      // Malformed input must still close the one-shot channel if notification fails.
+    } finally {
+      abortChannel();
+    }
   }
-  final request = LabIncomingOffer(name, size, expected);
+
+  try {
+    requireActiveSession();
+  } catch (_) {
+    abortChannel();
+    rethrow;
+  }
+
+  late final LabIncomingOffer request;
+  try {
+    if (offer['type'] != 'FILE_OFFER' ||
+        offer['name'] is! String ||
+        offer['bytes'] is! int ||
+        offer['sha256'] is! String) {
+      throw const FormatException('Invalid incoming file offer');
+    }
+    final name = validateLabFileName(offer['name'] as String);
+    final size = offer['bytes'] as int;
+    final expected = offer['sha256'] as String;
+    if (size < 0 || size > maxLabFileBytes ||
+        !RegExp(r'^[0-9a-f]{64}
+  bool accepted;
+  try {
+    accepted = await approve(request).timeout(consentTimeout);
+    requireActiveSession();
+  } catch (_) {
+    // A cancelled picker, failed prompt, or revoked session must not strand
+    // the sender waiting for FILE_READY. Deny first when possible, then close
+    // this one-shot file-intent channel so a late UI completion cannot revive it.
+    try { await sendFrame({'type': 'FILE_DENIED'}); } catch (_) {}
+    if (channel is AbortableFileTransferChannel) channel.abort();
+    rethrow;
+  }
+  if (!accepted) {
+    // Explicit denial is terminal for this one-shot file-intent channel too.
+    // Always revoke it, even if notifying the peer fails for a non-timeout reason.
+    try {
+      await sendFrame({'type': 'FILE_DENIED'});
+    } finally {
+      if (channel is AbortableFileTransferChannel) channel.abort();
+    }
+    return null;
+  }
+
+  // A failed SAF provider/open must be denied BEFORE FILE_READY. No staging
+  // exists yet, so there is nothing to publish or abort.
+  late final LabReceiveStaging staging;
+  // Future.timeout does not cancel the underlying async native/desktop
+  // allocation. A late completion MUST abort its staging to avoid orphaned
+  // private files or SAF sessions after FILE_DENIED was sent.
+  final pendingStaging =
+      Future<LabReceiveStaging>.sync(() => createStaging(request));
+  try {
+    staging = await pendingStaging.timeout(stagingTimeout);
+  } catch (_) {
+    unawaited(pendingStaging.then((lateStage) async {
+      try { await lateStage.abort(); } catch (_) { /* best effort cleanup */ }
+    }, onError: (Object _, StackTrace __) {}));
+    try { await sendFrame({'type': 'FILE_DENIED'}); } catch (_) {}
+    rethrow;
+  }
+  var committed = false;
+  final sink = _LabDigestSink();
+  final hasher = crypto.sha256.startChunkedConversion(sink);
+  var count = 0;
+  var sequence = 0;
+  try {
+    // Native staging may finish after Stop; abort before FILE_READY.
+    requireActiveSession();
+    await sendFrame({'type': 'FILE_READY'});
+    while (true) {
+      final frame = await receiveFrame();
+      requireActiveSession();
+      if (frame['type'] == 'FILE_CANCEL') {
+        throw StateError('Sender cancelled incoming file');
+      }
+      if (frame['type'] == 'FILE_END') {
+        hasher.close();
+        final actual = sink.value?.toString();
+        if (count != size || frame['bytes'] != count ||
+            frame['sha256'] != expected || actual != expected) {
+          throw StateError('Incoming file size or SHA-256 mismatch');
+        }
+        // Native commit itself cannot be interrupted on all SAF providers.
+        requireActiveSession();
+        await staging.commit(name: name, bytes: count, sha256: expected);
+        // SAF/desktop commit can be non-cancellable. If Stop/revoke wins while
+        // commit is awaiting, remove the just-published output before reporting
+        // failure. If rollback fails, surface that explicitly: the file may remain.
+        try {
+          requireActiveSession();
+        } catch (failure, stackTrace) {
+          try {
+            await staging.rollbackCommitted();
+          } catch (rollbackFailure) {
+            Error.throwWithStackTrace(
+              StateError('File session was revoked after publication and rollback failed: $rollbackFailure'),
+              stackTrace,
+            );
+          }
+          Error.throwWithStackTrace(failure, stackTrace);
+        }
+        // Once the active-session check passes, publication is accepted. A lost
+        // FILE_OK must not delete a file the sender may already believe is saved.
+        committed = true;
+        try {
+          await sendFrame({
+            'type': 'FILE_OK', 'bytes': count, 'sha256': expected,
+          });
+        } finally {
+          // This only drops a rollback handle; it does not touch the saved file.
+          try { await staging.finalizeCommitted(); } catch (_) { /* best-effort handle cleanup */ }
+        }
+        onProgress?.call(count, size, true);
+        return FileSendResult(count, expected);
+      }
+      final encoded = frame['data'];
+      if (frame['type'] != 'FILE_CHUNK' ||
+          frame['seq'] is! int || frame['seq'] != sequence ||
+          encoded is! String || encoded.isEmpty ||
+          encoded.length > ((labFileChunkBytes + 2) ~/ 3) * 4 ||
+          !_canonicalLabBase64.hasMatch(encoded)) {
+        throw const FormatException('Invalid incoming file chunk');
+      }
+      final bytes = base64.decode(encoded);
+      final remaining = size - count;
+      final canonicalLength =
+          remaining < labFileChunkBytes ? remaining : labFileChunkBytes;
+      if (bytes.isEmpty || bytes.length != canonicalLength) {
+        throw StateError('Incoming file chunk has non-canonical size');
+      }
+      requireActiveSession();
+      await staging.write(bytes);
+      requireActiveSession();
+      hasher.add(bytes);
+      count += bytes.length;
+      await sendFrame({'type': 'FILE_ACK', 'seq': sequence});
+      sequence++;
+      onProgress?.call(count, size, false);
+    }
+  } finally {
+    if (!committed) await staging.abort();
+  }
+}
+
+final RegExp _canonicalLabBase64 = RegExp(
+  r'^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$',
+);
+
+class _LabDigestSink implements Sink<crypto.Digest> {
+  crypto.Digest? value;
+  @override
+  void add(crypto.Digest data) { value = data; }
+  @override
+  void close() {}
+}
+).hasMatch(expected)) {
+      throw const FormatException('Invalid incoming file size or digest');
+    }
+    request = LabIncomingOffer(name, size, expected);
+  } catch (_) {
+    // A malformed offer is terminal for this one-shot intent channel; don't
+    // leave the transport alive while the caller tears down the failed request.
+    await denyAndAbort();
+    rethrow;
+  }
   bool accepted;
   try {
     accepted = await approve(request).timeout(consentTimeout);

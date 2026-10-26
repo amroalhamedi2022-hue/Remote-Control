@@ -295,6 +295,38 @@ void main() {
     expect(channel.sent, isEmpty);
   });
 
+  test('malformed incoming offers are denied and abort the one-shot channel', () async {
+    const digest = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+    final valid = <String, dynamic>{
+      'type': 'FILE_OFFER',
+      'name': 'safe.txt',
+      'bytes': 0,
+      'sha256': digest,
+    };
+    final invalidOffers = <Map<String, dynamic>>[
+      {...valid, 'type': 'NOT_A_FILE_OFFER'},
+      {...valid, 'name': '../escape.txt'},
+      {...valid, 'bytes': maxLabFileBytes + 1},
+      {...valid, 'sha256': 'not-a-sha256'},
+    ];
+    for (final offer in invalidOffers) {
+      final channel = _IncomingFixture([]);
+      var stagingCalls = 0;
+      await expectLater(
+        receiveLabFile(channel, offer,
+          approve: (_) async => true,
+          createStaging: (_) async {
+            stagingCalls++;
+            return _StagingFixture();
+          }),
+        throwsA(isA<FormatException>()),
+      );
+      expect(channel.sent.map((message) => message['type']), ['FILE_DENIED']);
+      expect(channel.aborted, isTrue);
+      expect(stagingCalls, 0);
+    }
+  });
+
   test('staging timeout must be positive', () async {
     final channel = _IncomingFixture([]);
     final offer = {
