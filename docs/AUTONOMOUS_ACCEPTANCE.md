@@ -205,3 +205,18 @@ No merge, no main changes, no new dependency or paid API.
   - EXE SHA-256: `29d635d5d4defbc772ddd955ed921ff7756a07f10b526fb00fb240353dcd55c5`
 - **Local verification:** both ZIPs passed integrity checks; extracted APK and EXE hashes matched their embedded evidence JSON. The Windows EXE is not standalone; use the complete bundle ZIP.
 - **Device acceptance:** physical Android↔Windows transfer, timeout/revoke behavior and final-file SHA-256 equality remain **NOT TESTED**. These are Debug acceptance packages, not releases.
+
+### M44 — Abortable peer-response timeouts (2026-10-26)
+
+- **Source + regression-test commit:** `7af959ba8bd676bdda2cea36046af0dc64817914`
+- **CI:** [run 40330579562](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40330579562) — Flutter source/widget tests, Node protocol tests and Windows capture-lifecycle tests **PASS**.
+- Added a configurable positive `responseTimeout` (60-second default) to the Android/Windows file-transfer lab.
+- A timed-out peer `receive()` now calls `abort()` when the transport implements `AbortableFileTransferChannel`; receiver failures roll back private staging and do not send `FILE_OK`.
+- Added regressions for a stalled sender acknowledgement and a stalled receiver peer frame.
+- **Limitation:** `Future.timeout` alone cannot cancel the pending future; production channel adapters must implement `abort()` by actually closing/revoking the underlying transport. This remains a protocol lab, not production-approved cryptography.
+- **Targeted Android APK + Windows Debug bundle:** requested in the following commit solely for device acceptance of the new timeout/revoke path; not a release.
+- **Physical Android↔Windows transfer and SHA-256 comparison:** **NOT TESTED** until user/device evidence is available.
+- **Screen/audio mirroring, actual input control and independent production security review:** **NOT TESTED**.
+
+No merge, no `main` changes, no new dependency, and no paid API.
+
