@@ -92,7 +92,9 @@ jobs:
   # Explicit opt-in milestone recheck only: avoid rebuilding APK on each source push.
   # M8 passed on 036d16c2; this is NOT device acceptance.
   android-saf-milestone-build:
-    if: github.event_name == 'workflow_dispatch' && inputs.saf_milestone_approved == true
+    # A single explicit commit marker enables the M34 native-SAF rollback compile check.
+    # Ordinary pushes remain source-only; this is not a recurring APK build.
+    if: (github.event_name == 'workflow_dispatch' && inputs.saf_milestone_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[m34-platform-compile]'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: flutter-source-checks
@@ -179,7 +181,8 @@ jobs:
           retention-days: 14
 
   windows-debug-bundle:
-    if: github.event_name == 'workflow_dispatch' && inputs.release_approved == true
+    # Only the final approved build or the explicit M34 platform compile marker may package Windows.
+    if: (github.event_name == 'workflow_dispatch' && inputs.release_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[m34-platform-compile]'))
     runs-on: windows-latest
     timeout-minutes: 60
     needs: node-protocol-tests
