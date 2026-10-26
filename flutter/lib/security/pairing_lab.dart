@@ -708,7 +708,7 @@ class _JsonLines {
   Future<void> close() async { await _subscription.cancel(); socket.destroy(); _ended(); }
 }
 
-class _SealedChannel implements FileTransferChannel {
+class _SealedChannel implements AbortableFileTransferChannel {
   final _JsonLines io;
   final List<int> shared, transcript;
   final bool isClient;
@@ -735,6 +735,11 @@ class _SealedChannel implements FileTransferChannel {
     _terminal = true;
     io.socket.destroy();
   }
+
+  /// Synchronously tears down the socket when a bounded send wait expires.
+  /// The underlying Future may finish later, but it can no longer use this socket.
+  @override
+  void abort() => _failClosed();
 
   @override
   Future<void> send(Map<String, dynamic> message) async {
