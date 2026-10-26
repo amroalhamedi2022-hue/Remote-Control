@@ -134,6 +134,7 @@ Future<void> _verifyReceive(
     expect(await receive(), isNull);
     expect(created, 0);
     expect(channel.sent.single['type'], 'FILE_DENIED');
+    expect(channel.aborted, isTrue); // denial must not leave the one-shot channel alive
   } else if (shouldSucceed) {
     final result = await receive();
     expect(result?.bytes, 5);
