@@ -247,6 +247,53 @@ void main() {
     expect(channel.sent.last['type'], 'FILE_END');
   });
 
+  test('expired incoming consent denies and aborts without allocating staging', () async {
+    final channel = _IncomingFixture([]);
+    final approval = Completer<bool>();
+    var stagingCalls = 0;
+    final offer = {
+      'type': 'FILE_OFFER',
+      'name': 'consent-timeout.bin',
+      'bytes': 0,
+      'sha256': crypto.sha256.convert(<int>[]).toString(),
+    };
+    await expectLater(
+      receiveLabFile(channel, offer,
+        approve: (_) => approval.future,
+        createStaging: (_) async {
+          stagingCalls++;
+          return _StagingFixture();
+        },
+        consentTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(channel.sent.map((message) => message['type']), ['FILE_DENIED']);
+    expect(channel.aborted, isTrue);
+    expect(stagingCalls, 0);
+    // Complete the abandoned UI future late; it must not allocate a destination.
+    approval.complete(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(stagingCalls, 0);
+  });
+
+  test('incoming consent timeout must be positive', () async {
+    final channel = _IncomingFixture([]);
+    final offer = {
+      'type': 'FILE_OFFER',
+      'name': 'consent-timeout.bin',
+      'bytes': 0,
+      'sha256': crypto.sha256.convert(<int>[]).toString(),
+    };
+    await expectLater(
+      receiveLabFile(channel, offer,
+        approve: (_) async => false,
+        createStaging: (_) async => _StagingFixture(),
+        consentTimeout: Duration.zero),
+      throwsArgumentError,
+    );
+    expect(channel.sent, isEmpty);
+  });
+
   test('receiver refusal never emits file bytes', () async {
     final channel = _NodeReceiverFixture(deny:true);
     final file = XFile.fromData(Uint8List.fromList([1,2,3]),name:'x.bin');
