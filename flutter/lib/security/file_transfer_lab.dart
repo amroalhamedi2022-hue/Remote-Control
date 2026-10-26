@@ -73,7 +73,13 @@ Future<FileSendResult> sendLabFile(
   // lets in-memory protocol tests provide the original picker filename.
   String? selectedName,
   bool Function()? isSessionActive,
+  Duration sendTimeout = fileResponseTimeout,
 }) async {
+  if (sendTimeout <= Duration.zero) {
+    throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
+  }
+  Future<void> sendFrame(Map<String, dynamic> message) =>
+      channel.send(message).timeout(sendTimeout);
   void requireActiveSession() {
     if (isSessionActive?.call() == false) {
       throw StateError('File transfer session revoked');
@@ -91,7 +97,7 @@ Future<FileSendResult> sendLabFile(
     throw StateError('Selected file changed while hashing');
   }
 
-  await channel.send({
+  await sendFrame({
     'type': 'FILE_OFFER', 'name': name, 'bytes': size, 'sha256': digest,
   });
   final approval = await channel.receive().timeout(fileResponseTimeout);
@@ -112,7 +118,7 @@ Future<FileSendResult> sendLabFile(
     if (sent + chunk.length > size) {
       throw StateError('Selected file grew during transfer');
     }
-    await channel.send({
+    await sendFrame({
       'type': 'FILE_CHUNK', 'seq': seq, 'data': base64.encode(chunk),
     });
     final ack = await channel.receive().timeout(fileResponseTimeout);
@@ -129,7 +135,7 @@ Future<FileSendResult> sendLabFile(
     throw StateError('Selected file changed during transfer');
   }
   requireActiveSession();
-  await channel.send({'type': 'FILE_END', 'bytes': sent, 'sha256': digest});
+  await sendFrame({'type': 'FILE_END', 'bytes': sent, 'sha256': digest});
   finalSent = true;
   final done = await channel.receive().timeout(fileResponseTimeout);
   if (done['type'] != 'FILE_OK' ||
@@ -143,7 +149,7 @@ Future<FileSendResult> sendLabFile(
     // private staging promptly, rather than waiting for the idle timeout.
     // Never send cancellation after FILE_END: the peer may have published.
     if (!finalSent) {
-      try { await channel.send({'type': 'FILE_CANCEL'}); } catch (_) {}
+      try { await sendFrame({'type': 'FILE_CANCEL'}); } catch (_) {}
     }
     rethrow;
   }
@@ -185,7 +191,13 @@ Future<FileSendResult?> receiveLabFile(
   void Function(int bytes, int total, bool verified)? onProgress,
   Duration stagingTimeout = fileResponseTimeout,
   bool Function()? isSessionActive,
+  Duration sendTimeout = fileResponseTimeout,
 }) async {
+  if (sendTimeout <= Duration.zero) {
+    throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
+  }
+  Future<void> sendFrame(Map<String, dynamic> message) =>
+      channel.send(message).timeout(sendTimeout);
   void requireActiveSession() {
     if (isSessionActive?.call() == false) {
       throw StateError('File transfer session revoked');
@@ -213,11 +225,11 @@ Future<FileSendResult?> receiveLabFile(
   } catch (_) {
     // A cancelled picker or revoked session must not strand the sender
     // waiting for FILE_READY until the network timeout.
-    try { await channel.send({'type': 'FILE_DENIED'}); } catch (_) {}
+    try { await sendFrame({'type': 'FILE_DENIED'}); } catch (_) {}
     rethrow;
   }
   if (!accepted) {
-    await channel.send({'type': 'FILE_DENIED'});
+    await sendFrame({'type': 'FILE_DENIED'});
     return null;
   }
 
@@ -235,7 +247,7 @@ Future<FileSendResult?> receiveLabFile(
     unawaited(pendingStaging.then((lateStage) async {
       try { await lateStage.abort(); } catch (_) { /* best effort cleanup */ }
     }, onError: (Object _, StackTrace __) {}));
-    try { await channel.send({'type': 'FILE_DENIED'}); } catch (_) {}
+    try { await sendFrame({'type': 'FILE_DENIED'}); } catch (_) {}
     rethrow;
   }
   var committed = false;
@@ -246,7 +258,7 @@ Future<FileSendResult?> receiveLabFile(
   try {
     // Native staging may finish after Stop; abort before FILE_READY.
     requireActiveSession();
-    await channel.send({'type': 'FILE_READY'});
+    await sendFrame({'type': 'FILE_READY'});
     while (true) {
       final frame = await channel.receive().timeout(fileResponseTimeout);
       requireActiveSession();
@@ -283,7 +295,7 @@ Future<FileSendResult?> receiveLabFile(
         // FILE_OK must not delete a file the sender may already believe is saved.
         committed = true;
         try {
-          await channel.send({
+          await sendFrame({
             'type': 'FILE_OK', 'bytes': count, 'sha256': expected,
           });
         } finally {
@@ -313,7 +325,7 @@ Future<FileSendResult?> receiveLabFile(
       requireActiveSession();
       hasher.add(bytes);
       count += bytes.length;
-      await channel.send({'type': 'FILE_ACK', 'seq': sequence});
+      await sendFrame({'type': 'FILE_ACK', 'seq': sequence});
       sequence++;
       onProgress?.call(count, size, false);
     }
