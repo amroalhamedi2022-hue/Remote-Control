@@ -202,6 +202,18 @@ void main() {
       ['FILE_OFFER', 'FILE_CANCEL']);
   });
 
+  test('sender never cancels after a timed-out FILE_END attempt', () async {
+    final channel = _NodeReceiverFixture(stallOnSendType: 'FILE_END');
+    final file = XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'final-timeout.bin');
+    await expectLater(
+      sendLabFile(channel, file, selectedName: 'final-timeout.bin',
+        sendTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(channel.sent.map((message) => message['type']),
+      ['FILE_OFFER', 'FILE_CHUNK']);
+  });
+
   test('canonical chunk boundary keeps a one-byte final chunk', () async {
     final bytes = Uint8List.fromList(
         List<int>.generate(labFileChunkBytes + 1, (i) => i % 251));
