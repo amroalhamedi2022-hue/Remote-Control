@@ -512,3 +512,17 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Exact-head CI:** [run 40578692456](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40578692456) — **SUCCESS** on `bcc47ceb3269e2b7da56fbf5b96d8123670b8108`. Node protocol suite **98/98 PASS**; source syntax checks and artifact-verifier tests PASS; Flutter analyzer/widget suite PASS; Windows capture lifecycle PASS. Separate streaming/video suite: 31 tests, 24 PASS, 0 FAIL, 7 SKIPPED because optional FFmpeg was not installed. Native SAF policy tests and Android/Windows package jobs were skipped by design.
 - **Not proven:** physical Android↔Windows transfer, real Windows filesystem semantics on the user's MSI, secure pairing approval, screen/audio mirroring or input. No APK/EXE was built; this source-only filename/collision milestone does not justify a package build.
 - **Safety:** no new dependency, no paid API, no secrets, no root, no main write or merge. PR #1 remains Draft and its base-conflict gate remains open.
+
+
+## 2026-10-27 — M80: validate receiver destination before consent
+
+- **Scope:** Remote Control PR #1 only, branch feature/build-reliability-v0_9.
+- **Finding:** the receiver prompted the user before resolving and checking the selected destination. A missing path or regular file could trigger a consent prompt for a transfer that could never be staged.
+- **Fix:** resolve the destination with realpath and verify it is a directory before invoking the asynchronous approval callback; reject an empty path. No staging file or FILE_READY is created before successful preflight and consent.
+- **Source commit:** [beece26c](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/beece26c8a725709405429335dae40b3ac9fbb3b).
+- **Regression commits:** [46bdcf4c](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/46bdcf4c6b1c0f3cd18fdfc780088c578b654133) adds missing-path and non-directory cases, asserting the consent callback is never called and the one-shot receiver channel is revoked. Its first CI attempt **FAILED** because an existing cancellation test assumed consent was entered after one microtask; the new filesystem preflight is asynchronous.
+- **Test correction / exact tested head:** [9d430dc5](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/9d430dc5d1be37fac9d522014201fed278b4fac6) waits for the consent callback deterministically rather than assuming timing.
+- **Exact-head CI:** [run 40587746648](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40587746648) — **SUCCESS** on 9d430dc5d1be37fac9d522014201fed278b4fac6. Node protocol suite **99/99 PASS**; Flutter analyzer clean and **153 tests PASS**; Windows capture lifecycle **PASS**. Separate streaming/media suite: **24 PASS, 0 FAIL, 7 SKIPPED** (optional FFmpeg integration, not counted as a pass).
+- **Build/device:** Android SAF policy and Android APK / Windows bundle jobs were **SKIPPED** by design; no APK/EXE built. Physical Android↔Windows file-transfer, clipboard, screen/audio and control acceptance remains **NOT TESTED**.
+- **Safety:** no new dependency, paid API, root access, permission bypass, secret, merge or main write. Pairing remains experimental and not production-approved.
+- **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Docs write/read connector available; this GitHub ledger is not a substitute for the live Drive document.
