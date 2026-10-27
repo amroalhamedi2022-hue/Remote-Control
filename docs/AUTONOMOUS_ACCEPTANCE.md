@@ -538,3 +538,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - Remaining gates: run destination-substitution and file-transfer acceptance on actual Windows and Android SAF destinations, then continue clipboard/screen/audio/control acceptance. CI passed on the code/test SHA and follow-up comment-only SHA; no device acceptance is implied.
 
 - Live Google Docs handoff: **SYNC FAILED** — no authorized Google Docs/Drive connector is available in this run; this GitHub ledger is not a substitute for the live Drive document.
+
+
+## M82 — 2026-10-28 — loopback is test-only for the Node LAN pairing/probe harness (PR #1)
+
+- **Security change:** `isLanIpv4()` now rejects 127/8 by default; callers must explicitly opt in to loopback. `parseEndpoint()` carries the same opt-in. The Node discovery agent and pairing lab accept the opt-in only when `NODE_ENV=test` and `--allow-loopback-for-tests` are both present. The host-presence helper defaults to rejecting loopback; its in-process test fixtures explicitly enable it.
+- **Why:** Flutter's production pairing policy already rejected loopback by default, while the Node lab's shared IPv4 policy allowed 127/8 unconditionally. This closes that policy mismatch without disabling isolated loopback regression tests. It does not turn this lab harness into a production controller or replace cryptographic pairing/consent.
+- **Branch/head:** `feature/build-reliability-v0_9`, current head [4ffa5af2](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/4ffa5af2b233af507d6c4091fba8a2891e033b8e). Core policy/agent/pairing changes are in the same branch; regression commits include [eb49f21a](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/eb49f21ae4b67549d629a1544ad2ead9c28e7031) and [4ffa5af2](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/4ffa5af2b233af507d6c4091fba8a2891e033b8e).
+- **CI:** **NOT VERIFIED on current head**. The combined status API returned no contexts, and the available workflow-run connector exposes PR-triggered runs only. This workflow's documented temporary gate is push-triggered because PR #1 has base conflicts. No current run ID/result could be verified through available tools; do not infer PASS.
+- **Local test execution:** **NOT TESTED** in this environment; cloning the branch was blocked by unavailable DNS/network. The regression suite was updated but not claimed as executed locally.
+- **Build/device:** no APK/Windows bundle built. Android/Windows hardware acceptance, pairing, files, clipboard, screen/audio and control remain **NOT TESTED**.
+- **Security limitation:** the flag is a test-fixture convenience, not an authorization mechanism; production launches without the test environment/flag reject loopback. Public/LAN peer trust still requires the existing cryptographic pairing and explicit consent.
+- **Branch safety:** PR #1 branch only; no main write, merge, new dependency, paid API, secret or permission bypass.
+- **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Docs write/read connector is available in this run; this ledger is not a replacement for the live Drive document.
