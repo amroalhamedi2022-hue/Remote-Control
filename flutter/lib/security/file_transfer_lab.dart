@@ -168,7 +168,7 @@ Future<String> _hashFile(XFile file, Duration sourceReadTimeout) {
       cancelOnError: true,
     );
     // A synchronous stream may finish or fail before listen() returns.
-    if (settled) unawaited(subscription!.cancel());
+    if (settled) unawaited(subscription.cancel());
   } catch (error, stack) {
     fail(error, stack);
   }
