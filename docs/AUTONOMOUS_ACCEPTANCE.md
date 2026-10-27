@@ -409,3 +409,12 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Physical acceptance:** **NOT TESTED** — Android↔Windows pairing, files/clipboard, screen/audio preview and input remain open.
 - **Security boundary:** custom pairing remains experimental and not production-approved for privileged remote control; no root, new dependency, paid API, secret, artifact, auto-merge or `main` write.
 - **Live Google Docs Handoff:** **SYNC FAILED**; no authorized Google Docs write/read connector was available. This repository ledger does not replace the live Drive document.
+
+## 2026-10-27 — M71 verification update: clock failure handling
+
+- **Exact-head workflow:** [40516935990](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40516935990), head `28cc242bcd017f1514ff3c08d6626a55e3388d1d`.
+- **Flutter source gate:** **PASS** — analyzer reported `No issues found`; **150 tests passed**, including `clock source failure clears replay state and permanently fails closed` and `clock source failure clears indicators and permanently invalidates the ledger`.
+- **Node protocol/media gate:** **PASS** — 96 protocol/LAN tests passed; H.264/media tests reported 24 passed and 7 optional FFmpeg-dependent tests skipped (not codec acceptance).
+- **Windows capture lifecycle:** **PASS** — 3 tests passed, 0 failed.
+- **Package/device gate:** Android SAF, APK and Windows bundle jobs were skipped; **NOT TESTED / NOT BUILT**. Physical Android↔Windows acceptance remains open.
+- **Safety:** no new dependency, paid API, secret, root requirement, artifact, auto-merge or `main` write. Pairing remains experimental and is not production-approved.
