@@ -20,6 +20,7 @@ import { sendFolderOnce, receiveFolderOnce, cleanupStaleFolderTransfers } from '
 
 const options=process.argv.slice(2);
 const flag = name => options.includes(`--${name}`);
+const allowLoopbackForTests = process.env.NODE_ENV === 'test' && flag('allow-loopback-for-tests');
 const opt = name => options.find(x=>x.startsWith(`--${name}=`))?.split('=').slice(1).join('=');
 const statePath = opt('state') || path.join(os.homedir(),'.liquidremote-lab');
 const port=Number(opt('port')||43829);
@@ -320,7 +321,7 @@ if(flag('listen')) {
   const server=net.createServer();
   let busy=false;
   server.on('connection',socket=>{
-    if(!isLanIpv4(socket.remoteAddress)){socket.destroy();return;}
+    if(!isLanIpv4(socket.remoteAddress,{allowLoopback:allowLoopbackForTests})){socket.destroy();return;}
     if(busy){socket.destroy();return;}
     busy=true;
     interact(socket,'server').finally(()=>{busy=false;});
@@ -335,6 +336,7 @@ if(flag('listen')) {
         presence=await startHostPresence({
           udpPort:Number(opt('discovery-port')||43827),
           tcpPort:Number(opt('probe-port')||43828),
+          allowLoopbackForTests,
         });
         console.log(`DISCOVERY_READY UDP=${presence.udpPort} TCP=${presence.tcpPort} ID=${presence.node.id}`);
       } catch(e) {console.error('DISCOVERY_UNAVAILABLE',e.message,'— manual IP pairing still works');}
@@ -348,7 +350,7 @@ if(flag('listen')) {
   const [host,rawPort]=endpoint.split(':');
   const connectPort=rawPort?Number(rawPort):port;
   if(!host||!Number.isInteger(connectPort)||connectPort<1||connectPort>65535)throw new Error('Usage: --connect=192.168.1.10[:port] [--view-screen --max-frames=2 --output=frame.jpg]');
-  if(!isLanIpv4(host))throw new Error('LAN-only pairing requires a private or loopback IPv4 address');
+  if(!isLanIpv4(host,{allowLoopback:allowLoopbackForTests}))throw new Error('LAN-only pairing requires a private IPv4 address');
   const socket=net.createConnection({host,port:connectPort});
   await interact(socket,'client');rl.close();
 } else {
