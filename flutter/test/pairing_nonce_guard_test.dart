@@ -60,6 +60,24 @@ void main() {
     expect(guard.length, 0);
   });
 
+  test('clock source failure clears replay state and permanently fails closed', () {
+    var broken = false;
+    var now = 1000;
+    final guard = PairingNonceGuard(monotonicMicros: () {
+      if (broken) throw StateError('clock unavailable');
+      return now;
+    });
+    expect(guard.remember('peerA', 'nonce1'), isTrue);
+    broken = true;
+    expect(guard.remember('peerA', 'nonce2'), isFalse);
+    expect(guard.length, 0);
+    broken = false;
+    now = 2000;
+    expect(guard.remember('peerA', 'nonce1'), isFalse,
+        reason: 'clock recovery must not reactivate stale nonce state');
+    expect(guard.remember('peerB', 'nonce3'), isFalse);
+  });
+
   test('invalid cache bounds are rejected', () {
     expect(() => PairingNonceGuard(maxEntries: 0), throwsArgumentError);
     expect(() => PairingNonceGuard(lifetime: Duration.zero), throwsArgumentError);
