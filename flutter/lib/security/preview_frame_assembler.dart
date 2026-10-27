@@ -21,11 +21,31 @@ class PreviewFrameAssembler {
   int _expected = 0;
   int _written = 0;
   int _lastCompletedId = -1;
+  int? _lastObservedMicros;
+  bool _clockBroken = false;
 
   PreviewFrameAssembler({int Function()? nowMicros})
       : _nowMicrosOverride = nowMicros;
 
-  int get _nowMicros => _nowMicrosOverride?.call() ?? _clock.elapsedMicroseconds;
+  int _readNowMicros() {
+    if (_clockBroken) {
+      throw TimeoutException('Preview monotonic clock is no longer trustworthy');
+    }
+    late final int now;
+    try {
+      now = _nowMicrosOverride?.call() ?? _clock.elapsedMicroseconds;
+    } catch (_) {
+      _clockBroken = true;
+      throw TimeoutException('Preview monotonic clock is unavailable');
+    }
+    final previous = _lastObservedMicros;
+    if (now < 0 || (previous != null && now < previous)) {
+      _clockBroken = true;
+      throw TimeoutException('Preview monotonic clock moved backwards');
+    }
+    _lastObservedMicros = now;
+    return now;
+  }
 
   /// Returns a complete JPEG only for FRAME_END; intermediate messages return null.
   /// A protocol error resets the partial frame before propagating the error.
@@ -53,7 +73,7 @@ class PreviewFrameAssembler {
         _currentId = id;
         _expected = length;
         _written = 0;
-        _startedAtMicros = _nowMicros;
+        _startedAtMicros = _readNowMicros();
         _buffer = BytesBuilder(copy: false);
         return null;
 
@@ -100,7 +120,7 @@ class PreviewFrameAssembler {
     if (_buffer == null || _currentId == null || started == null) {
       throw const FormatException('Preview part without frame header');
     }
-    final now = _nowMicros;
+    final now = _readNowMicros();
     if (now < started || now - started > maxAssemblyTime.inMicroseconds) {
       throw TimeoutException('Preview frame assembly exceeded 15 seconds');
     }
