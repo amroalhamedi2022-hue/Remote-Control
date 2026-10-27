@@ -8,16 +8,18 @@ import {safeTransferName,sendFileOnce,receiveFileOnce,MAX_FILE_BYTES} from './fi
 
 function channels() {
   function endpoint() {
-    const q=[];let waiting=null;
+    const q=[];let waiting=null;const state={destroyed:false};
     return {
       push(v){if(waiting){const f=waiting;waiting=null;f(v);}else q.push(v);},
-      receive(){return q.length?Promise.resolve(q.shift()):new Promise(resolve=>waiting=resolve);}
+      receive(){return q.length?Promise.resolve(q.shift()):new Promise(resolve=>waiting=resolve);},
+      lines:{socket:{destroy(){state.destroyed=true;}}},
+      get destroyed(){return state.destroyed;}
     };
   }
   const a=endpoint(),b=endpoint();
   return [
-    {send:v=>b.push(v),receive:()=>a.receive()},
-    {send:v=>a.push(v),receive:()=>b.receive()}
+    {send:v=>b.push(v),receive:()=>a.receive(),lines:a.lines,get destroyed(){return a.destroyed;}},
+    {send:v=>a.push(v),receive:()=>b.receive(),lines:b.lines,get destroyed(){return b.destroyed;}}
   ];
 }
 async function sandbox(fn) {
@@ -66,6 +68,7 @@ test('denied offer writes no temporary or final files',()=>sandbox(async dir=>{
   const recv=(async()=>receiveFileOnce(b,await b.receive(),{directory:dest,approve:async()=>false}))();
   await assert.rejects(sendFileOnce(a,source),/denied/);
   assert.equal(await recv,null);
+  assert.equal(b.destroyed,true,'explicit denial must revoke the one-shot receiver channel');
   assert.deepEqual(await fs.readdir(dest),[]);
 }));
 test('corrupt payload is rejected and partial file is deleted',()=>sandbox(async dir=>{
@@ -77,14 +80,17 @@ test('corrupt payload is rejected and partial file is deleted',()=>sandbox(async
   assert.deepEqual(await a.receive(),{type:'FILE_ACK',seq:0});
   a.send({type:'FILE_END',bytes:3,sha256:'0'.repeat(64)});
   await assert.rejects(recv,/SHA-256 mismatch/);
+  assert.equal(b.destroyed,true,'failed receive must revoke its one-shot channel');
   assert.deepEqual(await fs.readdir(dest),[]);
 }));
-test('invalid offer and oversized offer fail before consent',()=>sandbox(async dir=>{
+test('invalid offer and oversized offer fail before consent and close the one-shot channel',()=>sandbox(async dir=>{
   let approvals=0;
-  const [a,b]=channels();
   for(const offer of [{type:'FILE_OFFER',name:'../bad',bytes:1,sha256:'0'.repeat(64)},
     {type:'FILE_OFFER',name:'ok',bytes:MAX_FILE_BYTES+1,sha256:'0'.repeat(64)}]) {
+    const [a,b]=channels();
     await assert.rejects(receiveFileOnce(b,offer,{directory:dir,approve:async()=>{approvals++;return true;}}));
+    assert.equal(b.destroyed,true);
+    assert.deepEqual(await a.receive(),{type:'FILE_DENIED'});
   }
   assert.equal(approvals,0);
 }));

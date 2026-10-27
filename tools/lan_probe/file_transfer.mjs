@@ -26,6 +26,16 @@ function cancellationError() {
 function checkCancelled(signal) {
   if (signal?.aborted) throw cancellationError();
 }
+
+// File-intent channels are one-shot. Revoke the transport on any terminal receive
+// failure, explicit denial, timeout, or cancellation; socket destruction is idempotent.
+function abortFileChannel(channel) {
+  try {
+    if (typeof channel?.abort === 'function') channel.abort();
+    else channel?.lines?.socket?.destroy();
+  } catch { /* preserve the primary transfer outcome */ }
+}
+
 export async function receiveWithCancel(channel, signal, idleTimeoutMs, isSessionActive) {
   checkCancelled(signal);
   if (isSessionActive !== undefined && typeof isSessionActive !== 'function')
@@ -42,7 +52,7 @@ export async function receiveWithCancel(channel, signal, idleTimeoutMs, isSessio
       signal?.removeEventListener('abort', onAbort);
       fn(value);
     };
-    const terminatePeerWait = () => channel.lines?.socket?.destroy();
+    const terminatePeerWait = () => abortFileChannel(channel);
     const onAbort = () => {
       terminatePeerWait();
       finish(reject, cancellationError());
@@ -156,8 +166,8 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
   } finally {await handle.close();}
 }
 
-export async function receiveFileOnce(channel, offer, {approve,directory,onProgress=()=>{},signal,
-    isSessionActive=()=>true,idleTimeoutMs=FILE_IDLE_TIMEOUT_MS}) {
+async function receiveFileOnceInternal(channel, offer, {approve,directory,onProgress=()=>{},signal,
+    isSessionActive=()=>true,idleTimeoutMs=FILE_IDLE_TIMEOUT_MS} = {}) {
   if (typeof onProgress !== 'function') throw new TypeError('Progress callback must be a function');
   checkIdleTimeout(idleTimeoutMs);
   if (typeof isSessionActive !== 'function') throw new TypeError('Invalid file session guard');
@@ -166,7 +176,12 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
     if (!isSessionActive()) throw cancellationError();
   };
   requireLiveSession();
-  validateOffer(offer);
+  try {
+    validateOffer(offer);
+  } catch (error) {
+    try { channel.send({type:'FILE_DENIED'}); } catch { /* disconnected or malformed peer */ }
+    throw error;
+  }
   if(typeof approve!=='function'||typeof directory!=='string')
     throw new Error('Explicit file receiver approval required');
   // User consent may be asynchronous (a desktop dialog). Apply the same
@@ -267,5 +282,18 @@ export async function receiveFileOnce(channel, offer, {approve,directory,onProgr
   } finally {
     await file.close().catch(()=>{});
     if(!saved)await fsp.unlink(tmp).catch(()=>{});
+  }
+}
+
+// Keep cleanup at the public API boundary so errors before staging (bad offer,
+// consent failure, invalid destination) revoke the same one-shot channel too.
+export async function receiveFileOnce(channel, offer, options = {}) {
+  try {
+    const result = await receiveFileOnceInternal(channel, offer, options);
+    if (result === null) abortFileChannel(channel); // explicit user denial
+    return result;
+  } catch (error) {
+    abortFileChannel(channel);
+    throw error;
   }
 }
