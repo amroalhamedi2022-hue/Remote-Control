@@ -79,11 +79,13 @@ class MainActivity : FlutterActivity() {
                     val id = call.argument<String>("id")
                     val bytes = call.argument<ByteArray>("data")
                     runWorker(result) {
-                        val stage = sessions[id] ?: error("Unknown transfer")
-                        require(bytes != null && bytes.isNotEmpty() && bytes.size <= 3072)
-                        require(stage.written + bytes.size <= stage.size)
-                        stage.stream.write(bytes)
-                        stage.written += bytes.size
+                        val transferId = id ?: error("Missing transfer id")
+                        val chunk = bytes ?: error("Missing chunk data")
+                        val stage = sessions[transferId] ?: error("Unknown transfer")
+                        require(chunk.isNotEmpty() && chunk.size <= 3072)
+                        require(stage.written + chunk.size <= stage.size)
+                        stage.stream.write(chunk)
+                        stage.written += chunk.size
                         stage.idleLease?.touch()
                         null
                     }
@@ -136,7 +138,8 @@ class MainActivity : FlutterActivity() {
                 "abort" -> {
                     val id = call.argument<String>("id")
                     runWorker(result) {
-                        sessions.remove(id)?.let {
+                        val transferId = id ?: error("Missing transfer id")
+                        sessions.remove(transferId)?.let {
                             it.idleLease?.close()
                             try { it.stream.close() } finally { it.file.delete() }
                         }
@@ -252,7 +255,8 @@ class MainActivity : FlutterActivity() {
         picker = null
         val uri = if (resultCode == Activity.RESULT_OK) data?.data else null
         if (uri != null && data != null && DocumentsContract.isTreeUri(uri) &&
-            (data.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) {
+            SafReceivePolicy.hasReadWriteTreeGrant(
+                data.flags, Intent.FLAG_GRANT_READ_URI_PERMISSION, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) {
             approvedTree = uri
             pending.success(uri.toString())
         } else {
