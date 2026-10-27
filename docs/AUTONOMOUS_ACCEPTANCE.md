@@ -480,3 +480,12 @@ No merge, no `main` changes, no new dependency, and no paid API.
 
 - Updated `.github/workflows/ci.yml` to ignore push events where the only changed path is `docs/AUTONOMOUS_ACCEPTANCE.md`. This prevents a documentation-only acceptance update from cancelling a source/test run in progress. The workflow change itself triggers a new full validation run.
 - **Workflow/source validation after this meta-change:** pending; record the new run only after it completes.
+
+## 2026-10-27 — M77 one-shot sender channel revocation
+
+- **Production fix:** `tools/lan_probe/file_transfer.mjs` now aborts the sender's one-shot transport on every terminal send failure, including receiver denial, malformed/timeout ACKs, source changes, and invalid completion ACKs. The sender still sends best-effort `FILE_CANCEL` only after `FILE_READY` and before `FILE_END`; it never sends cancellation after the publication boundary.
+- **Regression evidence:** `tools/lan_probe/file_transfer.test.mjs` asserts channel revocation after explicit denial and invalid chunk ACK, while retaining the existing no-`FILE_CANCEL`-after-`FILE_END` case.
+- **Source SHA:** `a7cdc9b7ce771f74a7982e58883225b4950b03b7`.
+- **CI:** [run 40564476777](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40564476777) — **PASS**. Node protocol/media-lab suite: 24 passed, 0 failed, 7 skipped because optional FFmpeg is not installed; Python artifact-verifier tests and Node syntax checks passed. Windows capture lifecycle passed. Flutter source checks/analyzer/tests passed. Native SAF-policy and Android/Windows packaging jobs were skipped by design for this source-only change.
+- **Device acceptance:** **NOT TESTED**. No APK, EXE, or Windows bundle was built in this batch. Physical Android↔Windows transfer, clipboard, screen/audio and control acceptance remain open.
+- **Security boundary:** This is transport cleanup, not approval of the prototype pairing cryptography for production privileges. No root or permission bypass added; no secrets or paid API used. PR #1 remains Draft and unmerged.
