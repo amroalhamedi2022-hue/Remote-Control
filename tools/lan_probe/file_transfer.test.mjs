@@ -68,6 +68,7 @@ test('denied offer writes no temporary or final files',()=>sandbox(async dir=>{
   const recv=(async()=>receiveFileOnce(b,await b.receive(),{directory:dest,approve:async()=>false}))();
   await assert.rejects(sendFileOnce(a,source),/denied/);
   assert.equal(await recv,null);
+  assert.equal(a.destroyed,true,'sender must revoke its one-shot channel after denial');
   assert.equal(b.destroyed,true,'explicit denial must revoke the one-shot receiver channel');
   assert.deepEqual(await fs.readdir(dest),[]);
 }));
@@ -289,6 +290,7 @@ test('Node sender rejects bad FILE_ACK and cancels without sending FILE_END',()=
   receiver.send({type:'FILE_ACK',seq:999});
   await assert.rejects(sending,/Invalid file chunk acknowledgement/);
   assert.deepEqual(await receiver.receive(),{type:'FILE_CANCEL'});
+  assert.equal(sender.destroyed,true,'terminal sender failure must revoke its one-shot channel');
 }));
 
 test('Node sender never cancels after FILE_END when final ACK is invalid',()=>sandbox(async dir=>{
