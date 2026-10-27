@@ -2,25 +2,29 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_remote_control/security/pair_session_ledger.dart';
 
 void main() {
-  test('pairing indicator expires at the exact deadline', () {
-    var now = DateTime.utc(2026, 10, 23, 10);
+  test('pairing indicator expires at the exact monotonic deadline', () {
+    var nowMicros = 0;
     final ledger = PairSessionLedger(
-      lifetime: const Duration(minutes: 2), clock: () => now);
+      lifetime: const Duration(minutes: 2),
+      monotonicMicros: () => nowMicros,
+    );
     ledger.remember('192.168.1.10', 'trusted-a');
     expect(ledger.contains('192.168.1.10'), isTrue);
-    now = now.add(const Duration(minutes: 2));
+    nowMicros += const Duration(minutes: 2).inMicroseconds;
     expect(ledger.contains('192.168.1.10'), isFalse);
   });
 
   test('re-pairing refreshes only that peer and revoke removes all addresses', () {
-    var now = DateTime.utc(2026, 10, 23, 10);
+    var nowMicros = 0;
     final ledger = PairSessionLedger(
-      lifetime: const Duration(minutes: 2), clock: () => now);
+      lifetime: const Duration(minutes: 2),
+      monotonicMicros: () => nowMicros,
+    );
     ledger.remember('192.168.1.10', 'fingerprint-a');
     ledger.remember('192.168.1.11', 'fingerprint-a');
-    now = now.add(const Duration(minutes: 1));
+    nowMicros += const Duration(minutes: 1).inMicroseconds;
     ledger.remember('192.168.1.10', 'fingerprint-a');
-    now = now.add(const Duration(minutes: 1, seconds: 1));
+    nowMicros += const Duration(minutes: 1, seconds: 1).inMicroseconds;
     expect(ledger.contains('192.168.1.10'), isTrue);
     expect(ledger.contains('192.168.1.11'), isFalse);
     ledger.remember('192.168.1.12', 'fingerprint-a');
@@ -29,25 +33,30 @@ void main() {
     expect(ledger.contains('192.168.1.12'), isFalse);
   });
 
-  test('capacity evicts oldest lease and never extends on reads', () {
-    var now = DateTime.utc(2026, 10, 23, 10);
-    final ledger = PairSessionLedger(maxEntries: 2,
-      lifetime: const Duration(seconds: 5), clock: () => now);
+  test('capacity evicts oldest lease and reads never extend its lifetime', () {
+    var nowMicros = 0;
+    final ledger = PairSessionLedger(
+      maxEntries: 2,
+      lifetime: const Duration(seconds: 5),
+      monotonicMicros: () => nowMicros,
+    );
     ledger.remember('a', 'fp-a');
     ledger.remember('b', 'fp-b');
     expect(ledger.contains('a'), isTrue);
     ledger.remember('c', 'fp-c');
     expect(ledger.contains('a'), isFalse);
     expect(ledger.contains('b'), isTrue);
-    now = now.add(const Duration(seconds: 5));
+    nowMicros += const Duration(seconds: 5).inMicroseconds;
     expect(ledger.contains('b'), isFalse);
     expect(ledger.contains('c'), isFalse);
   });
 
   test('fingerprint lookup expires and never treats an IP as identity', () {
-    var now = DateTime.utc(2026, 10, 24, 8);
+    var nowMicros = 0;
     final ledger = PairSessionLedger(
-      lifetime: const Duration(seconds: 30), clock: () => now);
+      lifetime: const Duration(seconds: 30),
+      monotonicMicros: () => nowMicros,
+    );
     ledger.remember('192.168.1.5', 'device-a');
     expect(ledger.fingerprintFor('192.168.1.5'), 'device-a');
     expect(ledger.fingerprintFor('192.168.1.6'), isNull);
@@ -59,11 +68,23 @@ void main() {
     ledger.revokeFingerprint('device-b');
     expect(ledger.fingerprintFor('192.168.1.5'), isNull);
     ledger.remember('192.168.1.5', 'device-c');
-    now = now.add(const Duration(seconds: 30));
+    nowMicros += const Duration(seconds: 30).inMicroseconds;
     expect(ledger.fingerprintFor('192.168.1.5'), isNull);
     ledger.remember('192.168.1.5', 'device-c');
     ledger.clear();
     expect(ledger.fingerprintFor('192.168.1.5'), isNull);
+  });
+
+  test('clock rollback fails closed and clears stale session indicators', () {
+    var nowMicros = 10_000;
+    final ledger = PairSessionLedger(
+      monotonicMicros: () => nowMicros,
+    );
+    ledger.remember('192.168.1.7', 'device-seven');
+    nowMicros = 9_000;
+    expect(() => ledger.contains('192.168.1.7'), throwsStateError);
+    nowMicros = 10_000;
+    expect(ledger.contains('192.168.1.7'), isFalse);
   });
 
   test('rejects invalid limits and empty identity', () {
