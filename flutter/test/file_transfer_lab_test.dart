@@ -80,8 +80,13 @@ class _IncomingFixture implements AbortableFileTransferChannel {
   final List<Map<String, dynamic>> incoming;
   final String? stallOnSendType;
   final bool stallOnReceive;
+  final Object? receiveError;
   final sent = <Map<String, dynamic>>[];
-  _IncomingFixture(this.incoming, {this.stallOnSendType, this.stallOnReceive = false});
+  _IncomingFixture(this.incoming, {
+    this.stallOnSendType,
+    this.stallOnReceive = false,
+    this.receiveError,
+  });
   @override
   Future<void> send(Map<String, dynamic> message) async {
     if (aborted) throw StateError('Channel aborted');
@@ -93,6 +98,7 @@ class _IncomingFixture implements AbortableFileTransferChannel {
   @override
   Future<Map<String, dynamic>> receive() async {
     if (stallOnReceive) await Completer<void>().future;
+    if (receiveError != null) throw receiveError!;
     return incoming.removeAt(0);
   }
 }
@@ -849,6 +855,36 @@ void main() {
         reason: 'A source that never finishes hashing must not start a transfer');
     expect(channel.aborted, isTrue,
         reason: 'Failed preflight must not leave a reserved file-intent channel open');
+  });
+
+  test('receiver aborts the one-shot channel when a non-timeout peer read fails', () async {
+    final channel = _IncomingFixture(
+      [],
+      receiveError: StateError('simulated socket reset'),
+    );
+    final staging = _StagingFixture();
+    const offer = {
+      'type': 'FILE_OFFER',
+      'name': 'peer-reset.bin',
+      'bytes': 1,
+      'sha256': '559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd',
+    };
+
+    await expectLater(
+      receiveLabFile(
+        channel,
+        offer,
+        approve: (_) async => true,
+        createStaging: (_) async => staging,
+      ),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(channel.sent.map((frame) => frame['type']), ['FILE_READY']);
+    expect(channel.aborted, isTrue);
+    expect(staging.aborted, isTrue);
+    expect(staging.published, isFalse);
+    expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
   });
 
 }
