@@ -489,3 +489,18 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **CI:** [run 40564476777](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40564476777) — **PASS**. Node protocol/media-lab suite: 24 passed, 0 failed, 7 skipped because optional FFmpeg is not installed; Python artifact-verifier tests and Node syntax checks passed. Windows capture lifecycle passed. Flutter source checks/analyzer/tests passed. Native SAF-policy and Android/Windows packaging jobs were skipped by design for this source-only change.
 - **Device acceptance:** **NOT TESTED**. No APK, EXE, or Windows bundle was built in this batch. Physical Android↔Windows transfer, clipboard, screen/audio and control acceptance remain open.
 - **Security boundary:** This is transport cleanup, not approval of the prototype pairing cryptography for production privileges. No root or permission bypass added; no secrets or paid API used. PR #1 remains Draft and unmerged.
+
+## 2026-10-27 — M78: Align Node receiver with Windows console-device filename policy
+
+- **Scope:** Remote Control PR #1 only, branch `feature/build-reliability-v0_9`. No NetKit or `main` changes.
+- **Finding:** Flutter's selected-file validator rejected `CONIN$` and `CONOUT$`, but the Node receiver accepted those aliases and names such as `CONIN$ .txt` because its older regex only covered the classic DOS device stems. A peer that bypassed the Flutter sender could reach the Windows receive path with a reserved device name.
+- **Fix:** `tools/lan_probe/file_transfer.mjs` now normalizes the stem before the extension, trims Win32 trailing spaces/dots, and rejects `CONIN$` / `CONOUT$` alongside CON/PRN/AUX/NUL/COM/LPT names. The final expression uses literal-dollar character classes to avoid regex escaping ambiguity.
+- **Regression:** `tools/lan_probe/file_transfer.test.mjs` tests reserved aliases and confirms invalid offers are rejected before user consent, staging, or file publication.
+- **Source commits:** [ce9c15d885c173f973aaee60857d218d057ceb64](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/ce9c15d885c173f973aaee60857d218d057ceb64) and regex correction [1a248a2793c5e0a994d56fd8964007a1b752b890](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/1a248a2793c5e0a994d56fd8964007a1b752b890).
+- **Regression-test commit:** [f0029586a36a6e466dd9536d7716f15008007b55](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/f0029586a36a6e466dd9536d7716f15008007b55).
+- **PASS — targeted local Node policy smoke:** Node 22 rejected 8 reserved Windows device-name cases and retained 4 ordinary names. This is a focused rule test, not the complete repository suite.
+- **CI:** **NOT VERIFIED** on the latest source head `1a248a2793c5e0a994d56fd8964007a1b752b890`. The connected status endpoint returned no status contexts, and the available workflow-run helper only lists PR-triggered runs. Prior M77 CI is not evidence for this new source.
+- **Android APK / Windows EXE:** **NOT BUILT**; this is a filename-policy fix and no package build is needed to validate the rule. No new artifact or SHA-256 exists.
+- **Device acceptance:** **NOT TESTED** — Android↔Windows SAF/file transfer, clipboard, screen/audio mirroring and real control remain open.
+- **Security boundary:** filename validation is defense in depth, not transport authentication. Pairing remains experimental and not approved for privileged production access. No new dependency, paid API, root, permission bypass, secret, merge or `main` write; PR #1 remains Draft.
+- **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Docs write/read connector is available; this GitHub ledger is not a substitute for the live Drive document.
