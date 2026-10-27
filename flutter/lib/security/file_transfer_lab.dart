@@ -388,7 +388,11 @@ Future<FileSendResult?> receiveLabFile(
   _validateLabTimeout(responseTimeout, 'responseTimeout');
   _validateLabTimeout(consentTimeout, 'consentTimeout');
   _validateLabTimeout(stagingTimeout, 'stagingTimeout');
+  var channelAborted = false;
   void abortChannel() {
+    if (channelAborted) return;
+    // Mark before calling platform code: abort may synchronously re-enter failure handling.
+    channelAborted = true;
     final current = channel;
     if (current is AbortableFileTransferChannel) {
       try {
@@ -474,7 +478,7 @@ Future<FileSendResult?> receiveLabFile(
     // the sender waiting for FILE_READY. Deny first when possible, then close
     // this one-shot file-intent channel so a late UI completion cannot revive it.
     try { await sendFrame({'type': 'FILE_DENIED'}); } catch (_) {}
-    if (channel is AbortableFileTransferChannel) channel.abort();
+    abortChannel();
     rethrow;
   }
   if (!accepted) {
@@ -483,7 +487,7 @@ Future<FileSendResult?> receiveLabFile(
     try {
       await sendFrame({'type': 'FILE_DENIED'});
     } finally {
-      if (channel is AbortableFileTransferChannel) channel.abort();
+      abortChannel();
     }
     return null;
   }
