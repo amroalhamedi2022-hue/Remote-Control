@@ -25,6 +25,18 @@ void main() {
     expect(assembler.accept(end(2)), orderedEquals(jpeg));
   });
 
+  test('rejects a frame exactly at the absolute assembly deadline', () {
+    var now = 100;
+    final assembler = PreviewFrameAssembler(nowMicros: () => now);
+    assembler.accept(begin(1, jpeg.length));
+    now += PreviewFrameAssembler.maxAssemblyTime.inMicroseconds;
+    expect(() => assembler.accept(part(1, 0, encode(jpeg))),
+        throwsA(isA<TimeoutException>()));
+    // The expired partial is discarded, but the assembler remains usable.
+    now += 1;
+    expect(() => assembler.accept(begin(2, jpeg.length)), isNull);
+  });
+
   test('rejects a frame whose absolute assembly deadline elapsed', () {
     var now = 100;
     final assembler = PreviewFrameAssembler(nowMicros: () => now);
