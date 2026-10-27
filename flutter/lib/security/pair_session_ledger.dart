@@ -40,6 +40,16 @@ class PairSessionLedger {
   final Map<String, _PairLease> _entries = {};
   int? _lastObservedMicros;
 
+  /// Number of currently valid indicators, after expiring old leases.
+  ///
+  /// This remains a local diagnostic only; it does not grant trust or authorize
+  /// remote operations. Reading it also applies the same monotonic-clock
+  /// rollback policy as contains() and fingerprintFor().
+  int get length {
+    _purge(_readNowMicros());
+    return _entries.length;
+  }
+
   int _readNowMicros() {
     final now = _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
     final previous = _lastObservedMicros;
