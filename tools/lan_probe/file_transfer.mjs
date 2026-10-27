@@ -20,7 +20,7 @@ const BASE64_CHUNK_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-
 // Match the Flutter sender and Windows filename rules, including console aliases.
 function isReservedWindowsDeviceName(name) {
   const stem = name.split('.')[0].replace(/[ .]+$/u, '').toUpperCase();
-  return /^(?:CON|PRN|AUX|NUL|CONIN\\$|CONOUT\\$|COM[1-9¹²³]|LPT[1-9¹²³])$/u.test(stem);
+  return /^(?:CON|PRN|AUX|NUL|CONIN[$]|CONOUT[$]|COM[1-9¹²³]|LPT[1-9¹²³])$/u.test(stem);
 }
 
 // Node's Base64 decoder accepts aliases with non-zero unused padding bits and
