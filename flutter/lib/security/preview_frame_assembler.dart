@@ -124,8 +124,8 @@ class PreviewFrameAssembler {
       throw const FormatException('Preview part without frame header');
     }
     final now = _readNowMicros();
-    if (now < started || now - started > maxAssemblyTime.inMicroseconds) {
-      throw TimeoutException('Preview frame assembly exceeded 15 seconds');
+    if (now < started || now - started >= maxAssemblyTime.inMicroseconds) {
+      throw TimeoutException('Preview frame assembly reached its 15-second deadline');
     }
   }
 
