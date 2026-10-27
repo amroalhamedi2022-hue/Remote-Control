@@ -287,8 +287,17 @@ test('cancelling pending receiver consent does not create or acknowledge a file'
   let release;
   const waiting=receiveFileOnce(receiver,offer,{directory:dir,signal:controller.signal,
     approve:()=>new Promise(resolve=>{release=resolve;})});
-  // Await the microtask that enters the consent callback.
-  await new Promise(resolve=>setImmediate(resolve));
+  // Destination preflight now performs asynchronous filesystem checks before consent.
+  // Wait for the callback itself rather than assuming a single microtask is enough.
+  await new Promise((resolve,reject)=>{
+    const deadline=Date.now()+1_000;
+    const poll=()=>{
+      if(typeof release==='function') return resolve();
+      if(Date.now()>=deadline) return reject(new Error('Consent callback was not reached'));
+      setTimeout(poll,5);
+    };
+    poll();
+  });
   controller.abort();
   await assert.rejects(waiting,{name:'AbortError',message:'File transfer cancelled'});
   release(true); // Late UI approval must not resurrect the cancelled transfer.
