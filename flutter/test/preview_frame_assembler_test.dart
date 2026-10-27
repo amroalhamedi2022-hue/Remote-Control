@@ -74,6 +74,15 @@ void main() {
         throwsA(isA<TimeoutException>()));
   });
 
+  test('rejects out-of-range frame IDs without poisoning valid frames', () {
+    final assembler = PreviewFrameAssembler();
+    expect(() => assembler.accept(begin(0x80000000, jpeg.length)),
+        throwsA(isA<FormatException>()));
+    expect(assembler.accept(begin(1, jpeg.length)), isNull);
+    expect(assembler.accept(part(1, 0, encode(jpeg))), isNull);
+    expect(assembler.accept(end(1)), orderedEquals(jpeg));
+  });
+
   test('rejects overlapping or replayed frame identifiers', () {
     final assembler = PreviewFrameAssembler();
     assembler.accept(begin(1, jpeg.length));
