@@ -122,11 +122,25 @@ void main() {
   test('rejects invalid limits and empty identity', () {
     expect(() => PairSessionLedger(lifetime: Duration.zero), throwsArgumentError);
     expect(() => PairSessionLedger(maxEntries: 0), throwsArgumentError);
+    expect(() => PairSessionLedger(maxEntries: PairSessionLedger.maxAllowedEntries + 1),
+        throwsArgumentError);
+    expect(() => PairSessionLedger(lifetime: const Duration(days: 2)),
+        throwsArgumentError);
     final ledger = PairSessionLedger();
     expect(() => ledger.remember('', 'fingerprint'), throwsArgumentError);
     expect(() => ledger.remember('192.168.1.1', ''), throwsArgumentError);
     ledger.remember('192.168.1.1', 'fingerprint');
     ledger.clear();
     expect(ledger.contains('192.168.1.1'), isFalse);
+  });
+
+  test('negative monotonic clock is rejected and clears indicators', () {
+    var nowMicros = 10;
+    final ledger = PairSessionLedger(monotonicMicros: () => nowMicros);
+    ledger.remember('peer-a', 'fingerprint-a');
+    nowMicros = -1;
+    expect(() => ledger.contains('peer-a'), throwsStateError);
+    nowMicros = 10;
+    expect(ledger.contains('peer-a'), isFalse);
   });
 }
