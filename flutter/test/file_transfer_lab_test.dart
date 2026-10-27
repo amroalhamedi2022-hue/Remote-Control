@@ -6,6 +6,19 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_remote_control/security/file_transfer_lab.dart';
 
+class _StallingReadXFile extends XFile {
+  _StallingReadXFile() : super.fromData(Uint8List(0), name: 'stalled-source.bin');
+
+  @override
+  Future<int> length() async => 1;
+
+  @override
+  Stream<Uint8List> openRead([int start = 0, int? end]) async* {
+    yield Uint8List.fromList([0x41]);
+    await Completer<void>().future;
+  }
+}
+
 class _NodeReceiverFixture implements AbortableFileTransferChannel {
   bool aborted = false;
   @override
@@ -820,4 +833,21 @@ void main() {
     expect(staging.aborted, isTrue);
     expect(channel.sent.where((m) => m['type'] == 'FILE_OK'), isEmpty);
   });
+
+  test('stalled source stream times out before FILE_OFFER and aborts one-shot channel', () async {
+    final channel = _NodeReceiverFixture();
+    await expectLater(
+      sendLabFile(
+        channel,
+        _StallingReadXFile(),
+        sourceReadTimeout: const Duration(milliseconds: 5),
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(channel.sent, isEmpty,
+        reason: 'A source that never finishes hashing must not start a transfer');
+    expect(channel.aborted, isTrue,
+        reason: 'Failed preflight must not leave a reserved file-intent channel open');
+  });
+
 }
