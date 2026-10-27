@@ -461,3 +461,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **NOT TESTED:** install/SAF picker/readback on a physical Android device; end-to-end Android↔Windows transfer, clipboard, screen/audio mirroring or real control acceptance.
 - **Security boundary:** both grants are necessary but not sufficient for production trust. No new dependency, paid API, root access, secret, auto-merge or `main` write. PR #1 remains Draft and its existing merge state was not changed.
 - **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector was available in this run; this GitHub ledger is not a substitute for the live Drive document.
+
+## 2026-10-27 — M76: Revoke one-shot receive channels on terminal failure
+
+- **Scope:** Remote Control PR #1 only; branch `feature/build-reliability-v0_9`. No NetKit or `main` changes.
+- **Finding:** the Node receiver deleted private staging after malformed offers, explicit denial, bad hashes and provider failures, but several early/error paths did not close the one-shot file-intent transport. That could leave a rejected intent channel alive after the operation had terminated.
+- **Fix:** centralized best-effort channel revocation in `abortFileChannel()`, reused it for timeout/cancellation waits, and wrapped the public `receiveFileOnce` boundary so pre-staging and transfer errors revoke the channel while preserving the original exception. Malformed offers send best-effort `FILE_DENIED`; explicit denial closes after notification.
+- **Regression:** `tools/lan_probe/file_transfer.test.mjs` now models socket destruction and asserts revocation after explicit denial, invalid/oversized offers, and corrupt payload/hash failure.
+- **Source + regression commit:** [e90e2eabf94a7b30d8b77cebe7030c52c0fe0425](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/e90e2eabf94a7b30d8b77cebe7030c52c0fe0425).
+- **CI:** [run 40551040156](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40551040156) was **QUEUED / NOT VERIFIED** at this ledger update. The Windows capture-lifecycle job had completed PASS, but Node and Flutter source jobs were still queued; the overall run is not counted as PASS.
+- **Android SAF / APK / Windows bundle:** **SKIPPED / NOT BUILT**; this is a Node receiver lifecycle fix, not device acceptance.
+- **Device acceptance:** **NOT TESTED** — Android↔Windows transfer, clipboard, screen/audio mirroring and real input remain open.
+- **Safety:** no new dependency, paid API, root, secret, auto-merge or `main` write. Pairing remains experimental, not production-approved privileged authorization.
+- **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector was available; this repository ledger is not a substitute for the live Drive document.
