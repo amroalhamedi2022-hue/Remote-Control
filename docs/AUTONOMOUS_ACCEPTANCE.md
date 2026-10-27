@@ -379,3 +379,18 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Device acceptance:** **NOT TESTED** — Android↔Windows file/clipboard transfer, real screen preview/FPS, audio and input control remain open.
 - **Security boundary:** custom pairing/channel remains experimental lab code, not production-approved privileged authorization or cryptography. No root, new dependency, paid API, secret, artifact, auto-merge or `main` write.
 - **Live Google Docs Handoff:** **SYNC FAILED**; no authorized Google Docs write/read connector was available in this session.
+
+
+## 2026-10-27 — M70: Idempotent receiver channel revocation
+
+- **Scope:** Remote Control PR #1 only; branch `feature/build-reliability-v0_9`. No NetKit or `main` changes.
+- **Finding:** receiver consent-failure and explicit-denial paths bypassed the guarded abort helper and called `channel.abort()` directly. A platform abort exception could replace the original consent failure or turn an ordinary user denial into a thrown failure. Some timeout paths could also call abort more than once as control unwound.
+- **Production fix:** receiver `abortChannel()` is now idempotent and marks the one-shot channel revoked before invoking platform code. All receiver terminal paths (consent failure, refusal, malformed offer, timeout and receive transaction failure) use the same best-effort helper, preserving the primary outcome when abort itself throws.
+- **Regressions:** added tests for a consent callback failure with throwing abort (original `StateError` remains visible) and an explicit denial with throwing abort (returns `null` normally); both assert the channel is revoked exactly once and no staging is created.
+- **Production commit:** [`3c2e552bbb4943e6bc89d520aaba900324b81aaa`](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/3c2e552bbb4943e6bc89d520aaba900324b81aaa).
+- **Regression/test head:** [`9a68e119b357cf0aee40fcc35269f1381a428019`](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/9a68e119b357cf0aee40fcc35269f1381a428019).
+- **Exact-head CI:** [run 40512964922](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40512964922) — **SUCCESS**. Flutter analyzer and **148 Flutter tests passed**, including the two new revocation regressions; Node LAN/protocol/media-lab tests and Windows capture-process lifecycle tests passed. Seven optional FFmpeg-dependent tests were skipped; this run does not claim real codec acceptance.
+- **Android SAF policy / APK / Windows bundle:** **SKIPPED / NOT BUILT** by the workflow. No package was needed for this receiver lifecycle regression.
+- **Device acceptance:** **NOT TESTED** — real Android↔Windows file/clipboard transfer, preview FPS, audio mirroring and input control remain open.
+- **Security boundary:** pairing/channel cryptography remains experimental and is not production-approved for privileged remote control. No root, new dependency, paid API, secret, artifact, auto-merge or `main` write.
+- **Live Google Docs Handoff:** **SYNC FAILED**; no authorized Google Docs write/read connector was available. This ledger does not replace the live Drive document.
