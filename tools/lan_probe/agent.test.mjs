@@ -27,6 +27,9 @@ test('parser rejects malformed, forged names and oversized packets',()=>{
   assert.equal(parsePacket(payload('ANNOUNCE',{...correct,tcpPort:0})),null);
   assert.deepEqual(parseEndpoint('192.168.1.10:44000'),{ip:'192.168.1.10',port:44000});
   assert.throws(()=>parseEndpoint('256.1.2.3'));
+  assert.throws(()=>parseEndpoint('127.0.0.1:43827'),/local LAN/);
+  assert.deepEqual(parseEndpoint('127.0.0.1:43827',43827,{allowLoopback:true}),
+    {ip:'127.0.0.1',port:43827});
 });
 test('unauthenticated discovery labels reject invisible spoofing and controls', () => {
   const base = {id: randomId(), name: 'Windows Host', platform: 'Windows', tcpPort: 43828};
@@ -47,9 +50,11 @@ test('unauthenticated discovery labels reject invisible spoofing and controls', 
 });
 
 test('LAN-only Node address policy rejects public/CGNAT and permits private, link-local and loopback',()=>{
-  for(const ip of ['10.1.2.3','172.16.0.1','172.31.255.254','192.168.1.20','169.254.12.4','127.0.0.1']){
+  for(const ip of ['10.1.2.3','172.16.0.1','172.31.255.254','192.168.1.20','169.254.12.4']){
     assert.equal(isLanIpv4(ip),true,ip);
   }
+  assert.equal(isLanIpv4('127.0.0.1'),false,'loopback is denied by the production default');
+  assert.equal(isLanIpv4('127.0.0.1',{allowLoopback:true}),true,'tests may opt in explicitly');
   for(const ip of ['8.8.8.8','203.0.113.5','172.15.1.1','172.32.0.1','100.64.0.1',
     '0.0.0.0','224.0.0.1','255.255.255.255','fe80::1','localhost','010.1.1.1']){
     assert.equal(isLanIpv4(ip),false,ip);
@@ -60,19 +65,19 @@ test('LAN-only Node address policy rejects public/CGNAT and permits private, lin
 
 test('actual UDP manual-IP discovery + TCP probe exchange over loopback',async(t)=>{
   const udp=await port('udp'),tcp=await port('tcp');
-  const child=spawn(process.execPath,[path,'--serve',`--udp-port=${udp}`,`--tcp-port=${tcp}`],{stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath,[path,'--serve','--allow-loopback-for-tests',`--udp-port=${udp}`,`--tcp-port=${tcp}`],{stdio:['ignore','pipe','pipe'],env:{...process.env,NODE_ENV:'test'}});
   t.after(()=>child.kill('SIGTERM'));
   await new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>reject(new Error('Agent did not start')),3500);
     child.stdout.on('data',d=>{if(d.toString().includes('READY')){clearTimeout(timer);resolve();}});
     child.once('exit',code=>{clearTimeout(timer);reject(new Error('Agent exited: '+code));});
   });
-  const reply=await run(process.execPath,[path,`--probe=127.0.0.1:${udp}`,'--timeout=1200'],{timeout:3000});
+  const reply=await run(process.execPath,[path,'--allow-loopback-for-tests',`--probe=127.0.0.1:${udp}`,'--timeout=1200'],{timeout:3000,env:{...process.env,NODE_ENV:'test'}});
   const found=JSON.parse(reply.stdout.trim());
   assert.equal(found.found,true);
   assert.equal(found.peer.tcpPort,tcp);
   assert.equal(found.peer.kind,'ANNOUNCE');
-  const ping=await run(process.execPath,[path,`--ping=127.0.0.1:${tcp}`,'--timeout=1200'],{timeout:3000});
+  const ping=await run(process.execPath,[path,'--allow-loopback-for-tests',`--ping=127.0.0.1:${tcp}`,'--timeout=1200'],{timeout:3000,env:{...process.env,NODE_ENV:'test'}});
   const reached=JSON.parse(ping.stdout.trim());
   assert.equal(reached.reached,true);
   assert.ok(reached.rttMs>=0);
