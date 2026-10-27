@@ -529,7 +529,7 @@ No merge, no `main` changes, no new dependency, and no paid API.
 
 
 ## M81 — 2026-10-28 — receiver destination substitution guard
-- Production fix in `tools/lan_probe/file_transfer.mjs`: capture the resolved destination identity and revalidate it after user consent, before staging, and around final hard-link publication. A symlink/non-directory replacement or changed directory identity fails closed; any unacknowledged linked target is rolled back.
+- Production fix in `tools/lan_probe/file_transfer.mjs`: capture the resolved destination identity and revalidate it after user consent, before staging, and around final hard-link publication. A symlink/non-directory replacement or changed directory identity fails closed. The receiver attempts rollback for an unacknowledged linked target and surfaces rollback failure as an AggregateError; portable path APIs do not make the race fully atomic.
 - Regression in `tools/lan_probe/file_transfer.test.mjs`: rename the chosen directory and replace its path with a symlink during the approval callback; assert rejection, receiver-channel revocation, and no staged/final bytes in the outside or moved directory.
 - Commits on `feature/build-reliability-v0_9`: source `e7a9fff6d9c613210c9f0a84871d9734ad70bdeb`; regression `9c64d386cc4a9262dcb2feb480543a06e85bcd17`.
 - CI: **NOT VERIFIED** for the exact head. The available workflow-run lookup returned no run entries and the combined commit-status query returned no statuses for the push commit. Do not infer a pass from this absence.
