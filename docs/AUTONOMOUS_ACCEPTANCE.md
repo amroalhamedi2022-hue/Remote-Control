@@ -285,3 +285,18 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Earlier failed attempt:** [run 40461704868](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40461704868) — **FAIL** because the receiver's send/response validation still accepted overlong values. The receiver now uses the same bounded validator and the subsequent exact-source run passed.
 - **Android APK/Windows bundle:** **NOT TESTED / NOT BUILT**; no package was required for this timeout-policy change. **Physical Android↔Windows pairing, transfer, clipboard, screen/audio mirroring and input acceptance:** **NOT TESTED**.
 - **Security boundary:** deadlines reduce resource-pinning risk but do not make the experimental pairing cryptography production-approved. No new dependency, paid API, secret, merge or main change.
+
+
+## 2026-10-27 — M63: Bound screen-preview frame assembly lifetime
+
+- **Scope:** Remote Control PR #1 only, branch `feature/build-reliability-v0_9`; no NetKit or main changes.
+- **Production:** extracted `PreviewFrameAssembler` and wired it into `PairingLab._receivePreview`. Each view-only JPEG frame remains bounded to 512 KiB; parts are bounded to 2,600 decoded bytes and 4,000 encoded characters, with strict canonical base64url, exact offsets, strictly increasing frame IDs, no overlapping frames, and JPEG start/end marker validation.
+- **Absolute deadline:** a partial frame must finish within 15 seconds regardless of the 12-second per-message idle timeout. This prevents a peer from retaining a partial image indefinitely by dripping valid parts just before each idle timeout. A backwards injected monotonic reading also fails closed.
+- **Regression tests:** six new `preview_frame_assembler_test.dart` cases cover complete consecutive frames, deadline expiry, backwards clock, overlapping/replayed IDs, invalid offsets/encoding/oversized parts, and incomplete/non-JPEG data.
+- **Source/test head:** `fcc2f6092f28d86ccf2ca76ebc723baeb1c9a046`.
+- **Exact-head CI:** [run 40468550459](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40468550459) — **SUCCESS**. Flutter analyzer and **137 Flutter tests passed**; Node LAN/protocol/media-lab tests and Windows capture-lifecycle tests passed.
+- **Android APK/Windows bundle:** **NOT TESTED / NOT BUILT**; package jobs were skipped because this was a bounded frame-assembly source/test change, not a device-build request.
+- **Real screen-preview streaming, throughput/FPS, audio mirroring, actual input control, file/clipboard cross-device acceptance:** **NOT TESTED**. This remains view-only preview lab functionality, not production remote-control approval.
+- **Security boundary:** no new dependency or copied external implementation; existing base64/JPEG handling only. The experimental pairing cryptography is still not independently audited and must not be treated as production authorization.
+- **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector was available in this run. GitHub acceptance ledger is updated; the live Drive document is not claimed updated.
+- **Safety:** no paid API, secret, APK/EXE artifact, auto-merge or main change.
