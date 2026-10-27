@@ -88,8 +88,8 @@ Stream<List<int>> _fixedChunks(Stream<List<int>> source, int chunkSize) async* {
 }
 
 /// Hashes the stream without loading a large SAF document into memory.
-Future<String> _hashFile(XFile file) async =>
-    (await crypto.sha256.bind(file.openRead()).first).toString();
+Future<String> _hashFile(XFile file, Duration sourceReadTimeout) async =>
+    (await crypto.sha256.bind(file.openRead().timeout(sourceReadTimeout)).first).toString();
 
 /// The Node receiver must explicitly approve the signed file intent after
 /// the six-digit pairing check. Each chunk is acknowledged before the next.
@@ -103,9 +103,11 @@ Future<FileSendResult> sendLabFile(
   bool Function()? isSessionActive,
   Duration sendTimeout = fileResponseTimeout,
   Duration responseTimeout = fileResponseTimeout,
+  Duration sourceReadTimeout = fileResponseTimeout,
 }) async {
   _validateLabTimeout(sendTimeout, 'sendTimeout');
   _validateLabTimeout(responseTimeout, 'responseTimeout');
+  _validateLabTimeout(sourceReadTimeout, 'sourceReadTimeout');
   var sendTimedOut = false;
   var channelAborted = false;
   void abortChannel() {
@@ -145,16 +147,26 @@ Future<FileSendResult> sendLabFile(
       throw StateError('File transfer session revoked');
     }
   }
-  requireActiveSession();
-  final name = validateLabFileName(selectedName ?? file.name);
-  final size = await file.length();
-  if (size < 0 || size > maxLabFileBytes) {
-    throw const FormatException('Selected file exceeds 64 MiB lab limit');
-  }
-  final digest = await _hashFile(file);
-  requireActiveSession();
-  if (await file.length() != size) {
-    throw StateError('Selected file changed while hashing');
+  late final String name;
+  late final int size;
+  late final String digest;
+  try {
+    requireActiveSession();
+    name = validateLabFileName(selectedName ?? file.name);
+    size = await file.length().timeout(sourceReadTimeout);
+    if (size < 0 || size > maxLabFileBytes) {
+      throw const FormatException('Selected file exceeds 64 MiB lab limit');
+    }
+    digest = await _hashFile(file, sourceReadTimeout);
+    requireActiveSession();
+    if (await file.length().timeout(sourceReadTimeout) != size) {
+      throw StateError('Selected file changed while hashing');
+    }
+  } catch (_) {
+    // Preflight may fail before FILE_OFFER (for example, a stalled SAF provider).
+    // This file-intent channel is one-shot; never leave it open after failed preflight.
+    abortChannel();
+    rethrow;
   }
 
   late final Map<String, dynamic> approval;
@@ -184,7 +196,7 @@ Future<FileSendResult> sendLabFile(
   var finalFrameAttempted = false;
   try {
   requireActiveSession();
-  await for (final chunk in _fixedChunks(file.openRead(), labFileChunkBytes)) {
+  await for (final chunk in _fixedChunks(file.openRead().timeout(sourceReadTimeout), labFileChunkBytes)) {
     requireActiveSession();
     if (sent + chunk.length > size) {
       throw StateError('Selected file grew during transfer');
@@ -201,8 +213,8 @@ Future<FileSendResult> sendLabFile(
     seq++;
     onProgress?.call(sent, size, false);
   }
-  if (sent != size || await file.length() != size ||
-      await _hashFile(file) != digest) {
+  if (sent != size || await file.length().timeout(sourceReadTimeout) != size ||
+      await _hashFile(file, sourceReadTimeout) != digest) {
     throw StateError('Selected file changed during transfer');
   }
   requireActiveSession();
