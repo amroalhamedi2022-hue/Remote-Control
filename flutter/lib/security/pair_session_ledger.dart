@@ -46,6 +46,7 @@ class PairSessionLedger {
   final Stopwatch _watch = Stopwatch()..start();
   final Map<String, _PairLease> _entries = {};
   int? _lastObservedMicros;
+  bool _clockBroken = false;
 
   /// Number of currently valid indicators, after expiring old leases.
   ///
@@ -58,12 +59,16 @@ class PairSessionLedger {
   }
 
   int _readNowMicros() {
+    if (_clockBroken) {
+      throw StateError('Pairing monotonic clock is invalid; create a new session ledger');
+    }
     final now = _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
     final previous = _lastObservedMicros;
     if (now < 0 || (previous != null && now < previous)) {
-      // A negative or rolled-back clock must not extend stale trust indicators.
+      // A negative or rolled-back clock invalidates this ledger for its lifetime.
+      // Clearing then accepting new entries after recovery could revive stale UI state.
       _entries.clear();
-      _lastObservedMicros = now;
+      _clockBroken = true;
       throw StateError('Pairing monotonic clock is invalid or moved backwards');
     }
     _lastObservedMicros = now;
@@ -99,12 +104,14 @@ class PairSessionLedger {
 
   void revokeFingerprint(String fingerprint) {
     // Revocation is a ledger operation too: observe the monotonic clock first.
-    // If it regressed, _readNowMicros clears every lease and fails closed.
+    // If it regressed, _readNowMicros clears every lease and permanently fails closed.
     final now = _readNowMicros();
     _purge(now);
     _entries.removeWhere((_, lease) => lease.fingerprint == fingerprint);
   }
 
+  /// Clearing indicators does not repair a broken clock; callers must create a
+  /// fresh ledger as part of a new pairing-session lifecycle.
   void clear() => _entries.clear();
 
   void _purge(int nowMicros) {
