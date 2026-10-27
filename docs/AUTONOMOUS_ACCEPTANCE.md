@@ -233,3 +233,18 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **GitHub exact-head CI:** **NOT VERIFIED in this run**; the available workflow-run lookup exposes pull-request-triggered runs only, while this branch's current CI is push-triggered. [Remote Control workflow filtered to this branch](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/workflows/ci.yml?query=branch%3Afeature%2Fbuild-reliability-v0_9).
 - **Acceptance:** native policy compile/regression locally **PASS**; GitHub exact-head job **NOT VERIFIED**; Flutter/Node CI on the final documentation head **NOT VERIFIED**; Android APK/Windows bundle and physical-device acceptance **NOT TESTED**.
 - **Safety:** no merge, no `main` changes, no new dependency or paid API. The new workflow job is source-only and does not build APK/EXE. Pairing cryptography remains experimental and not production-approved.
+
+
+## M56 — Bound ephemeral pairing-ledger identifiers (2026-10-27)
+
+**Branch:** `feature/build-reliability-v0_9`; PR #1 only. This is defense-in-depth for the short-lived pairing indicator, not authorization and not production crypto approval.
+
+- **Production commit:** `3279a8497723699577f9c86203be4b45fa2e0637`.
+- **Regression-test commit:** `536ad94744413a24f947e7a7ba556d9e50d2bdfc`.
+- Pair-session address identifiers are limited to 128 UTF-16 code units; fingerprint identifiers are limited to 256.
+- Rejects control characters, bidi controls, invisible formatting controls, Unicode tag characters and replacement characters before allocating or evicting a session entry.
+- Tests cover oversized addresses/fingerprints, bidi/newline spoofing, unchanged capacity/expiry semantics, and a valid scoped IPv6 address with a bounded fingerprint.
+- **CI at documentation commit:** pending; verify the Flutter analyzer/tests on the final head before claiming PASS.
+- APK/Windows bundle: intentionally not built for this in-memory policy change.
+- Physical Android↔Windows pairing, clipboard, file transfer, screen/audio and input acceptance: **NOT TESTED**.
+- The bespoke pairing protocol remains experimental and is not approved for production privileged control. No merge, no `main` write, no new dependency, no paid API, no secrets.
