@@ -570,3 +570,33 @@ test('trust revocation interrupts idle file receiver and deletes staged bytes',(
   await assert.rejects(pending,{name:'AbortError',message:'File transfer cancelled'});
   assert.deepEqual(await fs.readdir(dir),[]);
 }));
+
+
+// The destination must remain the same real directory from consent through commit.
+// A local rename+symlink substitution during the approval dialog must fail closed.
+test('receiver rejects destination replaced by a symlink during consent', {
+  skip: process.platform === 'win32',
+}, () => sandbox(async dir => {
+  const destination=path.join(dir,'dest');
+  const moved=path.join(dir,'dest-original');
+  const outside=path.join(dir,'outside');
+  await fs.mkdir(destination);
+  await fs.mkdir(outside);
+  const payload=Buffer.from('must not escape the selected destination');
+  const offer={type:'FILE_OFFER',name:'safe.txt',bytes:payload.length,
+    sha256:crypto.createHash('sha256').update(payload).digest('hex')};
+  const [sender,receiver]=channels();
+  await assert.rejects(receiveFileOnce(receiver,offer,{
+    directory:destination,
+    approve:async()=>{
+      await fs.rename(destination,moved);
+      await fs.symlink(outside,destination,'dir');
+      return true;
+    },
+  }),/Receiver destination changed during transfer/);
+  assert.equal(receiver.destroyed,true,'destination substitution must revoke the one-shot channel');
+  assert.deepEqual(await fs.readdir(outside),[],'no private or final file may be written outside the chosen folder');
+  assert.deepEqual(await fs.readdir(moved),[],'the originally selected directory must remain unchanged');
+  assert.deepEqual((await fs.readdir(dir)).filter(name=>name.endsWith('.part')),[]);
+  assert.equal(sender.destroyed,false,'preflight failure must not fabricate a peer response');
+}));
