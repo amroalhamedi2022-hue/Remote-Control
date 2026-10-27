@@ -15,6 +15,16 @@ function checkIdleTimeout(value) {
 const sha256 = () => crypto.createHash('sha256');
 const hex = h => h.digest('hex');
 
+const BASE64_CHUNK_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+// Node's Base64 decoder accepts aliases with non-zero unused padding bits and
+// silently normalizes some malformed-but-decodable input. The wire format is
+// canonical: the sender emits Buffer.toString('base64'), so reject aliases.
+function isCanonicalBase64(value) {
+  if (typeof value !== 'string' || !BASE64_CHUNK_PATTERN.test(value)) return false;
+  return Buffer.from(value, 'base64').toString('base64') === value;
+}
+
 // An explicit local cancel must unblock a peer waiting for a network frame.
 // The production SecureEnvelope owns a socket; closing it also cancels its
 // outstanding receive. The Promise fallback covers in-memory QA peers.
@@ -261,7 +271,7 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
       }
       if(packet?.type!=='FILE_CHUNK'||packet.seq!==seq||typeof packet.data!=='string'||
           packet.data.length>Math.ceil(FILE_CHUNK_BYTES*4/3)+4||
-          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(packet.data))
+          !isCanonicalBase64(packet.data))
         throw new Error('Invalid file chunk');
       const data=Buffer.from(packet.data,'base64');
       if(data.length===0||data.length>FILE_CHUNK_BYTES||count+data.length>offer.bytes)
