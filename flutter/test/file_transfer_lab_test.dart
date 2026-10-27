@@ -75,8 +75,12 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
 
 class _IncomingFixture implements AbortableFileTransferChannel {
   bool aborted = false;
+  final bool throwOnAbort;
   @override
-  void abort() { aborted = true; }
+  void abort() {
+    aborted = true;
+    if (throwOnAbort) throw StateError('simulated transport abort failure');
+  }
   final List<Map<String, dynamic>> incoming;
   final String? stallOnSendType;
   final bool stallOnReceive;
@@ -86,6 +90,7 @@ class _IncomingFixture implements AbortableFileTransferChannel {
     this.stallOnSendType,
     this.stallOnReceive = false,
     this.receiveError,
+    this.throwOnAbort = false,
   });
   @override
   Future<void> send(Map<String, dynamic> message) async {
@@ -840,6 +845,48 @@ void main() {
     expect(channel.aborted, isTrue);
     expect(staging.aborted, isTrue);
     expect(channel.sent.where((m) => m['type'] == 'FILE_OK'), isEmpty);
+  });
+
+  test('receiver preserves response timeout when channel abort also throws', () async {
+    final channel = _IncomingFixture(
+      [], stallOnReceive: true, throwOnAbort: true);
+    final staging = _StagingFixture();
+    await expectLater(
+      receiveLabFile(channel, {
+        'type': 'FILE_OFFER',
+        'name': 'abort-timeout.bin',
+        'bytes': 1,
+        'sha256': '0' * 64,
+      },
+        approve: (_) async => true,
+        createStaging: (_) async => staging,
+        responseTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(channel.aborted, isTrue);
+    expect(staging.aborted, isTrue);
+    expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
+  });
+
+  test('receiver preserves send timeout when channel abort also throws', () async {
+    final channel = _IncomingFixture(
+      [], stallOnSendType: 'FILE_READY', throwOnAbort: true);
+    final staging = _StagingFixture();
+    await expectLater(
+      receiveLabFile(channel, {
+        'type': 'FILE_OFFER',
+        'name': 'send-abort-timeout.bin',
+        'bytes': 1,
+        'sha256': '0' * 64,
+      },
+        approve: (_) async => true,
+        createStaging: (_) async => staging,
+        sendTimeout: const Duration(milliseconds: 5)),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(channel.aborted, isTrue);
+    expect(staging.aborted, isTrue);
+    expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
   });
 
   test('stalled source stream times out before FILE_OFFER and aborts one-shot channel', () async {
