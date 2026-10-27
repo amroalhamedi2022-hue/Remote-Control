@@ -326,3 +326,15 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Android APK / Windows bundle:** **NOT TESTED / NOT BUILT**; the change is a bounded preview-parser source/test fix, not a device-build request.
 - **Physical preview stream/FPS, audio mirroring, real input control, file/clipboard cross-device acceptance:** **NOT TESTED**. The preview assembler remains a view-only lab component; experimental pairing cryptography is not production-approved.
 - **Safety:** no new dependency, paid API, secret, artifact, auto-merge or `main` write.
+
+## 2026-10-27 — M66: exact preview deadline and cancellable source hashing
+
+- **Scope:** PR #1 only, branch `feature/build-reliability-v0_9`; no `main` or NetKit changes.
+- **Preview production fix:** `PreviewFrameAssembler` now expires a frame at `elapsed >= 15 seconds`, not one tick after the documented absolute deadline. The regression checks the exact boundary and verifies that the expired partial frame is discarded while a new frame can still start.
+- **Transfer production fix:** source hashing now consumes the picker/provider stream incrementally into the SHA-256 chunked sink with an explicit idle timer owned by the hash operation. If the provider stalls, the timeout cancels its stream subscription and fails preflight before `FILE_OFFER`; no file bytes are buffered wholesale in memory. This also repairs the existing stalled-source regression that hung in the previous CI run.
+- **Commits:** preview boundary fix `b480791dde522059b0c36995fd74fed16e364a87`; exact-boundary regression and assertion correction `87f8832154ea80e79682a867f5b551514497176d`, `201ca1d4b5dbf07ef1824ca0a64c9e0be5e555c0`; cancellable hashing `f5b18331fe9d5f7d021fd51cd06eef88f8e72671`; analyzer correction `63e589a2110dbb9f8b449d1b9ce445dfa0ef3a59`.
+- **Exact-head CI:** [run 40481491759](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40481491759) — **SUCCESS** on head `63e589a2110dbb9f8b449d1b9ce445dfa0ef3a59`. Flutter analyzer/widget/unit suite passed (**142 tests**); Node protocol/media-lab tests passed; Windows capture-lifecycle tests passed. Android SAF tests and Android APK/Windows bundle jobs were skipped by the workflow's opt-in policy.
+- **Earlier failures retained for audit:** [run 40480845266](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40480845266) caught the exact-boundary test's mistaken closure assertion and a stalled source-hash timeout; [run 40481244537](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40481244537) caught an unnecessary null assertion. These were corrected before the passing run.
+- **Build/device gate:** Android APK **NOT TESTED / NOT BUILT**; Windows EXE/bundle **NOT TESTED / NOT BUILT**; real Android↔Windows pairing, file/clipboard transfer, preview FPS, audio and input control **NOT TESTED**. This remains source-level acceptance, not device acceptance.
+- **Security boundary:** the file channel remains an experimental LAN lab and is not production-approved for privileged remote control; no root, paid API, new dependency, secret, auto-merge or `main` change.
+
