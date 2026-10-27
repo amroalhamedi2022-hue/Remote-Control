@@ -13,7 +13,7 @@ class _StallingReadXFile extends XFile {
   Future<int> length() async => 1;
 
   @override
-  Stream<Uint8List> openRead([int start = 0, int? end]) async* {
+  Stream<Uint8List> openRead([int? start, int? end]) async* {
     yield Uint8List.fromList([0x41]);
     await Completer<void>().future;
   }
