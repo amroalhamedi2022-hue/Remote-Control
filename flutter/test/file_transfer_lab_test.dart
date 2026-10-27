@@ -109,6 +109,7 @@ class _StagingFixture implements LabReceiveStaging {
   bool aborted = false;
   bool rejectCommit = false;
   bool rejectRollback = false;
+  bool rejectAbort = false;
   bool finalized = false;
   @override
   Future<void> write(List<int> data) async { bytes.addAll(data); }
@@ -132,6 +133,7 @@ class _StagingFixture implements LabReceiveStaging {
   Future<void> finalizeCommitted() async { finalized = true; }
   @override
   Future<void> abort() async {
+    if (rejectAbort) throw StateError('simulated staging cleanup failure');
     if (published) return;
     aborted = true;
     bytes.clear();
@@ -885,6 +887,37 @@ void main() {
     expect(staging.aborted, isTrue);
     expect(staging.published, isFalse);
     expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
+  });
+
+
+  test('staging cleanup failure preserves both receive and cleanup errors', () async {
+    final channel = _IncomingFixture(
+      [],
+      receiveError: StateError('simulated socket reset'),
+    );
+    final staging = _StagingFixture()..rejectAbort = true;
+
+    await expectLater(
+      receiveLabFile(
+        channel,
+        {
+          'type': 'FILE_OFFER',
+          'name': 'cleanup-failure.bin',
+          'bytes': 1,
+          'sha256': '559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd',
+        },
+        approve: (_) async => true,
+        createStaging: (_) async => staging,
+      ),
+      throwsA(
+        isA<FileTransferCleanupException>()
+            .having((error) => error.transferError, 'transferError', isA<StateError>())
+            .having((error) => error.cleanupError, 'cleanupError', isA<StateError>()),
+      ),
+    );
+
+    expect(channel.aborted, isTrue);
+    expect(channel.sent.map((frame) => frame['type']), ['FILE_READY']);
   });
 
 }
