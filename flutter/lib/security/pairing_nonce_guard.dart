@@ -23,7 +23,24 @@ class PairingNonceGuard {
   final Stopwatch _watch = Stopwatch();
   final LinkedHashMap<String, int> _expiresAtMicros = LinkedHashMap();
 
-  int get _nowMicros => _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
+  int? _lastObservedMicros;
+  bool _clockBroken = false;
+
+  /// A monotonic-clock rollback invalidates all cached nonces and disables this
+  /// guard until the pairing session creates a fresh instance. Clearing and
+  /// immediately accepting new values would reopen replay of an old nonce.
+  int? _readNowMicros() {
+    if (_clockBroken) return null;
+    final now = _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
+    final previous = _lastObservedMicros;
+    if (previous != null && now < previous) {
+      _expiresAtMicros.clear();
+      _clockBroken = true;
+      return null;
+    }
+    _lastObservedMicros = now;
+    return now;
+  }
 
   /// Returns false for a duplicate or when capacity is full.
   ///
@@ -35,7 +52,8 @@ class PairingNonceGuard {
         !RegExp(encodedField).hasMatch(nonce)) {
       throw const FormatException('Invalid pairing identity or nonce encoding');
     }
-    final now = _nowMicros;
+    final now = _readNowMicros();
+    if (now == null) return false;
     _purge(now);
     final key = '$identity:$nonce';
     if (_expiresAtMicros.containsKey(key)) return false;
@@ -45,7 +63,9 @@ class PairingNonceGuard {
   }
 
   int get length {
-    _purge(_nowMicros);
+    final now = _readNowMicros();
+    if (now == null) return 0;
+    _purge(now);
     return _expiresAtMicros.length;
   }
 
