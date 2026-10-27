@@ -318,7 +318,7 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
               target=candidate;
               reservation=slot;
               // Recheck after link creation too. If the path was substituted during
-              // the filesystem call, the catch below rolls back our unacknowledged file.
+              // the filesystem call, the catch below attempts rollback and surfaces cleanup failure.
               await assertDestinationDirectoryUnchanged(destDir,destinationIdentity);
               requireLiveSession();
               break;
