@@ -22,6 +22,14 @@ fun main() {
     for (name in forbidden) {
         check(!policy.validFileName(name)) { "Accepted forbidden filename: ${name.toList()}" }
     }
+    val readGrant = 1 shl 0
+    val writeGrant = 1 shl 1
+    check(policy.hasReadWriteTreeGrant(readGrant or writeGrant, readGrant, writeGrant))
+    check(policy.hasReadWriteTreeGrant(readGrant or writeGrant or (1 shl 4), readGrant, writeGrant))
+    check(!policy.hasReadWriteTreeGrant(readGrant, readGrant, writeGrant))
+    check(!policy.hasReadWriteTreeGrant(writeGrant, readGrant, writeGrant))
+    check(!policy.hasReadWriteTreeGrant(0, readGrant, writeGrant))
+
     check(policy.canStage(0, 8L * 1024 * 1024, 0))
     check(policy.canStage(0, 72L * 1024 * 1024, 64L * 1024 * 1024))
     check(!policy.canStage(1, 72L * 1024 * 1024, 1))
