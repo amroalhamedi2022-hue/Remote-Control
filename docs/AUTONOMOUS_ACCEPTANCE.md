@@ -300,3 +300,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Security boundary:** no new dependency or copied external implementation; existing base64/JPEG handling only. The experimental pairing cryptography is still not independently audited and must not be treated as production authorization.
 - **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector was available in this run. GitHub acceptance ledger is updated; the live Drive document is not claimed updated.
 - **Safety:** no paid API, secret, APK/EXE artifact, auto-merge or main change.
+
+## 2026-10-27 — M64: sticky fail-closed monotonic clock for preview frame assembly
+
+- **Scope:** Remote Control PR #1 only, branch `feature/build-reliability-v0_9`; no NetKit or `main` changes.
+- **Production:** `PreviewFrameAssembler` now remembers the last monotonic-clock reading across frame begin/part/end operations. Any reading below the last observation, a negative injected reading, or an exception from the clock marks that assembler permanently unusable. A later clock recovery cannot restart frame assembly on the same instance. The existing 512 KiB frame / 2,600-byte part bounds, canonical base64url checks, ordered offsets/IDs, JPEG markers and 15-second absolute assembly deadline remain.
+- **Regressions:** new tests roll the clock back from 110 to 105 while the frame start remains 100 (the case a start-only comparison misses), then verify recovery to 120 still cannot begin a new frame. A second test makes the injected clock throw and verifies the same sticky failure.
+- **Source commit:** [93d290a026b7ffcd9bffab423aba34dbfcc14d13](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/93d290a026b7ffcd9bffab423aba34dbfcc14d13).
+- **Regression commit / source-test head:** [a4f5721b3566889a74e2367613c65d5ddbb8b736](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/a4f5721b3566889a74e2367613c65d5ddbb8b736).
+- **Exact-head CI:** **NOT VERIFIED** in this run. The configured [Remote Control validation/build workflow](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/workflows/ci.yml) includes a push trigger for this development branch, but the connected workflow lookup exposes only pull-request-triggered runs and returned none for this SHA. No passing run ID is claimed.
+- **Android APK / Windows bundle:** **NOT TESTED / NOT BUILT**; the change is a bounded source/test fix and did not justify a package build.
+- **Physical preview streaming/FPS, audio mirroring, input control, file/clipboard cross-device acceptance:** **NOT TESTED**. Experimental pairing cryptography remains unapproved for privileged production use.
+- **Safety:** no new dependency, paid API, secret, artifact, auto-merge or main change.
+
