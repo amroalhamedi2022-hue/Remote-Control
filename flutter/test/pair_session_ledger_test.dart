@@ -81,8 +81,8 @@ void main() {
     final longFingerprint = List.filled(PairSessionLedger.maxFingerprintLength + 1, 'f').join();
     expect(() => ledger.remember(longAddress, 'fingerprint'), throwsArgumentError);
     expect(() => ledger.remember('192.168.1.10', longFingerprint), throwsArgumentError);
-    expect(() => ledger.remember('192.168.1.10\\u202E', 'fingerprint'), throwsArgumentError);
-    expect(() => ledger.remember('192.168.1.10', 'fingerprint\\nspoof'), throwsArgumentError);
+    expect(() => ledger.remember('192.168.1.10\u202E', 'fingerprint'), throwsArgumentError);
+    expect(() => ledger.remember('192.168.1.10', 'fingerprint\nspoof'), throwsArgumentError);
     expect(ledger.length, 0);
 
     const address = 'fe80::1%wlan0';
