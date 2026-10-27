@@ -313,3 +313,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Physical preview streaming/FPS, audio mirroring, input control, file/clipboard cross-device acceptance:** **NOT TESTED**. Experimental pairing cryptography remains unapproved for privileged production use.
 - **Safety:** no new dependency, paid API, secret, artifact, auto-merge or main change.
 
+## 2026-10-27 — M65: Bound remote preview frame identifiers
+
+- **Scope:** PR #1 only, branch `feature/build-reliability-v0_9`; no NetKit or `main` changes.
+- **Problem:** `PreviewFrameAssembler` accepted any positive Dart integer as a frame ID. A malformed or incompatible peer could send an out-of-range value and advance the completed-frame watermark so that ordinary IDs from the stream could no longer be accepted.
+- **Production change:** added an explicit signed 31-bit frame-ID ceiling (`0..0x7fffffff`) before any partial-frame state is allocated. The frame byte and part-size caps, strict canonical base64url, monotonic ID ordering, JPEG markers and 15-second absolute assembly deadline remain unchanged.
+- **Regression:** `flutter/test/preview_frame_assembler_test.dart` sends `0x80000000`, expects a format rejection, then successfully assembles a valid frame ID 1 on the same assembler. This verifies rejection does not mutate the frame watermark.
+- **Production commit:** [adb7ef1d19b13bde14aa477d1b0661e3ce6e3259](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/adb7ef1d19b13bde14aa477d1b0661e3ce6e3259).
+- **Source/test head:** [84baa4d80d2ec8463904896eb2ee142ae1b30d0c](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/84baa4d80d2ec8463904896eb2ee142ae1b30d0c).
+- **CI:** **NOT VERIFIED** for this source/test head. The repository workflow has a push trigger for this branch, but the connected workflow-run lookup exposes only pull-request-triggered runs and returned no run ID for this head; the combined commit-status lookup also returned no statuses. Do not infer PASS from the test being present.
+- **Flutter/Dart local execution:** **NOT TESTED** in this environment because Flutter/Dart are not installed.
+- **Android APK / Windows bundle:** **NOT TESTED / NOT BUILT**; the change is a bounded preview-parser source/test fix, not a device-build request.
+- **Physical preview stream/FPS, audio mirroring, real input control, file/clipboard cross-device acceptance:** **NOT TESTED**. The preview assembler remains a view-only lab component; experimental pairing cryptography is not production-approved.
+- **Safety:** no new dependency, paid API, secret, artifact, auto-merge or `main` write.
