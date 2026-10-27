@@ -39,7 +39,17 @@ class PairingNonceGuard {
   /// immediately accepting new values would reopen replay of an old nonce.
   int? _readNowMicros() {
     if (_clockBroken) return null;
-    final now = _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
+    late final int now;
+    try {
+      now = _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
+    } catch (_) {
+      // A clock failure is as unsafe as a rollback: invalidate every cached
+      // nonce and require a fresh pairing guard instead of leaving stale replay
+      // entries usable after the clock source recovers.
+      _expiresAtMicros.clear();
+      _clockBroken = true;
+      return null;
+    }
     final previous = _lastObservedMicros;
     if (previous != null && now < previous) {
       _expiresAtMicros.clear();
