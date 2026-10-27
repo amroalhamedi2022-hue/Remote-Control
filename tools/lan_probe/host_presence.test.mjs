@@ -44,7 +44,7 @@ async function pingTcp(port,message='PING\n') {
 }
 test('Windows host presence replies to Flutter-compatible discovery and safe PING',async t=>{
   const udpPort=await findFreePort('udp'),tcpPort=await findFreePort('tcp');
-  const host=await startHostPresence({udpPort,tcpPort,name:'MSI Sword 15',platform:'Windows',broadcast:false});
+  const host=await startHostPresence({udpPort,tcpPort,name:'MSI Sword 15',platform:'Windows',broadcast:false,allowLoopbackForTests:true});
   t.after(()=>host.close());
   const found=await sendUdpProbe(udpPort);
   assert.equal(found.name,'MSI Sword 15');
@@ -58,7 +58,7 @@ test('host presence refuses malformed parameters and does not silently swallow p
   await assert.rejects(startHostPresence({udpPort:0}),/port/);
   await assert.rejects(startHostPresence({name:'A'.repeat(65)}),/options/);
   const udpPort=await findFreePort('udp'),tcpPort=await findFreePort('tcp');
-  const host=await startHostPresence({udpPort,tcpPort,broadcast:false});
+  const host=await startHostPresence({udpPort,tcpPort,broadcast:false,allowLoopbackForTests:true});
   t.after(()=>host.close());
   await assert.rejects(startHostPresence({udpPort:await findFreePort('udp'),tcpPort,broadcast:false}),/EADDRINUSE/);
 });
@@ -69,7 +69,7 @@ test('full Node pairing host exposes the same presence and TCP-probe services', 
   const {tmpdir}=await import('node:os');
   const {join}=await import('node:path');
   const state=mkdtempSync(join(tmpdir(),'liquid-discovery-test-'));
-  const child=spawn(process.execPath,[file,'--listen',`--port=${pairPort}`,`--state=${state}`,`--discovery-port=${udpPort}`,`--probe-port=${tcpPort}`],{stdio:['pipe','pipe','pipe']});
+  const child=spawn(process.execPath,[file,'--listen','--allow-loopback-for-tests',`--port=${pairPort}`,`--state=${state}`,`--discovery-port=${udpPort}`,`--probe-port=${tcpPort}`],{stdio:['pipe','pipe','pipe'],env:{...process.env,NODE_ENV:'test'}});
   t.after(()=>{child.kill('SIGTERM');child.stdin.end();rmSync(state,{recursive:true,force:true});});
   await new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>reject(new Error('pair host did not start discovery')),4500);
