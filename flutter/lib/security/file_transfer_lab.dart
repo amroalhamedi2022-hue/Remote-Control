@@ -568,6 +568,12 @@ Future<FileSendResult?> receiveLabFile(
       sequence++;
       onProgress?.call(count, size, false);
     }
+  } catch (_) {
+    // Any failed receive-side operation makes this one-shot intent terminal.
+    // In particular, non-timeout socket/provider errors must not leave the
+    // peer's channel alive while private staging is being rolled back.
+    abortChannel();
+    rethrow;
   } finally {
     if (!committed) await staging.abort();
   }
