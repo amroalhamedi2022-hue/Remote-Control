@@ -39,6 +39,27 @@ void main() {
     expect(() => guard.remember('peer', 'nonce with spaces'), throwsFormatException);
   });
 
+  test('monotonic clock rollback clears nonce cache and fails closed until restart', () {
+    var now = 1000;
+    final guard = PairingNonceGuard(
+      lifetime: const Duration(microseconds: 500),
+      monotonicMicros: () => now,
+    );
+    expect(guard.remember('peerA', 'nonce1'), isTrue);
+    expect(guard.length, 1);
+
+    now = 999; // A broken injected/platform clock must not extend nonce lifetime.
+    expect(guard.remember('peerA', 'freshNonce'), isFalse);
+    expect(guard.length, 0);
+
+    now = 1200;
+    expect(guard.remember('peerA', 'nonce1'), isFalse,
+        reason: 'the same nonce must not become reusable after a clock rollback');
+    expect(guard.remember('peerB', 'nonce2'), isFalse,
+        reason: 'recreate the pairing guard/session after clock health is lost');
+    expect(guard.length, 0);
+  });
+
   test('invalid cache bounds are rejected', () {
     expect(() => PairingNonceGuard(maxEntries: 0), throwsArgumentError);
     expect(() => PairingNonceGuard(lifetime: Duration.zero), throwsArgumentError);
