@@ -274,3 +274,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Physical pairing, file transfer, clipboard, screen/audio mirroring and input control:** **NOT TESTED**.
 - **Security boundary:** the ledger is an ephemeral indicator only, not authorization, transport authentication or production cryptography. A clock failure requires a fresh ledger/session; it does not approve the experimental pairing protocol.
 - **Safety:** no new dependency, paid API, secret, build artifact, merge or main change.
+
+## 2026-10-27 — M62: Bound one-shot file-transfer deadlines
+
+- **Scope:** Remote Control PR #1 only, branch `feature/build-reliability-v0_9`; NetKit remains a separate repository/PR.
+- **Production:** `flutter/lib/security/file_transfer_lab.dart` now caps each configurable send, response, consent and staging deadline at two minutes (defaults remain 60 seconds). Invalid/unbounded deadlines are rejected before file-channel I/O, prompting or destination staging. This prevents a caller-supplied enormous timeout from pinning a one-shot transfer indefinitely; transport abort and staging rollback behavior remain unchanged.
+- **Regression:** `flutter/test/file_transfer_lab_test.dart` covers overlong sender and receiver deadlines and verifies no channel, consent or staging side effects occur before rejection.
+- **Source/test head:** `5cbfc92d84bfd9e83d975ac73a2784a2edaa0144`.
+- **Exact-source CI:** [run 40461918225](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40461918225) — **SUCCESS**. Flutter analyzer clean, **131 Flutter tests passed**, Node LAN/protocol/media lab tests passed, and Windows capture-lifecycle tests passed. Optional Android SAF and package-build jobs were skipped.
+- **Earlier failed attempt:** [run 40461704868](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40461704868) — **FAIL** because the receiver's send/response validation still accepted overlong values. The receiver now uses the same bounded validator and the subsequent exact-source run passed.
+- **Android APK/Windows bundle:** **NOT TESTED / NOT BUILT**; no package was required for this timeout-policy change. **Physical Android↔Windows pairing, transfer, clipboard, screen/audio mirroring and input acceptance:** **NOT TESTED**.
+- **Security boundary:** deadlines reduce resource-pinning risk but do not make the experimental pairing cryptography production-approved. No new dependency, paid API, secret, merge or main change.
