@@ -355,6 +355,20 @@ class LabIncomingOffer {
   const LabIncomingOffer(this.name, this.bytes, this.sha256);
 }
 
+/// Reports both the transfer failure and a failed attempt to remove private staging.
+/// Cleanup failure must never silently replace the original receive-side error.
+class FileTransferCleanupException implements Exception {
+  final Object transferError;
+  final Object cleanupError;
+
+  const FileTransferCleanupException(this.transferError, this.cleanupError);
+
+  @override
+  String toString() =>
+      'FileTransferCleanupException: transfer failed ($transferError); '
+      'staging cleanup also failed ($cleanupError)';
+}
+
 /// Dart/Node FILE_OFFER interoperability. Caller must supply a paired,
 /// signed-file-intent AEAD channel and a platform-specific transactional sink.
 /// No file is published on denial, truncation, bad framing or hash mismatch.
@@ -490,6 +504,8 @@ Future<FileSendResult?> receiveLabFile(
     rethrow;
   }
   var committed = false;
+  Object? transferFailure;
+  StackTrace? transferFailureStack;
   final sink = _LabDigestSink();
   final hasher = crypto.sha256.startChunkedConversion(sink);
   var count = 0;
@@ -568,14 +584,30 @@ Future<FileSendResult?> receiveLabFile(
       sequence++;
       onProgress?.call(count, size, false);
     }
-  } catch (_) {
+  } catch (error, stackTrace) {
+    transferFailure = error;
+    transferFailureStack = stackTrace;
     // Any failed receive-side operation makes this one-shot intent terminal.
     // In particular, non-timeout socket/provider errors must not leave the
     // peer's channel alive while private staging is being rolled back.
     abortChannel();
     rethrow;
   } finally {
-    if (!committed) await staging.abort();
+    if (!committed) {
+      try {
+        await staging.abort();
+      } catch (cleanupError, cleanupStack) {
+        final originalError = transferFailure;
+        final originalStack = transferFailureStack;
+        if (originalError != null && originalStack != null) {
+          Error.throwWithStackTrace(
+            FileTransferCleanupException(originalError, cleanupError),
+            originalStack,
+          );
+        }
+        Error.throwWithStackTrace(cleanupError, cleanupStack);
+      }
+    }
   }
 }
 
