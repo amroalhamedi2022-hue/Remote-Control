@@ -248,3 +248,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - APK/Windows bundle: intentionally not built for this in-memory policy change.
 - Physical Android↔Windows pairing, clipboard, file transfer, screen/audio and input acceptance: **NOT TESTED**.
 - The bespoke pairing protocol remains experimental and is not approved for production privileged control. No merge, no `main` write, no new dependency, no paid API, no secrets.
+
+
+## M60 — Bound ephemeral pairing-session ledger (2026-10-27)
+
+**Scope:** Remote Control PR #1 only; branch `feature/build-reliability-v0_9`. No main change or cross-repository dependency.
+
+- **Production:** `PairSessionLedger` now caps configured entries at 4,096 and lease lifetime at one day, rejects negative monotonic clock readings, and clears ephemeral indicators before reporting an invalid/backwards clock.
+- **Regression:** `flutter/test/pair_session_ledger_test.dart` covers over-limit capacity, overlong lifetime and negative-clock invalidation, while preserving expiry, refresh, revocation, identifier and rollback cases.
+- **Source/test commits:** production `fabb904c0f007368dd313a431f7b6cac1ebc3939`; regression/current branch head `f94bda935575871ef131ee28af6ad66bf84c15d9`.
+- **CI on exact head:** **NOT VERIFIED** in this run. The push workflow is configured for this feature branch, but the available connector only exposes pull-request-triggered runs and returned no run ID for the push. Do not claim a test pass from source inspection alone.
+- **Acceptance:** source diff reviewed **PASS**; new tests **PRESENT / execution NOT VERIFIED**; Flutter analyzer/tests **NOT VERIFIED**; APK/Windows bundle **NOT TESTED**; physical pairing and device controls **NOT TESTED**.
+- **Security boundary:** this ledger is an ephemeral UI indicator, not authorization. It does not establish cryptographic pairing, encrypt traffic, or authorize screen/input/files/clipboard. Those still require a reviewed authenticated channel and explicit consent.
+- **Safety:** no new dependency, binary build, secret, paid API, merge or main change.
