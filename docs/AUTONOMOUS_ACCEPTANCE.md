@@ -526,3 +526,13 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Build/device:** Android SAF policy and Android APK / Windows bundle jobs were **SKIPPED** by design; no APK/EXE built. Physical Android↔Windows file-transfer, clipboard, screen/audio and control acceptance remains **NOT TESTED**.
 - **Safety:** no new dependency, paid API, root access, permission bypass, secret, merge or main write. Pairing remains experimental and not production-approved.
 - **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Docs write/read connector available; this GitHub ledger is not a substitute for the live Drive document.
+
+
+## M81 — 2026-10-28 — receiver destination substitution guard
+- Production fix in `tools/lan_probe/file_transfer.mjs`: capture the resolved destination identity and revalidate it after user consent, before staging, and around final hard-link publication. A symlink/non-directory replacement or changed directory identity fails closed; any unacknowledged linked target is rolled back.
+- Regression in `tools/lan_probe/file_transfer.test.mjs`: rename the chosen directory and replace its path with a symlink during the approval callback; assert rejection, receiver-channel revocation, and no staged/final bytes in the outside or moved directory.
+- Commits on `feature/build-reliability-v0_9`: source `e7a9fff6d9c613210c9f0a84871d9734ad70bdeb`; regression `9c64d386cc4a9262dcb2feb480543a06e85bcd17`.
+- CI: **NOT VERIFIED** for the exact head. The available workflow-run lookup returned no run entries and the combined commit-status query returned no statuses for the push commit. Do not infer a pass from this absence.
+- Build: **NOT BUILT**; release packaging remains behind the explicit approval gate. Device acceptance: **NOT TESTED**.
+- Security limitation: these portable path/identity rechecks narrow a local TOCTOU window but do not provide the atomic directory-handle guarantees of `openat/linkat`; do not describe this lab transport as production-approved.
+- Remaining gates: verify the full Node/Flutter CI on this exact head, test on actual Windows and Android SAF destinations, then continue clipboard/screen/audio/control acceptance.
