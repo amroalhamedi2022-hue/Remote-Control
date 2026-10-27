@@ -435,3 +435,15 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **SKIPPED / NOT TESTED:** Android SAF native policy job, APK build, Windows bundle build, physical Android↔Windows file-transfer/clipboard/screen/audio/control acceptance. This is source CI only, not device acceptance.
 - **Security boundary:** channel abort is required for reliable cancellation, but it does not make the experimental pairing protocol production-approved. No root, secret, auto-merge or `main` write.
 - **Live Google Docs Handoff:** SYNC FAILED — no authorized Docs write/read connector was available in this run; this repository ledger does not replace the live Drive document.
+
+## 2026-10-27 — M74b: Canonical Base64 framing for incoming file chunks
+
+- **Production source:** `flutter/lib/security/file_transfer_lab.dart` now round-trips each decoded chunk through Base64 and rejects it unless the wire text is canonical. This closes alternate encodings with non-zero unused padding bits while preserving the same payload bytes.
+- **Regression:** `flutter/test/file_transfer_lab_test.dart` sends `AQIDBAV=`, a non-canonical alias of `AQIDBAU=` for the same five bytes. The receiver must reject it before writing any bytes, abort the one-shot channel and discard private staging.
+- **Source commit:** [`ea0ec0d`](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/ea0ec0dd0ad36d7f891e0c9be0646e9fbfcd1b0a).
+- **Test + exact tested head:** [`1712650`](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/17126501c5bc119d706b6098f7b4d859f962db2e).
+- **Exact-head CI:** [run 40531906700](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40531906700) — **SUCCESS** on source/test head `17126501c5bc119d706b6098f7b4d859f962db2e`.
+- **PASS:** Flutter analyzer; **153 Flutter tests**; Node protocol suite **31 total / 24 passed / 0 failed / 7 optional FFmpeg-dependent tests skipped**; Windows capture lifecycle tests.
+- **SKIPPED / NOT TESTED:** Android SAF native policy job, APK, Windows debug bundle and physical-device acceptance. No build artifacts or SHA-256 package hashes were produced in this round.
+- **Security boundary:** canonical framing reduces parser ambiguity; it does not authenticate the peer or approve the experimental lab protocol for privileged production control. No new dependency, paid API, root access, secret, merge or `main` change.
+- **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector was available, so this ledger is not being represented as a substitute for the live Drive document.
