@@ -536,3 +536,5 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - Build: **NOT BUILT**; release packaging remains behind the explicit approval gate. Device acceptance: **NOT TESTED**.
 - Security limitation: these portable path/identity rechecks narrow a local TOCTOU window but do not provide the atomic directory-handle guarantees of `openat/linkat`; do not describe this lab transport as production-approved.
 - Remaining gates: verify the full Node/Flutter CI on this exact head, test on actual Windows and Android SAF destinations, then continue clipboard/screen/audio/control acceptance.
+
+- Live Google Docs handoff: **SYNC FAILED** — no authorized Google Docs/Drive connector is available in this run; this GitHub ledger is not a substitute for the live Drive document.
