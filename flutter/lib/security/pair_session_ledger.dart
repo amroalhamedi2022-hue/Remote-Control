@@ -62,7 +62,17 @@ class PairSessionLedger {
     if (_clockBroken) {
       throw StateError('Pairing monotonic clock is invalid; create a new session ledger');
     }
-    final now = _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
+    late final int now;
+    try {
+      now = _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
+    } catch (error, stackTrace) {
+      _entries.clear();
+      _clockBroken = true;
+      Error.throwWithStackTrace(
+        StateError('Pairing monotonic clock failed; create a new session ledger: $error'),
+        stackTrace,
+      );
+    }
     final previous = _lastObservedMicros;
     if (now < 0 || (previous != null && now < previous)) {
       // A negative or rolled-back clock invalidates this ledger for its lifetime.
