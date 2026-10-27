@@ -213,7 +213,58 @@ class _BlockingCommitStaging extends _StagingFixture {
   }
 }
 
+class _NonAbortableChannel implements FileTransferChannel {
+  final sent = <Map<String, dynamic>>[];
+  int receiveCalls = 0;
+
+  @override
+  Future<void> send(Map<String, dynamic> message) async {
+    sent.add(message);
+  }
+
+  @override
+  Future<Map<String, dynamic>> receive() async {
+    receiveCalls++;
+    return <String, dynamic>{};
+  }
+}
+
 void main() {
+  test('sender rejects a channel without hard abort before reading or sending', () async {
+    final channel = _NonAbortableChannel();
+    await expectLater(
+      sendLabFile(channel, _StallingReadXFile()),
+      throwsArgumentError,
+    );
+    expect(channel.sent, isEmpty);
+    expect(channel.receiveCalls, 0);
+  });
+
+  test('receiver rejects a channel without hard abort before consent or staging', () async {
+    final channel = _NonAbortableChannel();
+    var prompts = 0;
+    var stages = 0;
+    await expectLater(
+      receiveLabFile(
+        channel,
+        {
+          'type': 'FILE_OFFER',
+          'name': 'non-abortable.bin',
+          'bytes': 0,
+          'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+        },
+        approve: (_) async { prompts++; return true; },
+        createStaging: (_) async { stages++; return _StagingFixture(); },
+      ),
+      throwsArgumentError,
+    );
+    expect(channel.sent, isEmpty);
+    expect(channel.receiveCalls, 0);
+    expect(prompts, 0);
+    expect(stages, 0);
+  });
+
+
   test('validates cross-platform filename safety before sending', () {
     for (final name in [
       '../secret', 'CON.txt', 'nul', 'CON .txt', 'NUL .bin', 'COM1 .log',
