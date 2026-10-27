@@ -625,6 +625,24 @@ void main() {
     ], shouldSucceed: false);
   });
 
+  test('non-canonical base64 padding bits are rejected before staging write', () async {
+    const digest = '74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0';
+    // AQIDBAU= is canonical for [1,2,3,4,5]; AQIDBAV= decodes to the
+    // same bytes but has non-zero unused padding bits in its final sextet.
+    final channel = _IncomingFixture([
+      {'type': 'FILE_CHUNK', 'seq': 0, 'data': 'AQIDBAV='},
+    ]);
+    final stage = _StagingFixture();
+    await expectLater(receiveLabFile(channel, {
+      'type': 'FILE_OFFER', 'name': 'canonical.bin', 'bytes': 5, 'sha256': digest,
+    }, approve: (_) async => true, createStaging: (_) async => stage),
+      throwsFormatException);
+    expect(stage.bytes, isEmpty);
+    expect(stage.aborted, isTrue);
+    expect(stage.published, isFalse);
+    expect(channel.aborted, isTrue);
+  });
+
   test('invalid incoming base64 aborts staging', () async {
     await _verifyReceive([
       {'type': 'FILE_CHUNK', 'seq': 0, 'data': '!!!='},
