@@ -394,3 +394,18 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Device acceptance:** **NOT TESTED** — real Android↔Windows file/clipboard transfer, preview FPS, audio mirroring and input control remain open.
 - **Security boundary:** pairing/channel cryptography remains experimental and is not production-approved for privileged remote control. No root, new dependency, paid API, secret, artifact, auto-merge or `main` write.
 - **Live Google Docs Handoff:** **SYNC FAILED**; no authorized Google Docs write/read connector was available. This ledger does not replace the live Drive document.
+
+## 2026-10-27 — M71: Fail closed when pairing clock sources fail
+
+- **Scope:** Remote Control PR #1 only; branch `feature/build-reliability-v0_9`. No NetKit or `main` changes.
+- **Finding:** monotonic rollback was already fail-closed, but an injected/platform monotonic-clock provider that threw could escape before the replay nonce guard latched its unhealthy state. In the UI-only pairing indicator ledger, the same failure could leave prior entries resident and allow the ledger to be reused after the clock source recovered.
+- **Production changes:** `PairingNonceGuard` now clears replay entries and permanently disables that guard if its clock source throws. `PairSessionLedger` clears the UI indicators, latches the clock as broken, and throws a clear `StateError`; creating a fresh pairing/session lifecycle is required. The ledger remains explicitly UI-only and is not authorization.
+- **Regression coverage:** added clock-source exception tests to `flutter/test/pairing_nonce_guard_test.dart` and `flutter/test/pair_session_ledger_test.dart`. Both verify entries are cleared and recovery of the injected clock does not reactivate the old guard/ledger.
+- **Source commits:** [64eb8cd](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/64eb8cddef9e03e82462782f79f09eed3c687711) and [9096a8c](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/9096a8c9c37ea7850e56e3ab2924cd49e5924297).
+- **Regression/test head:** [28cc242bcd017f1514ff3c08d6626a55e3388d1d](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/28cc242bcd017f1514ff3c08d6626a55e3388d1d).
+- **Exact-head CI:** **NOT VERIFIED** in this run. The connector returned no combined status entries and no pull-request-triggered run record for this push head; earlier M70 CI at [40512964922](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40512964922) does not prove these new changes.
+- **Flutter analyzer/tests:** **NOT TESTED on the M71 head** in this session. The changed tests are part of the normal `flutter test` suite, but no exact-head run result was available to verify.
+- **APK / Windows EXE bundle:** **NOT TESTED / NOT BUILT**. This is a source-level lifecycle hardening change, not a device-package gate.
+- **Physical acceptance:** **NOT TESTED** — Android↔Windows pairing, files/clipboard, screen/audio preview and input remain open.
+- **Security boundary:** custom pairing remains experimental and not production-approved for privileged remote control; no root, new dependency, paid API, secret, artifact, auto-merge or `main` write.
+- **Live Google Docs Handoff:** **SYNC FAILED**; no authorized Google Docs write/read connector was available. This repository ledger does not replace the live Drive document.
