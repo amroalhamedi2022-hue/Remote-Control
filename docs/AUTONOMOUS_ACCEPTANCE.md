@@ -261,3 +261,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Acceptance:** source diff reviewed **PASS**; new tests **PRESENT / execution NOT VERIFIED**; Flutter analyzer/tests **NOT VERIFIED**; APK/Windows bundle **NOT TESTED**; physical pairing and device controls **NOT TESTED**.
 - **Security boundary:** this ledger is an ephemeral UI indicator, not authorization. It does not establish cryptographic pairing, encrypt traffic, or authorize screen/input/files/clipboard. Those still require a reviewed authenticated channel and explicit consent.
 - **Safety:** no new dependency, binary build, secret, paid API, merge or main change.
+
+
+## 2026-10-27 — M61: Permanently invalidate pairing-session indicators after monotonic rollback
+
+- **Scope:** PR #1 only, branch `feature/build-reliability-v0_9`; no main or NetKit source changes.
+- **Production:** `PairSessionLedger` now latches itself unusable after a negative or backwards monotonic-clock observation. It clears ephemeral indicators and throws on subsequent reads/writes even after the injected clock recovers; callers must create a new ledger as part of a new pairing-session lifecycle. Calling `clear()` removes entries but cannot reset the clock-health latch.
+- **Regression:** `flutter/test/pair_session_ledger_test.dart` now verifies that contains/length/remember/fingerprint lookup remain blocked after clock recovery and that revoke-triggered rollback also leaves the ledger disabled.
+- **Commits:** production `6552b34ab477eaa5c2a63485ec9549d3f69b6643`; regression/head `e0a1d5a882639907027a2acc33701bd5b3083139`.
+- **Exact-head CI:** [run 40454907644](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40454907644) — **SUCCESS** on the source/test head. Flutter source checks, Node protocol/media-lab suite (optional FFmpeg integrations remain skipped when tools are absent), and Windows capture-lifecycle tests passed. Android/Windows package jobs were **SKIPPED**.
+- **APK/Windows bundle:** **NOT TESTED / NOT BUILT** for this in-memory session-ledger change.
+- **Physical pairing, file transfer, clipboard, screen/audio mirroring and input control:** **NOT TESTED**.
+- **Security boundary:** the ledger is an ephemeral indicator only, not authorization, transport authentication or production cryptography. A clock failure requires a fresh ledger/session; it does not approve the experimental pairing protocol.
+- **Safety:** no new dependency, paid API, secret, build artifact, merge or main change.
