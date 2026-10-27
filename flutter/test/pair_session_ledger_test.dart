@@ -91,32 +91,43 @@ void main() {
     expect(ledger.fingerprintFor(address), fingerprint);
   });
 
-  test('clock rollback fails closed and clears stale session indicators', () {
+  test('clock rollback permanently invalidates the ledger until session recreation', () {
     var nowMicros = 10_000;
-    final ledger = PairSessionLedger(
-      monotonicMicros: () => nowMicros,
-    );
+    final ledger = PairSessionLedger(monotonicMicros: () => nowMicros);
     ledger.remember('192.168.1.7', 'device-seven');
     nowMicros = 9_000;
     expect(() => ledger.contains('192.168.1.7'), throwsStateError);
-    nowMicros = 10_000;
-    expect(ledger.contains('192.168.1.7'), isFalse);
+
+    nowMicros = 10_000; // source recovers, but this ledger must stay unusable
+    expect(() => ledger.contains('192.168.1.7'), throwsStateError);
+    expect(() => ledger.remember('192.168.1.8', 'device-eight'), throwsStateError);
+    expect(() => ledger.length, throwsStateError);
+    ledger.clear(); // clearing entries must not repair the clock-health latch
+    expect(() => ledger.remember('192.168.1.9', 'device-nine'), throwsStateError);
   });
 
-  test('fingerprint revocation observes clock rollback and clears every stale lease', () {
+  test('fingerprint revocation detects rollback and keeps ledger disabled', () {
     var nowMicros = 10_000;
-    final ledger = PairSessionLedger(
-      monotonicMicros: () => nowMicros,
-    );
+    final ledger = PairSessionLedger(monotonicMicros: () => nowMicros);
     ledger.remember('192.168.1.8', 'device-eight');
     ledger.remember('192.168.1.9', 'device-nine');
 
     nowMicros = 9_000;
     expect(() => ledger.revokeFingerprint('device-eight'), throwsStateError);
-
-    // After the monotonic source recovers, no other stale indicator may remain.
     nowMicros = 10_000;
-    expect(ledger.length, 0);
+    expect(() => ledger.length, throwsStateError);
+    expect(() => ledger.fingerprintFor('192.168.1.9'), throwsStateError);
+  });
+
+  test('negative monotonic clock is rejected and permanently disables ledger', () {
+    var nowMicros = 10;
+    final ledger = PairSessionLedger(monotonicMicros: () => nowMicros);
+    ledger.remember('peer-a', 'fingerprint-a');
+    nowMicros = -1;
+    expect(() => ledger.contains('peer-a'), throwsStateError);
+    nowMicros = 10;
+    expect(() => ledger.contains('peer-a'), throwsStateError);
+    expect(() => ledger.remember('peer-b', 'fingerprint-b'), throwsStateError);
   });
 
   test('rejects invalid limits and empty identity', () {
@@ -132,15 +143,5 @@ void main() {
     ledger.remember('192.168.1.1', 'fingerprint');
     ledger.clear();
     expect(ledger.contains('192.168.1.1'), isFalse);
-  });
-
-  test('negative monotonic clock is rejected and clears indicators', () {
-    var nowMicros = 10;
-    final ledger = PairSessionLedger(monotonicMicros: () => nowMicros);
-    ledger.remember('peer-a', 'fingerprint-a');
-    nowMicros = -1;
-    expect(() => ledger.contains('peer-a'), throwsStateError);
-    nowMicros = 10;
-    expect(ledger.contains('peer-a'), isFalse);
   });
 }
