@@ -17,6 +17,12 @@ const hex = h => h.digest('hex');
 
 const BASE64_CHUNK_PATTERN = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
+// Match the Flutter sender and Windows filename rules, including console aliases.
+function isReservedWindowsDeviceName(name) {
+  const stem = name.split('.')[0].replace(/[ .]+$/u, '').toUpperCase();
+  return /^(?:CON|PRN|AUX|NUL|CONIN\\$|CONOUT\\$|COM[1-9¹²³]|LPT[1-9¹²³])$/u.test(stem);
+}
+
 // Node's Base64 decoder accepts aliases with non-zero unused padding bits and
 // silently normalizes some malformed-but-decodable input. The wire format is
 // canonical: the sender emits Buffer.toString('base64'), so reject aliases.
@@ -97,7 +103,7 @@ export function safeTransferName(name) {
       /[\u00ad\u034f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]|[\u{e0000}-\u{e007f}]/u.test(name) ||
       /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(name) ||
       /^\.(?:liquidremote|netkit)-/iu.test(name) ||
-      /^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)/iu.test(name)) {
+      isReservedWindowsDeviceName(name)) {
     throw new Error('Unsafe transferred filename');
   }
   return name;
