@@ -352,3 +352,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Physical Android↔Windows pairing, file/clipboard transfer, preview FPS, audio mirroring and input control:** **NOT TESTED**. The pairing and file channel remain experimental lab code, not independently audited production authorization or cryptography.
 - **Safety:** no new dependency, paid API, secret, artifact, auto-merge or `main` write. No root requirement was introduced.
 - **Live Google Docs Handoff:** **SYNC FAILED** until an authorized Google Docs write/read connector is available; this repository ledger is not a substitute for the live Drive document.
+
+## 2026-10-27 — M68 — Preserve transfer failure when staging cleanup also fails
+
+- **Production changed:** incoming file reception now records the primary receive/transport failure and, if `staging.abort()` also fails, raises `FileTransferCleanupException` containing both errors while retaining the original receive stack. This avoids silently masking a socket/provider failure with cleanup failure and makes a possible leftover private staging file explicit.
+- **Regression changed:** `flutter/test/file_transfer_lab_test.dart` injects a socket-reset failure plus a failing staging abort and asserts both errors are surfaced and the one-shot channel is revoked.
+- **Production commit:** [f3e97928ef1e5a431aaebfcd21bbafebb785ece5](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/f3e97928ef1e5a431aaebfcd21bbafebb785ece5).
+- **Regression/test head:** [f910d143d71e6af85402a5ddacadfaf60e45b013](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/f910d143d71e6af85402a5ddacadfaf60e45b013).
+- **Exact-head CI:** **NOT VERIFIED**. No combined status checks or pull-request-triggered run were exposed for this push head, so there is no verifiable run ID/log for M68. Earlier M67 CI does not prove this patch.
+- **Flutter analyzer/tests:** **NOT TESTED on M68 head** in this session; local Flutter/Dart toolchain execution was unavailable.
+- **Android APK / Windows EXE bundle:** **NOT TESTED / NOT BUILT**; the targeted failure-path test is source-level and no device binary was needed.
+- **Device file transfer, Android SAF staging, Windows destination rollback:** **NOT TESTED**.
+- **Safety:** no new dependency, paid API, secret, auto-merge or `main` write. No root requirement was introduced; existing pairing remains experimental lab code pending security review.
+- **Live Google Docs Handoff:** **SYNC FAILED** because no Google Docs write/read connector is available in this session; this ledger is not a substitute for the live Drive document.
