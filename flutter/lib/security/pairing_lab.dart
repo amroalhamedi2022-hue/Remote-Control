@@ -24,6 +24,7 @@ import 'pairing_nonce_guard.dart';
 import 'trust_pin_store.dart';
 import 'clipboard_policy.dart';
 import 'clipboard_receive_policy.dart';
+import 'preview_frame_assembler.dart';
 
 const pairingPort = 43829;
 const _protocol = 'liquidremote.pair.v1';
@@ -575,51 +576,13 @@ class PairingLab {
 
   Future<void> _receivePreview(_SealedChannel channel,
       void Function(Uint8List frame) onFrame) async {
-    BytesBuilder? buffer;
-    int? currentId;
-    int expected = 0;
-    int written = 0;
-    int lastId = -1;
-    // A disconnected host ends the session; no preview image is trusted
-    // unless a complete frame passes all integrity and boundary checks.
+    final assembler = PreviewFrameAssembler();
+    // The per-message timeout bounds idle peers; the assembler adds an absolute
+    // deadline for a frame so a peer cannot drip one JPEG part forever.
     while (_previewSocket != null && !_previewCancelled) {
       final msg = await channel.receive().timeout(const Duration(seconds: 12));
-      switch (msg['type']) {
-        case 'FRAME_BEGIN':
-          final id = msg['id'];
-          final len = msg['bytes'];
-          if (id is! int || id <= lastId || len is! int || len < 4 || len > 512 * 1024) {
-            throw const FormatException('Invalid preview frame header');
-          }
-          currentId = id; expected = len; written = 0;
-          buffer = BytesBuilder(copy: false);
-          break;
-        case 'FRAME_PART':
-          if (buffer == null || msg['id'] != currentId || msg['offset'] != written ||
-              msg['data'] is! String || (msg['data'] as String).length > 4000) {
-            throw const FormatException('Invalid preview part');
-          }
-          final part = _unb64(msg['data'] as String);
-          if (part.isEmpty || part.length > 2600 || written + part.length > expected) {
-            throw const FormatException('Preview frame overflow');
-          }
-          buffer.add(part); written += part.length;
-          break;
-        case 'FRAME_END':
-          if (buffer == null || msg['id'] != currentId || written != expected) {
-            throw const FormatException('Incomplete preview frame');
-          }
-          final image = buffer.takeBytes();
-          if (image[0] != 0xff || image[1] != 0xd8 ||
-              image[image.length - 2] != 0xff || image.last != 0xd9) {
-            throw const FormatException('Not a JPEG');
-          }
-          lastId = currentId!; currentId = null; buffer = null;
-          onFrame(image);
-          break;
-        default:
-          throw StateError('Unexpected preview message');
-      }
+      final image = assembler.accept(msg);
+      if (image != null) onFrame(image);
     }
   }
 
