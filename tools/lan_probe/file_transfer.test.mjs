@@ -71,6 +71,23 @@ test('denied offer writes no temporary or final files',()=>sandbox(async dir=>{
   assert.equal(b.destroyed,true,'explicit denial must revoke the one-shot receiver channel');
   assert.deepEqual(await fs.readdir(dest),[]);
 }));
+test('reject non-canonical base64 aliases before writing or acknowledging a chunk',()=>sandbox(async dir=>{
+  const destination=path.join(dir,'dest');await fs.mkdir(destination);
+  const payload=Buffer.from([1,2,3,4,5]);
+  const alias='AQIDBAV=';
+  assert.equal(payload.toString('base64'),'AQIDBAU=');
+  assert.deepEqual(Buffer.from(alias,'base64'),payload,'the alias decodes to the same bytes');
+  const offer={type:'FILE_OFFER',name:'canonical.bin',bytes:payload.length,
+    sha256:crypto.createHash('sha256').update(payload).digest('hex')};
+  const [sender,receiver]=channels();
+  const receiving=receiveFileOnce(receiver,offer,{directory:destination,approve:async()=>true});
+  assert.deepEqual(await sender.receive(),{type:'FILE_READY'});
+  sender.send({type:'FILE_CHUNK',seq:0,data:alias});
+  await assert.rejects(receiving,/Invalid file chunk/);
+  assert.equal(receiver.destroyed,true,'malformed framing must revoke the one-shot channel');
+  assert.deepEqual(await fs.readdir(destination),[],'non-canonical bytes must never be staged or published');
+}));
+
 test('corrupt payload is rejected and partial file is deleted',()=>sandbox(async dir=>{
   const [a,b]=channels(),dest=path.join(dir,'dest');await fs.mkdir(dest);
   const offer={type:'FILE_OFFER',name:'safe.bin',bytes:3,sha256:'0'.repeat(64)};
