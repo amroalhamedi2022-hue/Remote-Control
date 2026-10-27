@@ -231,8 +231,14 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
     try { channel.send({type:'FILE_DENIED'}); } catch { /* disconnected or malformed peer */ }
     throw error;
   }
-  if(typeof approve!=='function'||typeof directory!=='string')
+  if(typeof approve!=='function'||typeof directory!=='string'||directory.length===0)
     throw new Error('Explicit file receiver approval required');
+  // Preflight the user-selected destination before showing a consent prompt.
+  // realpath also pins subsequent operations to the resolved directory rather
+  // than following a user-controlled symlink again later.
+  const destDir=await fsp.realpath(directory);
+  if(!(await fsp.stat(destDir)).isDirectory())throw new Error('Destination must be a directory');
+  requireLiveSession();
   // User consent may be asynchronous (a desktop dialog). Apply the same
   // cancellation and idle deadline as encrypted frame reads so a dismissed or
   // stuck dialog cannot keep a receiver session alive indefinitely.
@@ -244,9 +250,6 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
     channel.send({type:'FILE_DENIED'});
     return null;
   }
-  const destDir=await fsp.realpath(directory);
-  if(!(await fsp.stat(destDir)).isDirectory())throw new Error('Destination must be a directory');
-  requireLiveSession();
   const tmp=path.join(destDir,`.liquidremote-${crypto.randomUUID()}.part`);
   const file=await fsp.open(tmp,'wx',0o600);
   let saved=false;
