@@ -27,7 +27,7 @@ async function sandbox(fn) {
   try {return await fn(dir);} finally {await fs.rm(dir,{recursive:true,force:true});}
 }
 test('reject spoofed names, paths and reserved Windows filenames',()=>{
-  for(const name of ['../secret','a\\b','CON.txt','COM¹.log','NUL','report.','report ',
+  for(const name of ['../secret','a\\b','CON.txt','COM¹.log','NUL','CONIN$.txt','CONOUT$.txt','CONIN$ .txt','CONOUT$ .txt','CON .txt','COM1 .log','report.','report ',
     'invoice\u202Egpj.exe','hidden\u2066name','line\u2028break','line\u2029break','bad\u0000name','x\uFFFD','x\uD800','']) {
     assert.throws(()=>safeTransferName(name),/Unsafe/);
   }
@@ -104,6 +104,8 @@ test('corrupt payload is rejected and partial file is deleted',()=>sandbox(async
 test('invalid offer and oversized offer fail before consent and close the one-shot channel',()=>sandbox(async dir=>{
   let approvals=0;
   for(const offer of [{type:'FILE_OFFER',name:'../bad',bytes:1,sha256:'0'.repeat(64)},
+    {type:'FILE_OFFER',name:'CONIN$ .txt',bytes:1,sha256:'0'.repeat(64)},
+    {type:'FILE_OFFER',name:'CONOUT$.txt',bytes:1,sha256:'0'.repeat(64)},
     {type:'FILE_OFFER',name:'ok',bytes:MAX_FILE_BYTES+1,sha256:'0'.repeat(64)}]) {
     const [a,b]=channels();
     await assert.rejects(receiveFileOnce(b,offer,{directory:dir,approve:async()=>{approvals++;return true;}}));
