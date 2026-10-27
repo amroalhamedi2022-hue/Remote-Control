@@ -6,14 +6,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_remote_control/security/desktop_file_staging.dart';
 import 'package:liquid_remote_control/security/file_transfer_lab.dart';
 
-class _Frames implements FileTransferChannel {
+class _Frames implements AbortableFileTransferChannel {
   final List<Map<String, dynamic>> frames;
   final sent = <Map<String, dynamic>>[];
+  bool aborted = false;
   _Frames(this.frames);
+
   @override
-  Future<void> send(Map<String, dynamic> message) async => sent.add(message);
+  void abort() { aborted = true; }
+
   @override
-  Future<Map<String, dynamic>> receive() async => frames.removeAt(0);
+  Future<void> send(Map<String, dynamic> message) async {
+    if (aborted) throw StateError('Channel aborted');
+    sent.add(message);
+  }
+
+  @override
+  Future<Map<String, dynamic>> receive() async {
+    if (aborted) throw StateError('Channel aborted');
+    return frames.removeAt(0);
+  }
 }
 
 Map<String, dynamic> _offer(String name, List<int> data) => {
