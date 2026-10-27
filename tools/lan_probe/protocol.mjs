@@ -15,12 +15,13 @@ export function isSafeDiscoveryLabel(value, maxLength) {
 }
 
 // Local-only IPv4 policy shared by the Node Windows host and manual probes.
-// Private RFC1918, IPv4 link-local (RFC3927), and loopback (same-machine QA).
+// Production defaults to RFC1918 and IPv4 link-local only. Loopback is opt-in
+// for isolated test fixtures; it must not silently broaden production pairing.
 // This is not proof of a trusted peer; cryptographic pairing + consent remain required.
-export function isLanIpv4(value) {
+export function isLanIpv4(value, {allowLoopback = false} = {}) {
   if (typeof value !== 'string' || net.isIP(value) !== 4) return false;
   const [a, b] = value.split('.').map(Number);
-  return a === 127 || a === 10 ||
+  return (allowLoopback && a === 127) || a === 10 ||
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
     (a === 169 && b === 254);
@@ -43,11 +44,11 @@ export function parsePacket(buffer) {
       !Number.isInteger(p.tcpPort) || p.tcpPort < 1 || p.tcpPort > 65535) return null;
   return { kind: p.kind, id: p.id, name: p.name, platform: p.platform, tcpPort: p.tcpPort };
 }
-export function parseEndpoint(text, defaultPort = UDP_PORT) {
+export function parseEndpoint(text, defaultPort = UDP_PORT, {allowLoopback = false} = {}) {
   const match = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d{1,5}))?$/.exec(text);
   if (!match) throw new Error('Expected IPv4 address[:port]');
   const ip = match[1];
-  if (!isLanIpv4(ip)) throw new Error('Expected a local LAN IPv4 address');
+  if (!isLanIpv4(ip, {allowLoopback})) throw new Error('Expected a local LAN IPv4 address');
   const port = match[2] ? Number(match[2]) : defaultPort;
   if (port < 1 || port > 65535) throw new Error('Port out of range');
   return { ip, port };
