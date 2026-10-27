@@ -840,6 +840,7 @@ void main() {
       sendLabFile(
         channel,
         _StallingReadXFile(),
+        selectedName: 'stalled-source.bin',
         sourceReadTimeout: const Duration(milliseconds: 5),
       ),
       throwsA(isA<TimeoutException>()),
