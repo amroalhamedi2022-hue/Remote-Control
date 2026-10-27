@@ -171,6 +171,10 @@ export async function sendFileOnce(channel, filePath, {onProgress = () => {}, si
         // The receiver's idle timeout and private staging cleanup still apply.
         try {channel.send({type:'FILE_CANCEL'});} catch { /* disconnected */ }
       }
+      // Every terminal sender failure ends this one-shot channel, including
+      // denial, malformed ACKs, timeout and a bad completion ACK. FILE_END
+      // remains the publication boundary: closing the channel is not FILE_CANCEL.
+      abortFileChannel(channel);
       throw error;
     }
   } finally {await handle.close();}
