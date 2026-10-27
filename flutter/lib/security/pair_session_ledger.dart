@@ -4,6 +4,10 @@
 class PairSessionLedger {
   static const int maxAddressLength = 128;
   static const int maxFingerprintLength = 256;
+  // Keep a malformed caller from turning this UI-only ledger into an unbounded
+  // memory sink. These limits do not imply that a lease grants trust.
+  static const int maxAllowedEntries = 4096;
+  static const Duration maxAllowedLifetime = Duration(days: 1);
 
   static bool _isSafeIdentifier(String value, int maxLength) {
     if (value.isEmpty || value.length > maxLength) return false;
@@ -28,8 +32,11 @@ class PairSessionLedger {
     this.maxEntries = 64,
     int Function()? monotonicMicros,
   }) : _monotonicMicros = monotonicMicros {
-    if (lifetime <= Duration.zero || maxEntries < 1) {
-      throw ArgumentError('Pairing session limits must be positive');
+    if (lifetime <= Duration.zero ||
+        lifetime > maxAllowedLifetime ||
+        maxEntries < 1 ||
+        maxEntries > maxAllowedEntries) {
+      throw ArgumentError('Pairing session limits are outside safe bounds');
     }
   }
 
@@ -53,12 +60,11 @@ class PairSessionLedger {
   int _readNowMicros() {
     final now = _monotonicMicros?.call() ?? _watch.elapsedMicroseconds;
     final previous = _lastObservedMicros;
-    if (previous != null && now < previous) {
-      // A broken/injected clock must fail closed rather than extend old trust
-      // indicators after a clock rollback.
+    if (now < 0 || (previous != null && now < previous)) {
+      // A negative or rolled-back clock must not extend stale trust indicators.
       _entries.clear();
       _lastObservedMicros = now;
-      throw StateError('Pairing monotonic clock moved backwards');
+      throw StateError('Pairing monotonic clock is invalid or moved backwards');
     }
     _lastObservedMicros = now;
     return now;
