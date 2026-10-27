@@ -14,6 +14,10 @@ internal object SafReceivePolicy {
         activeSessions == 0 && incomingBytes in 0..maxFileBytes &&
             usableCacheBytes >= incomingBytes + minimumCacheReserve
 
+    /** SAF publication writes a temporary document and then reads it back for SHA-256. */
+    fun hasReadWriteTreeGrant(flags: Int, readFlag: Int, writeFlag: Int): Boolean =
+        (flags and readFlag) != 0 && (flags and writeFlag) != 0
+
     private fun isWindowsReservedDeviceName(name: String): Boolean {
         // Windows trims ASCII spaces/dots from the device stem before the
         // extension: a name such as CON followed by a space and .txt is reserved.
