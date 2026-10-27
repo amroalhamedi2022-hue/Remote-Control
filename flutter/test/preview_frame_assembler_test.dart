@@ -43,6 +43,37 @@ void main() {
         throwsA(isA<TimeoutException>()));
   });
 
+  test('fails closed on a partial monotonic rollback that stays after frame start', () {
+    var now = 100;
+    final assembler = PreviewFrameAssembler(nowMicros: () => now);
+    assembler.accept(begin(1, jpeg.length));
+    now = 110;
+    assembler.accept(part(1, 0, encode(jpeg.sublist(0, 3))));
+    now = 105; // Still greater than the start time, but older than the last reading.
+    expect(() => assembler.accept(part(1, 3, encode(jpeg.sublist(3)))),
+        throwsA(isA<TimeoutException>()));
+    now = 120;
+    expect(() => assembler.accept(begin(2, jpeg.length)),
+        throwsA(isA<TimeoutException>()));
+  });
+
+  test('clock read exceptions permanently disable this assembler', () {
+    var failClock = false;
+    var now = 100;
+    final assembler = PreviewFrameAssembler(nowMicros: () {
+      if (failClock) throw StateError('simulated monotonic clock failure');
+      return now;
+    });
+    assembler.accept(begin(1, jpeg.length));
+    failClock = true;
+    expect(() => assembler.accept(part(1, 0, encode(jpeg))),
+        throwsA(isA<TimeoutException>()));
+    failClock = false;
+    now = 200;
+    expect(() => assembler.accept(begin(2, jpeg.length)),
+        throwsA(isA<TimeoutException>()));
+  });
+
   test('rejects overlapping or replayed frame identifiers', () {
     final assembler = PreviewFrameAssembler();
     assembler.accept(begin(1, jpeg.length));
