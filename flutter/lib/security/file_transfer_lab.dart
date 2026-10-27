@@ -24,6 +24,15 @@ void _validateLabTimeout(Duration value, String name) {
   }
 }
 
+/// A timeout cannot cancel a Dart Future by itself. File-intent channels must
+/// expose a hard abort so a late send/receive cannot outlive a failed transfer.
+AbortableFileTransferChannel _requireAbortableChannel(FileTransferChannel channel) {
+  if (channel is! AbortableFileTransferChannel) {
+    throw ArgumentError('File transfer requires an abortable one-shot channel');
+  }
+  return channel;
+}
+
 abstract class FileTransferChannel {
   Future<void> send(Map<String, dynamic> message);
   Future<Map<String, dynamic>> receive();
@@ -189,6 +198,7 @@ Future<FileSendResult> sendLabFile(
   Duration responseTimeout = fileResponseTimeout,
   Duration sourceReadTimeout = fileResponseTimeout,
 }) async {
+  final abortableChannel = _requireAbortableChannel(channel);
   _validateLabTimeout(sendTimeout, 'sendTimeout');
   _validateLabTimeout(responseTimeout, 'responseTimeout');
   _validateLabTimeout(sourceReadTimeout, 'sourceReadTimeout');
@@ -197,13 +207,10 @@ Future<FileSendResult> sendLabFile(
   void abortChannel() {
     if (channelAborted) return;
     channelAborted = true;
-    final current = channel;
-    if (current is AbortableFileTransferChannel) {
-      try {
-        current.abort();
-      } catch (_) {
-        // Preserve the original transfer failure if transport cleanup itself fails.
-      }
+    try {
+      abortableChannel.abort();
+    } catch (_) {
+      // Preserve the original transfer failure if transport cleanup itself fails.
     }
   }
 
@@ -384,6 +391,7 @@ Future<FileSendResult?> receiveLabFile(
   Duration sendTimeout = fileResponseTimeout,
   Duration responseTimeout = fileResponseTimeout,
 }) async {
+  final abortableChannel = _requireAbortableChannel(channel);
   _validateLabTimeout(sendTimeout, 'sendTimeout');
   _validateLabTimeout(responseTimeout, 'responseTimeout');
   _validateLabTimeout(consentTimeout, 'consentTimeout');
@@ -393,13 +401,10 @@ Future<FileSendResult?> receiveLabFile(
     if (channelAborted) return;
     // Mark before calling platform code: abort may synchronously re-enter failure handling.
     channelAborted = true;
-    final current = channel;
-    if (current is AbortableFileTransferChannel) {
-      try {
-        current.abort();
-      } catch (_) {
-        // Preserve the transfer/timeout failure if transport cleanup itself fails.
-      }
+    try {
+      abortableChannel.abort();
+    } catch (_) {
+      // Preserve the transfer/timeout failure if transport cleanup itself fails.
     }
   }
   Future<void> sendFrame(Map<String, dynamic> message) async {
