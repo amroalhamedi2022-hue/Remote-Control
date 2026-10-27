@@ -908,6 +908,7 @@ void main() {
       throwsA(isA<TimeoutException>()),
     );
     expect(channel.aborted, isTrue);
+    expect(channel.abortCalls, 1);
     expect(staging.aborted, isTrue);
     expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
   });
@@ -929,6 +930,7 @@ void main() {
       throwsA(isA<TimeoutException>()),
     );
     expect(channel.aborted, isTrue);
+    expect(channel.abortCalls, 1);
     expect(staging.aborted, isTrue);
     expect(channel.sent.where((frame) => frame['type'] == 'FILE_OK'), isEmpty);
   });
