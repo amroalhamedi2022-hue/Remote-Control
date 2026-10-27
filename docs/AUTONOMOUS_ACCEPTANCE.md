@@ -365,3 +365,17 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Device file transfer, Android SAF staging, Windows destination rollback:** **NOT TESTED**.
 - **Safety:** no new dependency, paid API, secret, auto-merge or `main` write. No root requirement was introduced; existing pairing remains experimental lab code pending security review.
 - **Live Google Docs Handoff:** **SYNC FAILED** because no Google Docs write/read connector is available in this session; this ledger is not a substitute for the live Drive document.
+
+
+## 2026-10-27 — M69: Preserve receiver timeout when transport abort itself fails
+
+- **Scope:** Remote Control PR #1 only; branch `feature/build-reliability-v0_9`. No NetKit or `main` changes.
+- **Finding:** receiver `sendFrame` and `receiveFrame` called an abortable channel's `abort()` directly from their `TimeoutException` handlers. If a platform transport threw while aborting, that cleanup exception masked the timeout that caused cleanup and obscured the actual failure.
+- **Production fix:** centralized best-effort receiver channel revocation in `abortChannel()`; timeout handlers now call it and rethrow the original timeout even if abort fails. The same safe helper is available to the receive transaction's other terminal paths.
+- **Regressions:** two tests inject a channel whose abort marks it closed then throws: one for a stalled receive, one for a stalled `FILE_READY` send. Both assert that the caller still sees `TimeoutException`, the one-shot channel is revoked, private staging is aborted and no `FILE_OK` is emitted.
+- **Source/test head:** `a98e25f41c88e211e1a2671fc9cc490c017f83ea`.
+- **Exact-head CI:** [run 40505025666](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40505025666) — **SUCCESS**. Flutter analyzer and **146 Flutter tests passed**, including both new timeout/abort regressions; Node protocol/media-lab suite passed with **7 optional FFmpeg-dependent tests skipped**; Windows capture-process lifecycle tests passed.
+- **Android SAF / APK / Windows bundle:** **SKIPPED / NOT BUILT** by the workflow; this is a source-level failure-path fix, not device acceptance.
+- **Device acceptance:** **NOT TESTED** — Android↔Windows file/clipboard transfer, real screen preview/FPS, audio and input control remain open.
+- **Security boundary:** custom pairing/channel remains experimental lab code, not production-approved privileged authorization or cryptography. No root, new dependency, paid API, secret, artifact, auto-merge or `main` write.
+- **Live Google Docs Handoff:** **SYNC FAILED**; no authorized Google Docs write/read connector was available in this session.
