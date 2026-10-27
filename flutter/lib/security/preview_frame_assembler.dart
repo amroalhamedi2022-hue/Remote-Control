@@ -9,6 +9,9 @@ import 'dart:typed_data';
 /// indefinitely by sending one valid part just before each idle timeout.
 class PreviewFrameAssembler {
   static const int maxFrameBytes = 512 * 1024;
+  // Keep IDs within a signed 31-bit range shared by Dart, Kotlin and Windows
+  // native diagnostics. Out-of-range peer values must not poison later frames.
+  static const int maxFrameId = 0x7fffffff;
   static const int maxPartBytes = 2600;
   static const int maxEncodedPartChars = 4000;
   static const Duration maxAssemblyTime = Duration(seconds: 15);
@@ -66,7 +69,7 @@ class PreviewFrameAssembler {
         }
         final id = message['id'];
         final length = message['bytes'];
-        if (id is! int || id <= _lastCompletedId ||
+        if (id is! int || id < 0 || id > maxFrameId || id <= _lastCompletedId ||
             length is! int || length < 4 || length > maxFrameBytes) {
           throw const FormatException('Invalid preview frame header');
         }
