@@ -12,6 +12,7 @@ const option = (name, fallback) => {
 };
 const mode = args.includes('--serve') ? 'serve' : args.some(x=>x.startsWith('--probe=')) ? 'probe' :
   args.some(x=>x.startsWith('--ping=')) ? 'ping' : '';
+const allowLoopbackForTests = process.env.NODE_ENV === 'test' && args.includes('--allow-loopback-for-tests');
 const timeout = Number(option('timeout', 1500));
 const udpPort = Number(option('udp-port', UDP_PORT));
 const tcpPort = Number(option('tcp-port', TCP_PORT));
@@ -31,7 +32,7 @@ async function serve() {
   const server = net.createServer(conn => {
     // The CLI fixture must not expose even its probe endpoint to public IPs.
     // Accept a bounded complete line, not an arbitrary TCP packet boundary.
-    if (!isLanIpv4(conn.remoteAddress)) { conn.destroy(); return; }
+    if (!isLanIpv4(conn.remoteAddress, {allowLoopback: allowLoopbackForTests})) { conn.destroy(); return; }
     conn.setTimeout(3000, ()=>conn.destroy());
     let command='';
     conn.on('data', chunk=>{
@@ -47,7 +48,7 @@ async function serve() {
   socket.setBroadcast(true);
   const send = (kind, ip, port)=>socket.send(payload(kind,node),port,ip);
   socket.on('message',(data,remote)=>{
-    if (!isLanIpv4(remote.address)) return;
+    if (!isLanIpv4(remote.address, {allowLoopback: allowLoopbackForTests})) return;
     const peer=parsePacket(data);
     if (!peer || peer.id === node.id) return;
     if (peer.kind === 'DISCOVER') send('ANNOUNCE',remote.address,remote.port);
@@ -65,7 +66,7 @@ async function serve() {
 }
 
 async function probe() {
-  const {ip,port}=parseEndpoint(address,udpPort);
+  const {ip,port}=parseEndpoint(address,udpPort,{allowLoopback:allowLoopbackForTests});
   const socket=await udpBind(0);
   let complete=false;
   const timer=setTimeout(()=>finish(null),timeout);
@@ -82,7 +83,7 @@ async function probe() {
   socket.send(payload('DISCOVER',node),port,ip);
 }
 async function ping() {
-  const {ip,port}=parseEndpoint(address,tcpPort);
+  const {ip,port}=parseEndpoint(address,tcpPort,{allowLoopback:allowLoopbackForTests});
   const t0=performance.now();
   const conn=net.createConnection({host:ip,port});
   conn.setTimeout(timeout);
