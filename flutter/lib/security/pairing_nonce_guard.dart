@@ -1,5 +1,10 @@
 import 'dart:collection';
 
+// Keep this process-local replay cache bounded even if a caller misconfigures it.
+const int _maxNonceEntries = 4096;
+const Duration _maxNonceLifetime = Duration(days: 1);
+const int _maxSafeMonotonicMicros = 0x7fffffffffffffff;
+
 /// Rejects replayed signed hello nonces within one process-local pairing guard.
 ///
 /// This is a defense-in-depth replay check for the experimental pairing lab,
@@ -11,8 +16,11 @@ class PairingNonceGuard {
     this.maxEntries = 256,
     int Function()? monotonicMicros,
   }) : _monotonicMicros = monotonicMicros {
-    if (lifetime <= Duration.zero || maxEntries < 1) {
-      throw ArgumentError('Nonce guard limits must be positive');
+    if (lifetime <= Duration.zero ||
+        lifetime > _maxNonceLifetime ||
+        maxEntries < 1 ||
+        maxEntries > _maxNonceEntries) {
+      throw ArgumentError('Nonce guard limits are outside safe bounds');
     }
     _watch.start();
   }
@@ -58,7 +66,15 @@ class PairingNonceGuard {
     final key = '$identity:$nonce';
     if (_expiresAtMicros.containsKey(key)) return false;
     if (_expiresAtMicros.length >= maxEntries) return false;
-    _expiresAtMicros[key] = now + lifetime.inMicroseconds;
+    final ttlMicros = lifetime.inMicroseconds;
+    // A broken/wrapped monotonic counter must not turn a fresh nonce into an
+    // already-expired entry, which would make the same signed hello replayable.
+    if (now > _maxSafeMonotonicMicros - ttlMicros) {
+      _expiresAtMicros.clear();
+      _clockBroken = true;
+      return false;
+    }
+    _expiresAtMicros[key] = now + ttlMicros;
     return true;
   }
 

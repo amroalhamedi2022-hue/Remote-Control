@@ -63,5 +63,20 @@ void main() {
   test('invalid cache bounds are rejected', () {
     expect(() => PairingNonceGuard(maxEntries: 0), throwsArgumentError);
     expect(() => PairingNonceGuard(lifetime: Duration.zero), throwsArgumentError);
+    expect(() => PairingNonceGuard(maxEntries: 4097), throwsArgumentError);
+    expect(() => PairingNonceGuard(lifetime: Duration(days: 2)), throwsArgumentError);
+  });
+
+  test('expiry arithmetic overflow permanently fails closed for this guard', () {
+    var now = 0x7fffffffffffffff - 100;
+    final guard = PairingNonceGuard(
+      lifetime: const Duration(microseconds: 500),
+      monotonicMicros: () => now,
+    );
+    expect(guard.remember('peerA', 'nonce1'), isFalse);
+    expect(guard.length, 0);
+    now = 1;
+    expect(guard.remember('peerA', 'nonce1'), isFalse,
+        reason: 'a clock recovery must not reactivate the broken guard');
   });
 }
