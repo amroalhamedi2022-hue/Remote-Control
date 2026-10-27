@@ -108,6 +108,35 @@ export function safeTransferName(name) {
   }
   return name;
 }
+
+// Reserve Windows-portable destination names even when the receiver runs on a
+// case-sensitive filesystem. This prevents concurrent transfers from creating
+// names that collide after case folding or Unicode normalization on Windows.
+const destinationNameReservations = new Set();
+function canonicalWindowsName(value) {
+  return value.normalize('NFC').toUpperCase().normalize('NFC');
+}
+function destinationDirectoryKey(directory) {
+  return canonicalWindowsName(path.resolve(directory).replace(/\\/g, '/'));
+}
+async function reserveUniqueDestinationName(directory, desiredName) {
+  const existing = new Set((await fsp.readdir(directory)).map(canonicalWindowsName));
+  const ext = path.extname(desiredName);
+  const stem = desiredName.slice(0, desiredName.length - ext.length);
+  const directoryKey = destinationDirectoryKey(directory);
+  for (let i = 1; i <= 100; i++) {
+    const candidate = i === 1 ? desiredName : stem + ' (' + i + ')' + ext;
+    const normalized = canonicalWindowsName(candidate);
+    const key = directoryKey + '\0' + normalized;
+    if (existing.has(normalized) || destinationNameReservations.has(key)) continue;
+    destinationNameReservations.add(key);
+    return {
+      candidate,
+      release: () => destinationNameReservations.delete(key),
+    };
+  }
+  throw new Error('No available destination filename');
+}
 function validateOffer(offer) {
   if (offer?.type !== 'FILE_OFFER') throw new Error('Unexpected file transfer request');
   safeTransferName(offer.name);
@@ -240,20 +269,25 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
         requireLiveSession();
         // Hard-link is atomic and fails if a destination already exists.
         // Never overwrite an existing file, including case-insensitive aliases.
-        const ext=path.extname(offer.name),stem=offer.name.slice(0,offer.name.length-ext.length);
         let target;
+        let reservation;
         try {
-          for(let i=1;i<=100;i++) {
-            const candidate=path.join(destDir,i===1?offer.name:`${stem} (${i})${ext}`);
+          for(let attempt=1;attempt<=100;attempt++) {
+            const slot=await reserveUniqueDestinationName(destDir,offer.name);
             try {
               requireLiveSession();
+              const candidate=path.join(destDir,slot.candidate);
               await fsp.link(tmp,candidate);
               target=candidate;
+              reservation=slot;
               // A revoke can arrive while the filesystem is creating the
               // hard-link. Do not publish a newly linked file after cancellation.
               requireLiveSession();
               break;
-            } catch(e) {if(e.code!=='EEXIST')throw e;}
+            } catch(e) {
+              slot.release();
+              if(e.code!=='EEXIST')throw e;
+            }
           }
           if(!target)throw new Error('No available destination filename');
           requireLiveSession();
@@ -277,6 +311,8 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
             }
           }
           throw error;
+        } finally {
+          reservation?.release();
         }
       }
       if(packet?.type!=='FILE_CHUNK'||packet.seq!==seq||typeof packet.data!=='string'||
