@@ -75,9 +75,11 @@ class _NodeReceiverFixture implements AbortableFileTransferChannel {
 
 class _IncomingFixture implements AbortableFileTransferChannel {
   bool aborted = false;
+  int abortCalls = 0;
   final bool throwOnAbort;
   @override
   void abort() {
+    abortCalls++;
     aborted = true;
     if (throwOnAbort) throw StateError('simulated transport abort failure');
   }
@@ -393,6 +395,48 @@ void main() {
     // Complete the abandoned UI future late; it must not allocate a destination.
     approval.complete(true);
     await Future<void>.delayed(Duration.zero);
+    expect(stagingCalls, 0);
+  });
+
+  test('receiver preserves consent failure when channel abort also throws', () async {
+    final channel = _IncomingFixture([], throwOnAbort: true);
+    final offer = {
+      'type': 'FILE_OFFER',
+      'name': 'consent-error.bin',
+      'bytes': 0,
+      'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    };
+    await expectLater(
+      receiveLabFile(channel, offer,
+        approve: (_) async => throw StateError('simulated consent failure'),
+        createStaging: (_) async => throw StateError('staging must not be created')),
+      throwsA(isA<StateError>().having(
+        (error) => error.message, 'message', 'simulated consent failure')),
+    );
+    expect(channel.sent.map((message) => message['type']), ['FILE_DENIED']);
+    expect(channel.aborted, isTrue);
+    expect(channel.abortCalls, 1);
+  });
+
+  test('explicit denial returns normally when channel abort throws', () async {
+    final channel = _IncomingFixture([], throwOnAbort: true);
+    final offer = {
+      'type': 'FILE_OFFER',
+      'name': 'denied.bin',
+      'bytes': 0,
+      'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    };
+    var stagingCalls = 0;
+    final result = await receiveLabFile(channel, offer,
+      approve: (_) async => false,
+      createStaging: (_) async {
+        stagingCalls++;
+        return _StagingFixture();
+      });
+    expect(result, isNull);
+    expect(channel.sent.map((message) => message['type']), ['FILE_DENIED']);
+    expect(channel.aborted, isTrue);
+    expect(channel.abortCalls, 1);
     expect(stagingCalls, 0);
   });
 
