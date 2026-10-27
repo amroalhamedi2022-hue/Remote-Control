@@ -388,11 +388,21 @@ Future<FileSendResult?> receiveLabFile(
   _validateLabTimeout(responseTimeout, 'responseTimeout');
   _validateLabTimeout(consentTimeout, 'consentTimeout');
   _validateLabTimeout(stagingTimeout, 'stagingTimeout');
+  void abortChannel() {
+    final current = channel;
+    if (current is AbortableFileTransferChannel) {
+      try {
+        current.abort();
+      } catch (_) {
+        // Preserve the transfer/timeout failure if transport cleanup itself fails.
+      }
+    }
+  }
   Future<void> sendFrame(Map<String, dynamic> message) async {
     try {
       await channel.send(message).timeout(sendTimeout);
     } on TimeoutException {
-      if (channel is AbortableFileTransferChannel) channel.abort();
+      abortChannel();
       rethrow;
     }
   }
@@ -401,20 +411,15 @@ Future<FileSendResult?> receiveLabFile(
       return await channel.receive().timeout(responseTimeout);
     } on TimeoutException {
       // Revoke the channel on a stalled peer response; staging is rolled back
-      // by receiveLabFile's error path below.
-      if (channel is AbortableFileTransferChannel) channel.abort();
+      // by receiveLabFile's error path below. A faulty abort implementation
+      // must not replace the TimeoutException that triggered cleanup.
+      abortChannel();
       rethrow;
     }
   }
   void requireActiveSession() {
     if (isSessionActive?.call() == false) {
       throw StateError('File transfer session revoked');
-    }
-  }
-  void abortChannel() {
-    final current = channel;
-    if (current is AbortableFileTransferChannel) {
-      try { current.abort(); } catch (_) { /* best-effort transport cleanup */ }
     }
   }
   Future<void> denyAndAbort() async {
