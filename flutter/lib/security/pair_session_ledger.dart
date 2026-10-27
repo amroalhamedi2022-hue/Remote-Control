@@ -2,6 +2,27 @@
 // input, files or clipboard; those require a reviewed authenticated channel
 // and explicit per-operation host consent.
 class PairSessionLedger {
+  static const int maxAddressLength = 128;
+  static const int maxFingerprintLength = 256;
+
+  static bool _isSafeIdentifier(String value, int maxLength) {
+    if (value.isEmpty || value.length > maxLength) return false;
+    for (final rune in value.runes) {
+      if (rune < 0x20 ||
+          (rune >= 0x7f && rune <= 0x9f) ||
+          rune == 0xfffd || rune == 0x00ad || rune == 0x034f ||
+          rune == 0x061c || rune == 0x180e || rune == 0x200b ||
+          (rune >= 0x200e && rune <= 0x200f) ||
+          (rune >= 0x2028 && rune <= 0x202e) ||
+          (rune >= 0x2060 && rune <= 0x206f) ||
+          rune == 0xfeff || (rune >= 0xfff9 && rune <= 0xfffb) ||
+          (rune >= 0xe0000 && rune <= 0xe007f)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   PairSessionLedger({
     this.lifetime = const Duration(minutes: 10),
     this.maxEntries = 64,
@@ -34,8 +55,9 @@ class PairSessionLedger {
   }
 
   void remember(String address, String fingerprint) {
-    if (address.isEmpty || fingerprint.isEmpty) {
-      throw ArgumentError('Pairing identity and address must not be empty');
+    if (!_isSafeIdentifier(address, maxAddressLength) ||
+        !_isSafeIdentifier(fingerprint, maxFingerprintLength)) {
+      throw ArgumentError('Pairing identity/address is malformed or exceeds its safe bound');
     }
     final now = _readNowMicros();
     _purge(now);
