@@ -424,3 +424,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Final exact-head run:** [40516935990](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40516935990) is **completed / success** for source/test head `28cc242bcd017f1514ff3c08d6626a55e3388d1d`.
 - Check-run API confirms `flutter-source-checks: success`, `node-protocol-tests: success`, and `windows-capture-lifecycle: success`; Android SAF, APK and Windows debug bundle jobs were **skipped**.
 - **Acceptance:** analyzer + 150 Flutter tests PASS; Node protocol/LAN 96 PASS; H.264/media 24 PASS with 7 optional FFmpeg-dependent tests skipped; Windows capture lifecycle 3 PASS. No device or package acceptance is claimed.
+
+## 2026-10-27 — M72: Abortable file-transfer channel contract
+
+- **Production change:** `flutter/lib/security/file_transfer_lab.dart` now requires `AbortableFileTransferChannel` before sender or receiver preflight. This is necessary because `Future.timeout` does not cancel an underlying Dart send/receive future; a non-abortable adapter could continue work after the transfer has reported failure.
+- **Source commit:** `42346f01ba98cce63a29bc226c6b05bed959d191`.
+- **Regression tests:** `e67f9fc67941f8b26952c9f11a165ae4bc169603` verifies sender/receiver reject non-abortable channels before reading, sending, prompting for consent, or allocating staging. The first CI attempt exposed five existing desktop-staging tests whose fake channel did not implement abort; the fixture was corrected in `bf92adeb162877316f1838d69222107fe14e00b0` to model the required abort contract.
+- **Exact-head CI:** [run 40523364826](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40523364826), tested head `bf92adeb162877316f1838d69222107fe14e00b0` — **SUCCESS**.
+- **PASS:** Flutter analyzer, **152 Flutter tests**, Node protocol/LAN suite (**31 total; 24 passed, 7 optional FFmpeg-dependent tests skipped**), Windows capture lifecycle. No new dependency or paid API.
+- **SKIPPED / NOT TESTED:** Android SAF native policy job, APK build, Windows bundle build, physical Android↔Windows file-transfer/clipboard/screen/audio/control acceptance. This is source CI only, not device acceptance.
+- **Security boundary:** channel abort is required for reliable cancellation, but it does not make the experimental pairing protocol production-approved. No root, secret, auto-merge or `main` write.
+- **Live Google Docs Handoff:** SYNC FAILED — no authorized Docs write/read connector was available in this run; this repository ledger does not replace the live Drive document.
