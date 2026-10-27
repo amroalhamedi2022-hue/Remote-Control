@@ -130,6 +130,23 @@ void main() {
     expect(() => ledger.remember('peer-b', 'fingerprint-b'), throwsStateError);
   });
 
+  test('clock source failure clears indicators and permanently invalidates the ledger', () {
+    var broken = false;
+    var nowMicros = 1000;
+    final ledger = PairSessionLedger(monotonicMicros: () {
+      if (broken) throw StateError('clock unavailable');
+      return nowMicros;
+    });
+    ledger.remember('peer-a', 'fingerprint-a');
+    broken = true;
+    expect(() => ledger.contains('peer-a'), throwsStateError);
+    expect(() => ledger.length, throwsStateError);
+    broken = false;
+    nowMicros = 2000;
+    expect(() => ledger.remember('peer-b', 'fingerprint-b'), throwsStateError);
+    expect(() => ledger.fingerprintFor('peer-a'), throwsStateError);
+  });
+
   test('rejects invalid limits and empty identity', () {
     expect(() => PairSessionLedger(lifetime: Duration.zero), throwsArgumentError);
     expect(() => PairSessionLedger(maxEntries: 0), throwsArgumentError);
