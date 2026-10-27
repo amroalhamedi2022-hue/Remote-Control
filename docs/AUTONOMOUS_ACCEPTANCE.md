@@ -338,3 +338,17 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Build/device gate:** Android APK **NOT TESTED / NOT BUILT**; Windows EXE/bundle **NOT TESTED / NOT BUILT**; real Android↔Windows pairing, file/clipboard transfer, preview FPS, audio and input control **NOT TESTED**. This remains source-level acceptance, not device acceptance.
 - **Security boundary:** the file channel remains an experimental LAN lab and is not production-approved for privileged remote control; no root, paid API, new dependency, secret, auto-merge or `main` change.
 
+ 
+## 2026-10-27 — M67: Revoke receiver channel on non-timeout transfer failures
+
+- **Scope:** PR #1 only, branch `feature/build-reliability-v0_9`; no NetKit or `main` changes.
+- **Problem:** `receiveLabFile` already rolled back uncommitted staging in `finally`, and timeout helpers aborted abortable channels, but a non-timeout error from `channel.receive()`, staging writes, or commit could unwind the receiver while leaving the one-shot transport open.
+- **Production fix:** the receive transaction now catches every failed transfer path, aborts the one-shot channel, and rethrows the original failure before its existing staging rollback/finalization logic. A published file is still not deleted merely because the final `FILE_OK` write fails; the channel is revoked and the committed destination is preserved.
+- **Regression:** `flutter/test/file_transfer_lab_test.dart` injects a non-timeout peer read/socket-reset error after `FILE_READY` and verifies the channel is aborted, private staging is rolled back, no file is published, and no `FILE_OK` is sent.
+- **Production commit:** [8cbd4f7a689b145e9241b75da191d2da6ec9f563](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/8cbd4f7a689b145e9241b75da191d2da6ec9f563).
+- **Regression/test head:** [202658501b7cc9139f436ab7c6a43c4114016898](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/202658501b7cc9139f436ab7c6a43c4114016898).
+- **Exact-head CI:** [run 40489065047](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40489065047) — **SUCCESS**. Flutter analyzer and **143 Flutter tests passed**; Node protocol/media-lab suite passed (31 tests reported, 24 passed and 7 optional FFmpeg-dependent tests skipped); Windows capture-process lifecycle tests passed. Android SAF policy tests and Android/Windows package jobs were skipped.
+- **Android APK / Windows EXE bundle:** **NOT TESTED / NOT BUILT**; no package was needed to verify this transaction-lifecycle change.
+- **Physical Android↔Windows pairing, file/clipboard transfer, preview FPS, audio mirroring and input control:** **NOT TESTED**. The pairing and file channel remain experimental lab code, not independently audited production authorization or cryptography.
+- **Safety:** no new dependency, paid API, secret, artifact, auto-merge or `main` write. No root requirement was introduced.
+- **Live Google Docs Handoff:** **SYNC FAILED** until an authorized Google Docs write/read connector is available; this repository ledger is not a substitute for the live Drive document.
