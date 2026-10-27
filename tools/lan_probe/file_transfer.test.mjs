@@ -79,6 +79,26 @@ test('receiver reserves case-folded and Unicode-normalized Windows destination n
     'NFC and NFD spellings must reserve the same portable filename');
   assert.equal((await fs.readdir(destination)).filter(name=>name.endsWith('.part')).length,0);
 }));
+test('invalid destination is rejected before prompting for file consent',()=>sandbox(async dir=>{
+  const notDirectory=path.join(dir,'not-a-directory');
+  await fs.writeFile(notDirectory,'plain file');
+  const missing=path.join(dir,'missing-destination');
+  const emptyHash=crypto.createHash('sha256').update(Buffer.alloc(0)).digest('hex');
+  const offer={type:'FILE_OFFER',name:'safe.txt',bytes:0,sha256:emptyHash};
+  let approvals=0;
+  for(const destination of [missing,notDirectory]) {
+    const [sender,receiver]=channels();
+    await assert.rejects(receiveFileOnce(receiver,offer,{
+      directory:destination,
+      approve:async()=>{approvals++;return true;}
+    }));
+    assert.equal(approvals,0,'invalid destination must fail before asking the user');
+    assert.equal(receiver.destroyed,true,'failed destination preflight must revoke the one-shot channel');
+    assert.deepEqual((await fs.readdir(dir)).filter(name=>name.endsWith('.part')),[]);
+    assert.equal(sender.destroyed,false,'destination preflight must not fabricate a peer response');
+  }
+}));
+
 test('empty file is valid and is never silently omitted',()=>sandbox(async dir=>{
   const source=path.join(dir,'empty.txt');await fs.writeFile(source,'');
   const dest=path.join(dir,'dest');await fs.mkdir(dest);
