@@ -202,6 +202,49 @@ void main() {
     expect(validateLabFileName('COM10.txt'), 'COM10.txt');
   });
 
+  test('file-transfer operation deadlines are bounded before channel side effects', () async {
+    const tooLong = Duration(days: 1);
+    final file = XFile.fromData(Uint8List.fromList([1]), name: 'bounded.bin');
+
+    for (final which in ['send', 'response']) {
+      final channel = _NodeReceiverFixture();
+      await expectLater(
+        sendLabFile(channel, file,
+          sendTimeout: which == 'send' ? tooLong : fileResponseTimeout,
+          responseTimeout: which == 'response' ? tooLong : fileResponseTimeout),
+        throwsArgumentError,
+      );
+      expect(channel.sent, isEmpty, reason: 'sender $which timeout must fail before I/O');
+      expect(channel.aborted, isFalse);
+    }
+
+    const offer = <String, dynamic>{
+      'type': 'FILE_OFFER',
+      'name': 'bounded.bin',
+      'bytes': 0,
+      'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    };
+    for (final which in ['send', 'response', 'consent', 'staging']) {
+      final channel = _IncomingFixture([]);
+      var prompts = 0;
+      var stages = 0;
+      await expectLater(
+        receiveLabFile(channel, offer,
+          approve: (_) async { prompts++; return true; },
+          createStaging: (_) async { stages++; return _StagingFixture(); },
+          sendTimeout: which == 'send' ? tooLong : fileResponseTimeout,
+          responseTimeout: which == 'response' ? tooLong : fileResponseTimeout,
+          consentTimeout: which == 'consent' ? tooLong : fileResponseTimeout,
+          stagingTimeout: which == 'staging' ? tooLong : fileResponseTimeout),
+        throwsArgumentError,
+      );
+      expect(channel.sent, isEmpty, reason: 'receiver $which timeout must fail before I/O');
+      expect(channel.aborted, isFalse);
+      expect(prompts, 0);
+      expect(stages, 0);
+    }
+  });
+
   test('sends bounded chunks with SHA-256 and verified final ACK', () async {
     final bytes = Uint8List.fromList(List<int>.generate(8000, (i) => i % 251));
     final file = XFile.fromData(bytes, name:'ملف.bin');

@@ -12,6 +12,18 @@ const maxLabFileBytes = 64 * 1024 * 1024;
 const labFileChunkBytes = 3072; // keeps encrypted JSON lines under 8192 bytes
 const fileResponseTimeout = Duration(seconds: 60);
 
+// Per-frame deadlines must remain bounded even when supplied by a caller.
+// A timeout does not cancel arbitrary Futures; abortable transports are closed
+// on timeout and staging is rolled back by the receive error path.
+const maxLabOperationTimeout = Duration(minutes: 2);
+
+void _validateLabTimeout(Duration value, String name) {
+  if (value <= Duration.zero || value > maxLabOperationTimeout) {
+    throw ArgumentError.value(
+      value, name, 'must be positive and no greater than 2 minutes');
+  }
+}
+
 abstract class FileTransferChannel {
   Future<void> send(Map<String, dynamic> message);
   Future<Map<String, dynamic>> receive();
@@ -92,12 +104,8 @@ Future<FileSendResult> sendLabFile(
   Duration sendTimeout = fileResponseTimeout,
   Duration responseTimeout = fileResponseTimeout,
 }) async {
-  if (sendTimeout <= Duration.zero) {
-    throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
-  }
-  if (responseTimeout <= Duration.zero) {
-    throw ArgumentError.value(responseTimeout, 'responseTimeout', 'must be positive');
-  }
+  _validateLabTimeout(sendTimeout, 'sendTimeout');
+  _validateLabTimeout(responseTimeout, 'responseTimeout');
   var sendTimedOut = false;
   var channelAborted = false;
   void abortChannel() {
@@ -272,12 +280,8 @@ Future<FileSendResult?> receiveLabFile(
   if (responseTimeout <= Duration.zero) {
     throw ArgumentError.value(responseTimeout, 'responseTimeout', 'must be positive');
   }
-  if (consentTimeout <= Duration.zero) {
-    throw ArgumentError.value(consentTimeout, 'consentTimeout', 'must be positive');
-  }
-  if (stagingTimeout <= Duration.zero) {
-    throw ArgumentError.value(stagingTimeout, 'stagingTimeout', 'must be positive');
-  }
+  _validateLabTimeout(consentTimeout, 'consentTimeout');
+  _validateLabTimeout(stagingTimeout, 'stagingTimeout');
   Future<void> sendFrame(Map<String, dynamic> message) async {
     try {
       await channel.send(message).timeout(sendTimeout);
