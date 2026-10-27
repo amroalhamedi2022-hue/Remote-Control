@@ -51,6 +51,34 @@ test('transfer encrypted-channel payload in bounded chunks with exact hash and n
   assert.equal((await fs.readFile(path.join(target,'ملف 🫧.bin'))).toString(),'existing');
   assert.deepEqual((await fs.readdir(target)).filter(x=>x.endsWith('.part')),[]);
 }));
+test('receiver reserves case-folded and Unicode-normalized Windows destination names',()=>sandbox(async dir=>{
+  const destination=path.join(dir,'dest');await fs.mkdir(destination);
+  await fs.writeFile(path.join(destination,'café.txt'),'existing unicode');
+  const sendOne=async(name,payload)=>{
+    const source=path.join(dir,'source-'+crypto.randomUUID());
+    await fs.writeFile(source,payload);
+    const [sender,receiver]=channels();
+    const receiving=(async()=>receiveFileOnce(receiver,await receiver.receive(),{
+      directory:destination,approve:async()=>true}))();
+    const sending=sendFileOnce(sender,source);
+    const [saved]=await Promise.all([receiving,sending]);
+    assert.deepEqual(await fs.readFile(saved.path),payload);
+    return saved.path;
+  };
+  const payloadA=Buffer.from('upper'),payloadB=Buffer.from('lower');
+  const [first,second]=await Promise.all([
+    sendOne('Report.txt',payloadA),
+    sendOne('report.txt',payloadB),
+  ]);
+  const canonical=name=>name.normalize('NFC').toUpperCase().normalize('NFC');
+  assert.notEqual(canonical(path.basename(first)),canonical(path.basename(second)),
+    'concurrent transfers must not create Windows case-insensitive aliases');
+  assert.deepEqual(await fs.readFile(path.join(destination,'café.txt')),Buffer.from('existing unicode'));
+  const normalizedAlias=await sendOne('cafe\u0301.txt',Buffer.from('normalized alias'));
+  assert.notEqual(canonical(path.basename(normalizedAlias)),canonical('café.txt'),
+    'NFC and NFD spellings must reserve the same portable filename');
+  assert.equal((await fs.readdir(destination)).filter(name=>name.endsWith('.part')).length,0);
+}));
 test('empty file is valid and is never silently omitted',()=>sandbox(async dir=>{
   const source=path.join(dir,'empty.txt');await fs.writeFile(source,'');
   const dest=path.join(dir,'dest');await fs.mkdir(dest);
