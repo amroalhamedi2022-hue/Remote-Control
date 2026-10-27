@@ -87,9 +87,93 @@ Stream<List<int>> _fixedChunks(Stream<List<int>> source, int chunkSize) async* {
   if (pending.isNotEmpty) yield List<int>.from(pending);
 }
 
-/// Hashes the stream without loading a large SAF document into memory.
-Future<String> _hashFile(XFile file, Duration sourceReadTimeout) async =>
-    (await crypto.sha256.bind(file.openRead().timeout(sourceReadTimeout)).first).toString();
+/// Hashes a selected file incrementally without loading it into memory.
+///
+/// The idle timer is owned by this function rather than a StreamTransformer:
+/// some provider/transformer combinations can pause upstream delivery while
+/// waiting for the final digest, which can suppress a stream's own idle timer.
+/// On timeout, cancel the provider subscription and fail before FILE_OFFER.
+class _DigestValueSink implements Sink<crypto.Digest> {
+  crypto.Digest? value;
+
+  @override
+  void add(crypto.Digest digest) {
+    if (value != null) throw StateError('SHA-256 emitted more than one digest');
+    value = digest;
+  }
+
+  @override
+  void close() {}
+}
+
+Future<String> _hashFile(XFile file, Duration sourceReadTimeout) {
+  final digestSink = _DigestValueSink();
+  final digestInput = crypto.sha256.startChunkedConversion(digestSink);
+  final result = Completer<String>();
+  StreamSubscription<List<int>>? subscription;
+  Timer? idleTimer;
+  var settled = false;
+
+  void cancelTimer() {
+    idleTimer?.cancel();
+    idleTimer = null;
+  }
+
+  void fail(Object error, StackTrace stack) {
+    if (settled) return;
+    settled = true;
+    cancelTimer();
+    final activeSubscription = subscription;
+    if (activeSubscription != null) unawaited(activeSubscription.cancel());
+    result.completeError(error, stack);
+  }
+
+  void armIdleTimer() {
+    cancelTimer();
+    idleTimer = Timer(sourceReadTimeout, () {
+      fail(
+        TimeoutException('Selected file stream stalled while hashing',
+            sourceReadTimeout),
+        StackTrace.current,
+      );
+    });
+  }
+
+  armIdleTimer();
+  try {
+    subscription = file.openRead().listen(
+      (chunk) {
+        if (settled) return;
+        armIdleTimer();
+        try {
+          digestInput.add(chunk);
+        } catch (error, stack) {
+          fail(error, stack);
+        }
+      },
+      onError: (Object error, StackTrace stack) => fail(error, stack),
+      onDone: () {
+        if (settled) return;
+        settled = true;
+        cancelTimer();
+        try {
+          digestInput.close();
+          final digest = digestSink.value;
+          if (digest == null) throw StateError('SHA-256 produced no digest');
+          result.complete(digest.toString());
+        } catch (error, stack) {
+          result.completeError(error, stack);
+        }
+      },
+      cancelOnError: true,
+    );
+    // A synchronous stream may finish or fail before listen() returns.
+    if (settled) unawaited(subscription!.cancel());
+  } catch (error, stack) {
+    fail(error, stack);
+  }
+  return result.future;
+}
 
 /// The Node receiver must explicitly approve the signed file intent after
 /// the six-digit pairing check. Each chunk is acknowledged before the next.
