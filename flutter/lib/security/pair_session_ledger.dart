@@ -92,6 +92,10 @@ class PairSessionLedger {
   }
 
   void revokeFingerprint(String fingerprint) {
+    // Revocation is a ledger operation too: observe the monotonic clock first.
+    // If it regressed, _readNowMicros clears every lease and fails closed.
+    final now = _readNowMicros();
+    _purge(now);
     _entries.removeWhere((_, lease) => lease.fingerprint == fingerprint);
   }
 

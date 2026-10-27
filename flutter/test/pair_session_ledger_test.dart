@@ -103,6 +103,22 @@ void main() {
     expect(ledger.contains('192.168.1.7'), isFalse);
   });
 
+  test('fingerprint revocation observes clock rollback and clears every stale lease', () {
+    var nowMicros = 10_000;
+    final ledger = PairSessionLedger(
+      monotonicMicros: () => nowMicros,
+    );
+    ledger.remember('192.168.1.8', 'device-eight');
+    ledger.remember('192.168.1.9', 'device-nine');
+
+    nowMicros = 9_000;
+    expect(() => ledger.revokeFingerprint('device-eight'), throwsStateError);
+
+    // After the monotonic source recovers, no other stale indicator may remain.
+    nowMicros = 10_000;
+    expect(ledger.length, 0);
+  });
+
   test('rejects invalid limits and empty identity', () {
     expect(() => PairSessionLedger(lifetime: Duration.zero), throwsArgumentError);
     expect(() => PairSessionLedger(maxEntries: 0), throwsArgumentError);
