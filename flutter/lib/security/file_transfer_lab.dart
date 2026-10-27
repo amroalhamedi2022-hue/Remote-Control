@@ -583,6 +583,11 @@ Future<FileSendResult?> receiveLabFile(
         throw const FormatException('Invalid incoming file chunk');
       }
       final bytes = base64.decode(encoded);
+      // Reject alternate encodings with non-zero unused padding bits. Canonical
+      // framing gives each byte sequence one wire representation across runtimes.
+      if (base64.encode(bytes) != encoded) {
+        throw const FormatException('Non-canonical incoming file chunk');
+      }
       final remaining = size - count;
       final canonicalLength =
           remaining < labFileChunkBytes ? remaining : labFileChunkBytes;
