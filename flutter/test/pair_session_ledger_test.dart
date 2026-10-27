@@ -75,6 +75,22 @@ void main() {
     expect(ledger.fingerprintFor('192.168.1.5'), isNull);
   });
 
+  test('bounds peer identifiers and rejects hidden control characters', () {
+    final ledger = PairSessionLedger();
+    final longAddress = List.filled(PairSessionLedger.maxAddressLength + 1, 'a').join();
+    final longFingerprint = List.filled(PairSessionLedger.maxFingerprintLength + 1, 'f').join();
+    expect(() => ledger.remember(longAddress, 'fingerprint'), throwsArgumentError);
+    expect(() => ledger.remember('192.168.1.10', longFingerprint), throwsArgumentError);
+    expect(() => ledger.remember('192.168.1.10\\u202E', 'fingerprint'), throwsArgumentError);
+    expect(() => ledger.remember('192.168.1.10', 'fingerprint\\nspoof'), throwsArgumentError);
+    expect(ledger.length, 0);
+
+    const address = 'fe80::1%wlan0';
+    final fingerprint = List.filled(64, 'a').join();
+    ledger.remember(address, fingerprint);
+    expect(ledger.fingerprintFor(address), fingerprint);
+  });
+
   test('clock rollback fails closed and clears stale session indicators', () {
     var nowMicros = 10_000;
     final ledger = PairSessionLedger(
