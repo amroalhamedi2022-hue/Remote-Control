@@ -34,7 +34,7 @@ void main() {
         throwsA(isA<TimeoutException>()));
     // The expired partial is discarded, but the assembler remains usable.
     now += 1;
-    expect(() => assembler.accept(begin(2, jpeg.length)), isNull);
+    expect(assembler.accept(begin(2, jpeg.length)), isNull);
   });
 
   test('rejects a frame whose absolute assembly deadline elapsed', () {
