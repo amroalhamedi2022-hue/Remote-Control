@@ -274,12 +274,8 @@ Future<FileSendResult?> receiveLabFile(
   Duration sendTimeout = fileResponseTimeout,
   Duration responseTimeout = fileResponseTimeout,
 }) async {
-  if (sendTimeout <= Duration.zero) {
-    throw ArgumentError.value(sendTimeout, 'sendTimeout', 'must be positive');
-  }
-  if (responseTimeout <= Duration.zero) {
-    throw ArgumentError.value(responseTimeout, 'responseTimeout', 'must be positive');
-  }
+  _validateLabTimeout(sendTimeout, 'sendTimeout');
+  _validateLabTimeout(responseTimeout, 'responseTimeout');
   _validateLabTimeout(consentTimeout, 'consentTimeout');
   _validateLabTimeout(stagingTimeout, 'stagingTimeout');
   Future<void> sendFrame(Map<String, dynamic> message) async {
