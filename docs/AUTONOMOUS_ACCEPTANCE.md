@@ -418,3 +418,9 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Windows capture lifecycle:** **PASS** — 3 tests passed, 0 failed.
 - **Package/device gate:** Android SAF, APK and Windows bundle jobs were skipped; **NOT TESTED / NOT BUILT**. Physical Android↔Windows acceptance remains open.
 - **Safety:** no new dependency, paid API, secret, root requirement, artifact, auto-merge or `main` write. Pairing remains experimental and is not production-approved.
+
+## 2026-10-27 — M71 CI closure
+
+- **Final exact-head run:** [40516935990](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40516935990) is **completed / success** for source/test head `28cc242bcd017f1514ff3c08d6626a55e3388d1d`.
+- Check-run API confirms `flutter-source-checks: success`, `node-protocol-tests: success`, and `windows-capture-lifecycle: success`; Android SAF, APK and Windows debug bundle jobs were **skipped**.
+- **Acceptance:** analyzer + 150 Flutter tests PASS; Node protocol/LAN 96 PASS; H.264/media 24 PASS with 7 optional FFmpeg-dependent tests skipped; Windows capture lifecycle 3 PASS. No device or package acceptance is claimed.
