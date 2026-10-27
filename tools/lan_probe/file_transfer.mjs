@@ -119,6 +119,30 @@ function canonicalWindowsName(value) {
 function destinationDirectoryKey(directory) {
   return canonicalWindowsName(path.resolve(directory).replace(/\\/g, '/'));
 }
+
+// Directory paths are rechecked across user consent and file publication. realpath()
+// alone does not pin a directory object: a local process could rename it and replace
+// the selected path with a symlink while the peer is sending. This narrows that
+// substitution window; Node's portable APIs do not provide an atomic openat/linkat.
+function sameResolvedPath(left, right) {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+async function assertDestinationDirectoryUnchanged(directory, original) {
+  const linkStat = await fsp.lstat(directory);
+  if (linkStat.isSymbolicLink() || !linkStat.isDirectory())
+    throw new Error('Receiver destination changed during transfer');
+  const resolved = await fsp.realpath(directory);
+  if (!sameResolvedPath(resolved, directory))
+    throw new Error('Receiver destination changed during transfer');
+  const current = await fsp.stat(directory);
+  const inodeChanged = original.ino !== 0 && current.ino !== 0 && original.ino !== current.ino;
+  const birthtimeChanged = original.birthtimeMs !== 0 && current.birthtimeMs !== 0 &&
+    original.birthtimeMs !== current.birthtimeMs;
+  if (original.dev !== current.dev || inodeChanged || birthtimeChanged)
+    throw new Error('Receiver destination changed during transfer');
+}
 async function reserveUniqueDestinationName(directory, desiredName) {
   const existing = new Set((await fsp.readdir(directory)).map(canonicalWindowsName));
   const ext = path.extname(desiredName);
@@ -237,7 +261,9 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
   // realpath also pins subsequent operations to the resolved directory rather
   // than following a user-controlled symlink again later.
   const destDir=await fsp.realpath(directory);
-  if(!(await fsp.stat(destDir)).isDirectory())throw new Error('Destination must be a directory');
+  const destinationStat=await fsp.stat(destDir);
+  if(!destinationStat.isDirectory())throw new Error('Destination must be a directory');
+  const destinationIdentity={dev:destinationStat.dev,ino:destinationStat.ino,birthtimeMs:destinationStat.birthtimeMs};
   requireLiveSession();
   // User consent may be asynchronous (a desktop dialog). Apply the same
   // cancellation and idle deadline as encrypted frame reads so a dismissed or
@@ -250,10 +276,16 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
     channel.send({type:'FILE_DENIED'});
     return null;
   }
+  // Consent may take long enough for a local process to replace the chosen folder.
+  // Reject the change before creating even a private staging file at that path.
+  await assertDestinationDirectoryUnchanged(destDir,destinationIdentity);
   const tmp=path.join(destDir,`.liquidremote-${crypto.randomUUID()}.part`);
   const file=await fsp.open(tmp,'wx',0o600);
   let saved=false;
   try {
+    // Catch a path substitution racing the pre-staging check; finally removes our
+    // temporary file if the path changed between this check and open().
+    await assertDestinationDirectoryUnchanged(destDir,destinationIdentity);
     const h=sha256();let count=0,seq=0;
     requireLiveSession();
     channel.send({type:'FILE_READY'});
@@ -270,12 +302,14 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
             digest!==offer.sha256)throw new Error('File size or SHA-256 mismatch');
         await file.sync();await file.close();
         requireLiveSession();
+        await assertDestinationDirectoryUnchanged(destDir,destinationIdentity);
         // Hard-link is atomic and fails if a destination already exists.
         // Never overwrite an existing file, including case-insensitive aliases.
         let target;
         let reservation;
         try {
           for(let attempt=1;attempt<=100;attempt++) {
+            await assertDestinationDirectoryUnchanged(destDir,destinationIdentity);
             const slot=await reserveUniqueDestinationName(destDir,offer.name);
             try {
               requireLiveSession();
@@ -283,8 +317,9 @@ async function receiveFileOnceInternal(channel, offer, {approve,directory,onProg
               await fsp.link(tmp,candidate);
               target=candidate;
               reservation=slot;
-              // A revoke can arrive while the filesystem is creating the
-              // hard-link. Do not publish a newly linked file after cancellation.
+              // Recheck after link creation too. If the path was substituted during
+              // the filesystem call, the catch below rolls back our unacknowledged file.
+              await assertDestinationDirectoryUnchanged(destDir,destinationIdentity);
               requireLiveSession();
               break;
             } catch(e) {
