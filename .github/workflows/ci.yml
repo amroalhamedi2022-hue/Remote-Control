@@ -4,6 +4,9 @@ on:
     # Temporary milestone branch gate: PR #1 has base conflicts, so GitHub
     # suppresses pull_request checks. This validates the head WITHOUT merging main.
     branches: [main, feature/build-reliability-v0_9]
+    # Ledger-only commits must not cancel an in-flight source/test validation.
+    paths-ignore:
+      - 'docs/AUTONOMOUS_ACCEPTANCE.md'
   pull_request:
   workflow_dispatch:
     inputs:

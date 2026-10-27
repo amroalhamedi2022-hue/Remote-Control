@@ -469,8 +469,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Fix:** centralized best-effort channel revocation in `abortFileChannel()`, reused it for timeout/cancellation waits, and wrapped the public `receiveFileOnce` boundary so pre-staging and transfer errors revoke the channel while preserving the original exception. Malformed offers send best-effort `FILE_DENIED`; explicit denial closes after notification.
 - **Regression:** `tools/lan_probe/file_transfer.test.mjs` now models socket destruction and asserts revocation after explicit denial, invalid/oversized offers, and corrupt payload/hash failure.
 - **Source + regression commit:** [e90e2eabf94a7b30d8b77cebe7030c52c0fe0425](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/e90e2eabf94a7b30d8b77cebe7030c52c0fe0425).
-- **CI:** [run 40551040156](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40551040156) was **QUEUED / NOT VERIFIED** at this ledger update. The Windows capture-lifecycle job had completed PASS, but Node and Flutter source jobs were still queued; the overall run is not counted as PASS.
+- **PASS — exact M76 source/test CI:** [run 40551515664](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40551515664) completed **SUCCESS** on branch head `43af0e84cc27b39dadcd897a6ba53618f5c9aa16`, which contains the M76 source/test commit `e90e2eabf94a7b30d8b77cebe7030c52c0fe0425` plus its ledger entry. Node protocol suite: **96 passed / 0 failed**; optional media suite: **24 passed / 0 failed / 7 skipped** (FFmpeg-dependent, not codec acceptance); Flutter analyzer had no issues and **153 tests passed**; Windows capture lifecycle **3 passed / 0 failed**. Android SAF policy, APK, and Windows bundle jobs were skipped.
 - **Android SAF / APK / Windows bundle:** **SKIPPED / NOT BUILT**; this is a Node receiver lifecycle fix, not device acceptance.
 - **Device acceptance:** **NOT TESTED** — Android↔Windows transfer, clipboard, screen/audio mirroring and real input remain open.
 - **Safety:** no new dependency, paid API, root, secret, auto-merge or `main` write. Pairing remains experimental, not production-approved privileged authorization.
 - **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector was available; this repository ledger is not a substitute for the live Drive document.
+
+
+## M76 CI follow-up — avoid ledger-only cancellation
+
+- Updated `.github/workflows/ci.yml` to ignore push events where the only changed path is `docs/AUTONOMOUS_ACCEPTANCE.md`. This prevents a documentation-only acceptance update from cancelling a source/test run in progress. The workflow change itself triggers a new full validation run.
+- **Workflow/source validation after this meta-change:** pending; record the new run only after it completes.
