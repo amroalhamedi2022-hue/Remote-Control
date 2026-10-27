@@ -21,7 +21,7 @@ const closeTcp = server => new Promise(resolve => server.close(()=>resolve()));
 export async function startHostPresence({udpPort=UDP_PORT, tcpPort=TCP_PORT,
     name=os.hostname().slice(0, 64) || 'Windows Host',
     platform=process.platform==='win32' ? 'Windows' : 'Node-Test',
-    broadcast=true, intervalMs=5000}={}) {
+    broadcast=true, intervalMs=5000, allowLoopbackForTests=false}={}) {
   for(const p of [udpPort,tcpPort]) if(!Number.isInteger(p)||p<1||p>65535)
     throw new Error('Invalid discovery port');
   if (typeof name!=='string'||name.length<1||name.length>64||
@@ -32,7 +32,7 @@ export async function startHostPresence({udpPort=UDP_PORT, tcpPort=TCP_PORT,
   const udp=dgram.createSocket({type:'udp4',reuseAddr:true});
   const tcp=net.createServer(socket=>{
     // Never answer probes forwarded from public IPs.
-    if (!isLanIpv4(socket.remoteAddress)) { socket.destroy(); return; }
+    if (!isLanIpv4(socket.remoteAddress, {allowLoopback: allowLoopbackForTests})) { socket.destroy(); return; }
     // Probe is deliberately incapable of issuing screen/control commands.
     socket.setTimeout(3000,()=>socket.destroy());
     let command='';
@@ -55,7 +55,7 @@ export async function startHostPresence({udpPort=UDP_PORT, tcpPort=TCP_PORT,
       try {udp.send(payload(kind,node),port,address,()=>{});} catch {/* Interface unavailable */}
     };
     udp.on('message',(data,remote)=>{
-      if (!isLanIpv4(remote.address)) return;
+      if (!isLanIpv4(remote.address, {allowLoopback: allowLoopbackForTests})) return;
       const peer=parsePacket(data);
       if(!peer || peer.id===node.id)return;
       if(peer.kind==='DISCOVER')send('ANNOUNCE',remote.address,remote.port);
