@@ -131,4 +131,28 @@ void main() {
     expect(() => LanPeerCache(maxPeers: 0), throwsArgumentError);
     expect(() => LanPeerCache(maxPeers: 4097), throwsArgumentError);
   });
+
+  test('Untrusted peer-cache updates are throttled per source and bounded', () {
+    final gate = DiscoveryIngressGate(
+      maxSources: 2,
+      minSourceInterval: const Duration(seconds: 1),
+      retention: const Duration(seconds: 30),
+    );
+    expect(gate.shouldAccept('', Duration.zero), isFalse);
+    expect(gate.shouldAccept('192.168.1.2', Duration.zero), isTrue);
+    expect(gate.shouldAccept('192.168.1.2', const Duration(milliseconds: 999)), isFalse);
+    expect(gate.shouldAccept('192.168.1.2', const Duration(seconds: 1)), isTrue);
+    expect(gate.shouldAccept('192.168.1.2', const Duration(milliseconds: 500)), isFalse,
+        reason: 'a backwards elapsed reading must not bypass the source interval');
+    expect(gate.shouldAccept('192.168.1.3', const Duration(seconds: 2)), isTrue);
+    expect(gate.trackedSources, 2);
+    expect(gate.shouldAccept('192.168.1.4', const Duration(seconds: 3)), isTrue);
+    expect(gate.trackedSources, 2,
+        reason: 'the source ledger must stay within its configured capacity');
+    expect(gate.shouldAccept('192.168.1.3', const Duration(seconds: 40)), isTrue,
+        reason: 'expired source records are pruned');
+    gate.clear();
+    expect(gate.trackedSources, 0);
+    expect(() => DiscoveryIngressGate(maxSources: 0), throwsArgumentError);
+  });
 }
