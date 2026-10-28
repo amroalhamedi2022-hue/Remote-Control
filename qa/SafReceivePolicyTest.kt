@@ -8,6 +8,15 @@ fun main() {
     check(policy.validFileName("a".repeat(180)))
     check(policy.validFileName("CON-notes.txt"))
     check(policy.validFileName("COM10.txt"))
+    val malformedUtf16 = listOf(
+        "isolated-high-" + String(charArrayOf(0xD800.toChar())) + ".txt",
+        "isolated-low-" + String(charArrayOf(0xDC00.toChar())) + ".txt"
+    )
+    for (name in malformedUtf16) {
+        check(!policy.validFileName(name)) {
+            "Accepted malformed UTF-16 file name: " + name.toList()
+        }
+    }
     val forbidden = listOf(
         "", ".", "..", "report.", "report ", "../escape", "folder\\\\file",
         "CON", "con.txt", "LPT1.doc", "COM¹.txt", "NUL",
