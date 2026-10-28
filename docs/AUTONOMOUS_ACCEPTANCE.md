@@ -690,3 +690,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **APK/Windows bundle: NOT BUILT**; this is a Dart receiver-policy regression. Physical Android↔Windows acceptance remains **NOT TESTED**.
 - This remains a transfer-lab adapter, not production remote-access approval. No new dependency, paid API, root, MediaProjection/Accessibility bypass, secret, merge, or `main` write. PR #1 remains Draft and unmergeable on its existing base.
 - Live Google Docs Handoff: **SYNC FAILED** — no authorized Docs write/read connector is available in this runtime; this ledger is supplementary, not a replacement.
+
+## 2026-10-28 — M95 restore desktop receive-staging analyzer gate
+
+- **Source fixes:** `0d10a084798cd15cb97a6517b3112dd10c5091e7` removes the accidental duplicate tail of `desktop_file_staging.dart`; the retained implementation is the single offer-bound staging implementation with pre-write size checks, immutable expected metadata, digest verification and symlink/path-substitution guards.
+- **Regression test fix:** `3c70bc9258992bf05d8e497a2c4534b4c0ce1142` passes a typed `LabIncomingOffer` to `DesktopLabReceiveStaging.create`, matching the production API.
+- **CI on exact head `3c70bc9258992bf05d8e497a2c4534b4c0ce1142`: PASS** — [run 40680488428](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40680488428). Flutter source/analyzer/widget tests, Node protocol tests, Windows capture lifecycle checks all passed. APK/Windows bundle and opt-in native SAF build jobs were skipped by design.
+- **Prior failure retained for audit:** [run 40679922872](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40679922872) failed on the preceding source because one regression passed a map where `LabIncomingOffer` was required. This is corrected and the new exact-head run is green.
+- **PASS:** single source implementation verified (no duplicated staging tail); all enabled CI jobs pass on the exact tested commit.
+- **NOT TESTED:** Android/Windows package build, physical device file transfer, real Windows↔Xiaomi Pad 5 pairing, clipboard, screen/audio mirroring and input control. This is a source/compile gate only, not device acceptance or production-security approval.
+- **Branch safety:** PR #1 remains Draft; no merge, no `main` mutation, no new dependency or paid API.
+
