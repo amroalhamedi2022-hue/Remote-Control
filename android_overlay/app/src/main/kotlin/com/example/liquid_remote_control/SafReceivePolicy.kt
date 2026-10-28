@@ -30,8 +30,27 @@ internal object SafReceivePolicy {
         return stem in reserved || numberedDevice
     }
 
+    /** Reject isolated UTF-16 surrogates before names cross SAF/filesystem encoders. */
+    private fun hasWellFormedUtf16(value: String): Boolean {
+        var index = 0
+        while (index < value.length) {
+            val current = value[index]
+            when {
+                Character.isHighSurrogate(current) -> {
+                    if (index + 1 >= value.length ||
+                        !Character.isLowSurrogate(value[index + 1])) return false
+                    index += 2
+                }
+                Character.isLowSurrogate(current) -> return false
+                else -> index++
+            }
+        }
+        return true
+    }
+
     fun validFileName(name: String): Boolean {
-        if (name.isEmpty() || name.length > 180 || name == "." || name == ".." ||
+        if (name.isEmpty() || name.length > 180 || !hasWellFormedUtf16(name) ||
+            name == "." || name == ".." ||
             name.endsWith(".") || name.endsWith(" ") ||
             name.startsWith(".liquidremote-", ignoreCase = true) ||
             name.startsWith(".netkit-", ignoreCase = true) ||
