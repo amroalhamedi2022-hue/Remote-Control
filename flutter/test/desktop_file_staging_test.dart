@@ -57,6 +57,52 @@ void main() {
     }
   });
 
+  test('invalid offer metadata is rejected before creating desktop staging', () async {
+    final validDigest = crypto.sha256.convert([1]).toString();
+    final invalidOffers = [
+      LabIncomingOffer('bad.txt', -1, validDigest),
+      LabIncomingOffer('bad.txt', maxLabFileBytes + 1, validDigest),
+      LabIncomingOffer('bad.txt', 1, List.filled(64, 'G').join()),
+      LabIncomingOffer('bad.txt', 1, List.filled(63, '0').join()),
+    ];
+    for (final invalid in invalidOffers) {
+      await expectLater(
+        DesktopLabReceiveStaging.create(destination, invalid),
+        throwsFormatException,
+      );
+    }
+    expect(await destination.list().toList(), isEmpty);
+  });
+
+  test('desktop staging rejects bytes beyond the approved offer before writing', () async {
+    final stage = await DesktopLabReceiveStaging.create(
+      destination, _offer('bounded.txt', [1, 2, 3]));
+    await expectLater(stage.write([1, 2, 3, 4]), throwsStateError);
+    await stage.abort();
+    expect(await destination.list().toList(), isEmpty);
+  });
+
+  test('desktop commit cannot substitute approved byte count or digest', () async {
+    final data = [1, 2, 3];
+    final offer = _offer('bound.txt', data);
+    final stage = await DesktopLabReceiveStaging.create(
+      destination, LabIncomingOffer(
+        offer['name'] as String, offer['bytes'] as int, offer['sha256'] as String));
+    await stage.write(data);
+    await expectLater(stage.commit(
+      name: 'bound.txt',
+      bytes: data.length,
+      sha256: crypto.sha256.convert([9, 8, 7]).toString(),
+    ), throwsStateError);
+    await expectLater(stage.commit(
+      name: 'bound.txt',
+      bytes: data.length - 1,
+      sha256: offer['sha256'] as String,
+    ), throwsStateError);
+    await stage.abort();
+    expect(await destination.list().toList(), isEmpty);
+  });
+
   test('verified transfer publishes exactly one complete received folder', () async {
     final original = File('${destination.path}${Platform.pathSeparator}تقرير.txt');
     await original.writeAsString('do not overwrite');
