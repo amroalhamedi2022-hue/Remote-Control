@@ -131,15 +131,15 @@ test('Windows probe parser accepts only exact PONG after EOF across chunks', asy
   const socket = new PassThrough();
   const pending = readExactPong(socket, 200);
   socket.write('PO');
-  socket.write('NG\\r');
-  socket.end('\\n');
+  socket.write('NG\r');
+  socket.end('\n');
   assert.equal(await pending, true);
 });
 
 test('Windows probe parser rejects trailing bytes arriving in a later event', async () => {
   const socket = new PassThrough();
   const pending = readExactPong(socket, 200);
-  socket.write('PONG\\n');
+  socket.write('PONG\n');
   await new Promise(resolve => setImmediate(resolve));
   socket.end('EXTRA');
   assert.equal(await pending, false);
@@ -148,7 +148,7 @@ test('Windows probe parser rejects trailing bytes arriving in a later event', as
 test('Windows probe parser requires EOF and fails closed on timeout', async () => {
   const socket = new PassThrough();
   const pending = readExactPong(socket, 35);
-  socket.write('PONG\\n');
+  socket.write('PONG\n');
   assert.equal(await pending, false);
   socket.end();
 });
@@ -156,7 +156,7 @@ test('Windows probe parser requires EOF and fails closed on timeout', async () =
 test('Windows probe parser rejects malformed and overlong responses promptly', async () => {
   const malformed = new PassThrough();
   const bad = readExactPong(malformed, 200);
-  malformed.end('PONG\\rX\\n');
+  malformed.end('PONG\rX\n');
   assert.equal(await bad, false);
 
   const oversized = new PassThrough();
