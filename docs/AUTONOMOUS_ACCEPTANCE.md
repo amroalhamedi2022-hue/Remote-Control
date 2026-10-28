@@ -736,3 +736,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **PR state:** PR #1 remains Draft on `feature/build-reliability-v0_9`; no merge or `main` change.
 - **Next:** confirm the Windows lifecycle job conclusion; then continue the authenticated pairing/session implementation and device acceptance without treating discovery as trust.
 
+
+
+## 2026-10-28 — M99 — bounded unauthenticated LAN discovery replies
+
+- **Production source:** `flutter/lib/network/lan_discovery.dart` (commit [36d1c0e](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/36d1c0e92ced7f4ad043468fc345457a4e61fdb9)).
+- **Regression tests:** `flutter/test/lan_peer_cache_test.dart` (final test commit [44d0740](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/44d074080796ee0da2a5be1489ca64abb1c734d4)).
+- Added a bounded discovery reply gate: one response per source address per second, a global minimum 50 ms between responses, at most 128 remembered source addresses, and 30-second stale-entry pruning. Stop/dispose clears the gate. `LanPeerCache.remember` now reports whether visible peer state actually changed, and duplicate/stale packets no longer trigger unnecessary UI notifications. Discovery remains unauthenticated and never grants trust or control.
+- **CI on final source/test head: NOT VERIFIED.** The available workflow-run lookup exposes PR-triggered runs only, while this branch uses a push-triggered validation workflow. M98 run [40708374794](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40708374794) predates this change and is not evidence for the M99 head.
+- **APK/Windows bundle:** NOT BUILT; this bounded policy/state change does not require a package build. **Physical LAN/device acceptance:** NOT TESTED.
+- PR #1 remains Draft on `feature/build-reliability-v0_9`; no merge, `main` write, root, OS-policy bypass, paid API, or secret exposure.
+- **Live Google Docs handoff:** SYNC FAILED; no authorized Docs write/read connector is exposed in this runtime.
