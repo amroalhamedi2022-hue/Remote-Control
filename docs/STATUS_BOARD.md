@@ -45,3 +45,12 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - **M1:** PARTIAL — source validation passes, but Android APK/Windows bundle jobs were skipped for this run. No build or device acceptance claimed.
 - **M2/M3/M5/M7/M8:** remain LAB ONLY / NOT VERIFIED as appropriate. Real Windows↔Xiaomi Pad 5 pairing, MediaProjection/Accessibility, file/clipboard, audio and screen playback still require device evidence. FFmpeg/FFprobe integration tests were not run because the runner did not have those executables.
 - **No merge, no main write, no root or permission bypass.**
+
+
+## 2026-10-28 — M86 MJPEG encoder exit status
+
+- Source: `b75080c926dee7e8e839051bf475d057e5f889e1`; final test head: `dbdeb64e113c19236f7dc209493c11668d2d4776`.
+- The MJPEG sender now propagates a natural nonzero FFmpeg exit even when valid frames were already emitted; intentional policy stops are not misreported as encoder failures.
+- Exact-head CI: [run 40627761134](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40627761134) — Node 102/102, stream/video 27 pass and 7 optional FFmpeg skips, Flutter 153 tests pass, Windows capture lifecycle 3/3 pass.
+- M1 remains **PARTIAL**: source CI is green, but no APK/Windows bundle was built in this batch. M2/M3/M5/M7/M8 remain lab-only or not verified; physical pairing, file/clipboard, screen/audio, and permission lifecycle acceptance still required.
+- Live Google Docs handoff: **SYNC FAILED**; this repository ledger is not a replacement for the live Drive document. No merge or `main` write.

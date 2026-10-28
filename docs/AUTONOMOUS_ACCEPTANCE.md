@@ -584,3 +584,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **NOT TESTED:** seven optional real-codec FFmpeg tests were skipped because FFmpeg/FFprobe were not installed on the runner; physical Windows↔Android screen/audio playback, MediaProjection permission behavior and real viewer disconnects remain untested.
 - **Build discipline:** Android APK and Windows bundle jobs were skipped on this source-only run; no new EXE/APK or release artifact was created.
 - **Remaining:** device acceptance for LAN pairing, file/clipboard transfer, screen/audio, and actual Accessibility/MediaProjection lifecycle. No merge.
+
+
+## M86 — 2026-10-28 — Fail MJPEG capture when FFmpeg exits nonzero after emitting frames
+
+- **Functional change:** `tools/stream_lab/preview_stream.mjs` now checks the natural FFmpeg child exit code after stdout ends. A process that emits one or more frames and then exits nonzero fails the capture request instead of returning a success-shaped `{sent,dropped}` result. Intentional stops caused by max-frame policy, trust revocation, or viewer disconnect remain classified separately.
+- **Regression:** `tools/stream_lab/preview_stream.test.mjs` uses a temporary fake executable that emits one valid JPEG then exits with code 17; the request must reject with `FFmpeg failed (17)`. No real FFmpeg installation or OS capture permission is assumed by this regression.
+- **Source commit:** [b75080c9](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/b75080c926dee7e8e839051bf475d057e5f889e1). **Final test-head correction:** [dbdeb64e](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/dbdeb64e113c19236f7dc209493c11668d2d4776).
+- **PASS — exact final test-head CI:** [run 40627761134](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40627761134). Node protocol/discovery/pairing/file/clipboard suite: **102 PASS / 0 FAIL**. Streaming/video suite: **27 PASS / 0 FAIL / 7 SKIPPED** (optional real-codec FFmpeg tests). Flutter analyzer/widget suite: **153 PASS**. Windows capture lifecycle: **3 PASS / 0 FAIL**.
+- **Build/device:** Android APK and Windows bundle jobs were **SKIPPED**; no APK/EXE was built. Physical Windows↔Android screen/audio and actual MediaProjection/Accessibility behavior remain **NOT TESTED**.
+- **Product boundary:** this is still a capture-lifecycle/interoperability lab fix, not proof that the full authenticated remote-control product is production-ready. No root, permission bypass, new dependency, paid API, secret, merge or `main` write.
+- **Live Google Docs handoff:** **SYNC FAILED** — no authorized Docs write/read connector was available in this run.
