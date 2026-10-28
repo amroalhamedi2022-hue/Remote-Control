@@ -11,7 +11,12 @@ async function freePort(){return await new Promise(resolve=>{
   const s=net.createServer().listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});
 });}
 function launch(args){
-  const p=spawn(process.execPath,[script,...args],{stdio:['pipe','pipe','pipe']});
+  // These child processes are isolated loopback fixtures. The production CLI
+  // must not enable loopback unless BOTH this environment and the explicit flag are present.
+  const p=spawn(process.execPath,[script,'--allow-loopback-for-tests',...args],{
+    stdio:['pipe','pipe','pipe'],
+    env:{...process.env,NODE_ENV:'test'},
+  });
   let logs='';let approved=false;
   for (const stream of [p.stdout,p.stderr])stream.on('data',bytes=>{
     logs+=bytes.toString('utf8');
