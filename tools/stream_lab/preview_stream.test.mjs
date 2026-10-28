@@ -121,3 +121,27 @@ test('Viewer disconnect while MJPEG capture is silent terminates the child', {ti
     assert.deepEqual(messages,[]);
   } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
+
+test('MJPEG capture reports a nonzero FFmpeg exit even after sending a frame', {timeout:5000}, async t => {
+  if(process.platform==='win32'){t.skip('POSIX executable fixture');return;}
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-mjpeg-nonzero-exit-'));
+  try {
+    const fake=path.join(dir,'ffmpeg-exits-nonzero');
+    const payload=mini.toString('base64');
+    const node=JSON.stringify(process.execPath);
+    await fs.writeFile(fake, `#!/bin/sh\nexec ${node} -e 'process.stdout.write(Buffer.from("${payload}","base64"), () => process.exit(17))'\n`);
+    await fs.chmod(fake,0o755);
+    const messages=[];
+    await assert.rejects(
+      sendPreview({send:message=>messages.push(message)},
+        {destroyed:false,writableLength:0},
+        {ffmpeg:fake,isSessionActive:()=>true}),
+      /FFmpeg failed \\(17\\)/
+    );
+    assert.equal(messages.filter(message=>message.type==='FRAME_END').length,1,
+      'the synthetic frame should be observed before the encoder failure is reported');
+    assert.ok(!messages.some(message=>message.type==='PREVIEW_COMPLETE'||message.type==='CAPTURE_COMPLETE'),
+      'a nonzero encoder exit must not be represented as successful stream completion');
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});
+

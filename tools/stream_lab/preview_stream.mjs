@@ -96,6 +96,7 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
   void done.catch(() => {});
   let trustRevoked=false;
   let viewerDisconnected=false;
+  let exitCode=null;
   const lifecycle=createChildLifecycle(child);
   const requestStop=(revoked=false)=>{
     if(revoked)trustRevoked=true;
@@ -130,9 +131,11 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
       if(!isSessionActive()) throw new Error('Screen preview trust revoked during capture');
       parser.push(chunk);
     }
-    if(!child.killed&&!stopped)await done;
+    // child.killed only reports that a signal was sent; natural exit status must be checked.
+    if(!lifecycle.terminationRequested)exitCode=await done;
     if(viewerDisconnected||socket.destroyed)throw new Error('Viewer disconnected during capture');
     if(trustRevoked||!isSessionActive())throw new Error('Screen preview trust revoked while capture was idle');
+    if(!lifecycle.terminationRequested&&exitCode!==0)throw new Error(`FFmpeg failed (${exitCode}): ${stderr.slice(-220)}`);
   }finally{
     clearInterval(trustWatch);
     lifecycle.cleanup();
