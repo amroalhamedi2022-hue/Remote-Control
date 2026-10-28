@@ -663,3 +663,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **NOT BUILT:** Android APK and Windows bundle were deliberately skipped for this source/parser milestone. **NOT TESTED:** physical Windows↔Android LAN probing and device pairing.
 - PONG remains unauthenticated reachability only; it does not authorize file, clipboard, screen, audio or input channels. No new dependency, paid API, root, permission bypass, secret, merge or `main` write.
 - PR #1 remains Draft/unmergeable due to its existing base conflict. Live Google Docs handoff: **SYNC FAILED** because this runtime has no authorized Docs write/read connector.
+
+## M93 — 2026-10-28 — Surface failed Android SAF temporary-document cleanup (PR #1)
+
+- **Source/test SHA:** `e2622aed55154c9d3e72dd67285828090146cf82` on `feature/build-reliability-v0_9`; no merge or `main` write.
+- **Finding:** native `MainActivity.publish()` previously ignored both a `false` result and thrown exceptions from deletion of an unpublished SAF `.part` document. A failed readback/rename could therefore leave a temporary provider document while the transfer reported only the original publication error.
+- **Fix:** added pure Kotlin `SafTempCleanup`; the native publication path now confirms cleanup. If cleanup also fails, the surfaced IOException preserves the original publication failure as its cause and includes cleanup evidence. Successful publication is unchanged.
+- **Regression:** `qa/SafTempCleanupTest.kt` covers successful delete, provider false return, provider exception, and preserving the primary readback/rename failure. The test is wired into both opt-in native SAF policy and milestone compile jobs.
+- **PASS — native SAF policy tests:** run [40665451869](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40665451869), job `android-saf-policy-tests`.
+- **PASS — source CI at checkpoint time:** Node protocol/discovery/file/clipboard/media tests, Flutter analysis/widget tests and Windows capture lifecycle passed in the same run.
+- **Android compile/package:** **IN PROGRESS at this checkpoint** because commit marker `[m34-platform-compile]` intentionally requested one targeted debug APK build for this native Kotlin change. Windows bundle was skipped. Do not treat this as a release or device acceptance.
+- **Device acceptance:** **NOT TESTED** — no real SAF provider rollback/cleanup trial or Xiaomi Pad 5 acceptance yet. Secure pairing, files/clipboard, screen/audio and input acceptance remain open.
+- **Safety:** no new dependency, paid API, secret, root, permission bypass, or auto-merge. Existing MediaProjection/Accessibility consent boundaries unchanged.
+- **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector is exposed in this runtime; this repository ledger does not replace the existing live Drive document.
