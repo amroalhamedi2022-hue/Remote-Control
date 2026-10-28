@@ -90,3 +90,14 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - Exact-head CI: [40647301044](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40647301044) — Node 102/102; streaming/video 31 PASS, 7 optional FFmpeg skips; Flutter analyzer clean and 154 tests passed; Windows capture lifecycle 3/3 PASS.
 - APK/Windows bundle NOT BUILT; device acceptance NOT TESTED. Real-codec optional tests remain skipped, not passed.
 - Live Google Docs Handoff: **SYNC FAILED** (no authorized Docs write/read connector in this run).
+
+## M91 — 2026-10-28 — Enforce exact TCP probe framing across stream events (PR #1)
+
+- **Scope/branch:** `feature/build-reliability-v0_9` only; no merge or `main` write.
+- **Functional change:** `LanDiscovery.readProbeReply` no longer reports success as soon as a valid-looking `PONG\\n` or `PONG\\r\\n` is seen. It requires EOF after the exact line, rejects any extra bytes in the same or a later stream event, and returns false if the peer keeps the connection open until the deadline. This is reachability-only protocol hardening, not authentication or remote-control authorization.
+- **Regression coverage:** added a split-event trailing-payload test and a no-EOF timeout test. Existing fragmented PONG, CRLF, malformed, oversized and timeout cases remain.
+- **Exact latest source/test commit available at recording:** [5a5badead5e78369ca0d144d9f1b1d022e5fb89b](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/5a5badead5e78369ca0d144d9f1b1d022e5fb89b).
+- **CI:** **NOT VERIFIED** at handoff write time. The configured [Remote validation workflow](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/workflows/ci.yml) was inspected, but the available status/run query returned no checks for this push head. No CI PASS is claimed.
+- **Build/device:** APK and Windows bundle **NOT BUILT** because this is a parser-only regression; physical Android↔Windows LAN probing **NOT TESTED**.
+- **Security boundary:** no root, Accessibility/MediaProjection bypass, new dependency, paid API, or secret. LAN discovery and PONG remain unauthenticated reachability signals only; they cannot authorize files, clipboard, screen, audio or input.
+- **Live Google Docs handoff:** to be synchronized and read back separately after this repository batch.
