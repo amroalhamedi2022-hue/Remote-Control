@@ -4,8 +4,21 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {JpegFrames, jpegMessages, PreviewAssembler, sendPreview, captureArguments, CHUNK_BYTES} from './preview_stream.mjs';
+import {JpegFrames, jpegMessages, PreviewAssembler, sendPreview, captureArguments, CHUNK_BYTES, isViewerDisconnected} from './preview_stream.mjs';
 const mini = Buffer.from([0xff,0xd8,0x31,0x42,0xff,0xd9]);
+
+test('viewer disconnect predicate treats either half-close as terminal', () => {
+  const open = {destroyed:false,readableEnded:false,writableEnded:false,writable:true};
+  assert.equal(isViewerDisconnected(open),false);
+  for (const socket of [
+    {...open,destroyed:true},
+    {...open,readableEnded:true},
+    {...open,writableEnded:true},
+    {...open,writable:false},
+    null
+  ]) assert.equal(isViewerDisconnected(socket),true);
+});
+
 test('fragmented JPEG stream and two concatenated frames',()=>{
   const frames=[];const parser=new JpegFrames((f)=>frames.push(f));
   const combined=Buffer.concat([Buffer.from([1,2]),mini,mini]);
@@ -92,7 +105,6 @@ test('Revoked peer cannot start MJPEG capture',async()=>{
     /trust revoked before capture/);
 });
 
-
 test('Revoking trust while FFmpeg is silent terminates the capture process', {timeout:5000}, async t => {
   if(process.platform==='win32'){t.skip('POSIX executable fixture');return;}
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-idle-preview-'));
@@ -108,7 +120,6 @@ test('Revoking trust while FFmpeg is silent terminates the capture process', {ti
     assert.ok(Date.now()-started<3000,'revoked idle capture should terminate promptly');
   } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
-
 
 test('Revoked silent MJPEG child is force-terminated if it ignores SIGTERM', {timeout:5000}, async t => {
   if(process.platform==='win32'){t.skip('POSIX signal-handler fixture');return;}
@@ -153,7 +164,6 @@ test('Viewer TCP half-close while MJPEG capture is silent terminates the child',
     const fake=path.join(dir,'ffmpeg-silent');
     await fs.writeFile(fake, `#!/bin/sh\nexec "${process.execPath}" -e 'setTimeout(() => {}, 10000)'\n`);
     await fs.chmod(fake,0o755);
-    // Model a received FIN: readableEnded is true, while destroyed remains false.
     const socket={destroyed:false,readableEnded:false,writableEnded:false,writable:true,writableLength:0};
     const messages=[];
     const started=Date.now();
@@ -165,6 +175,25 @@ test('Viewer TCP half-close while MJPEG capture is silent terminates the child',
     assert.equal(socket.destroyed,false,'fixture must reproduce a half-close, not a full destroy');
     assert.ok(Date.now()-started<3000,'silent capture should stop promptly after viewer half-close');
     assert.deepEqual(messages,[],'a half-closed viewer must receive no frames or completion');
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});
+
+test('Viewer half-close before a JPEG frame prevents sending even before the poll interval', {timeout:5000}, async t => {
+  if(process.platform==='win32'){t.skip('POSIX executable fixture');return;}
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-half-close-frame-'));
+  try {
+    const fake=path.join(dir,'ffmpeg-frame-after-fin');
+    const payload=mini.toString('base64');
+    const node=JSON.stringify(process.execPath);
+    await fs.writeFile(fake, `#!/bin/sh\nexec ${node} -e 'setTimeout(() => process.stdout.write(Buffer.from("${payload}", "base64")), 25); setTimeout(() => {}, 10000)'\n`);
+    await fs.chmod(fake,0o755);
+    const socket={destroyed:false,readableEnded:true,writableEnded:false,writable:true,writableLength:0};
+    const messages=[];
+    await assert.rejects(
+      sendPreview({send:message=>messages.push(message)},socket,{ffmpeg:fake,isSessionActive:()=>true}),
+      /Viewer disconnected/
+    );
+    assert.deepEqual(messages,[],'no frame messages may be emitted after a TCP half-close');
   } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
 
@@ -190,4 +219,3 @@ test('MJPEG capture reports a nonzero FFmpeg exit even after sending a frame', {
       'a nonzero encoder exit must not be represented as successful stream completion');
   } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
-

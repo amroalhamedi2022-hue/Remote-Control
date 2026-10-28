@@ -9,6 +9,12 @@ const MAX_BACKLOG = 512 * 1024;
 const SOI = Buffer.from([0xff, 0xd8]);
 const EOI = Buffer.from([0xff, 0xd9]);
 
+/** Treat either TCP half-close as terminal for a one-way screen preview. */
+export function isViewerDisconnected(socket) {
+  return !socket || socket.destroyed === true || socket.readableEnded === true ||
+    socket.writableEnded === true || socket.writable === false;
+}
+
 export class JpegFrames {
   constructor(onFrame) { this.onFrame = onFrame; this.pending = Buffer.alloc(0); this.frames=0; }
   push(chunk) {
@@ -109,13 +115,10 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
     if(revoked)trustRevoked=true;
     lifecycle.requestStop();
   };
-  // Poll trust and socket state while FFmpeg is silent. A disconnected viewer
-  // must not leave desktop capture alive waiting for the next frame.
+  // Poll trust and socket state while FFmpeg is silent. Also check at the actual
+  // frame-send boundary so a FIN between timer ticks cannot leak another frame.
   const trustWatch=setInterval(()=>{
-    // A TCP peer may half-close its readable side (FIN) without setting
-    // socket.destroyed. Capture must stop whenever the viewer can no longer
-    // receive frames, not only after a full socket destroy.
-    if(socket.destroyed || socket.readableEnded || socket.writableEnded || socket.writable === false) {
+    if(isViewerDisconnected(socket)) {
       viewerDisconnected=true;
       requestStop(false);
       return;
@@ -130,20 +133,30 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
   try{
     parser=new JpegFrames((jpeg,id)=>{
       if(stopped)return;
+      if(isViewerDisconnected(socket)) {
+        viewerDisconnected=true;
+        requestStop(false);
+        throw new Error('Viewer disconnected during capture');
+      }
       if(!isSessionActive()) throw new Error('Screen preview trust revoked during capture');
       if(sent>=maxFrames){stopped=true;requestStop(false);return;}
-      if(socket.destroyed||socket.writableLength>MAX_BACKLOG){dropped++;return;}
+      if(socket.writableLength>MAX_BACKLOG){dropped++;return;}
       for (const message of jpegMessages(jpeg,id))channel.send(message);
       sent++;
     });
     for await (const chunk of child.stdout){
-      if(socket.destroyed||stopped)break;
+      if(isViewerDisconnected(socket)) {
+        viewerDisconnected=true;
+        requestStop(false);
+        break;
+      }
+      if(stopped)break;
       if(!isSessionActive()) throw new Error('Screen preview trust revoked during capture');
       parser.push(chunk);
     }
     // child.killed only reports that a signal was sent; natural exit status must be checked.
     if(!lifecycle.terminationRequested)exitCode=await done;
-    if(viewerDisconnected||socket.destroyed)throw new Error('Viewer disconnected during capture');
+    if(viewerDisconnected||isViewerDisconnected(socket))throw new Error('Viewer disconnected during capture');
     if(trustRevoked||!isSessionActive())throw new Error('Screen preview trust revoked while capture was idle');
     if(!lifecycle.terminationRequested&&exitCode!==0)throw new Error(`FFmpeg failed (${exitCode}): ${stderr.slice(-220)}`);
   }finally{
@@ -151,6 +164,6 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
     lifecycle.cleanup();
     try{await Promise.race([done,new Promise(resolve=>setTimeout(resolve,1500))]);}catch{/* reported above */}
   }
-  if(sent===0&&!socket.destroyed)throw new Error('No frames captured. '+stderr.slice(-220));
+  if(sent===0&&!isViewerDisconnected(socket))throw new Error('No frames captured. '+stderr.slice(-220));
   return {sent,dropped};
 }
