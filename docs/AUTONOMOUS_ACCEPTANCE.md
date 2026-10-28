@@ -617,3 +617,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **NOT BUILT / NOT TESTED:** Android APK and Windows EXE jobs were skipped because this is a source-level lifecycle regression. Physical Android↔Windows pairing, files/clipboard, screen/audio, and MediaProjection/Accessibility remain **NOT TESTED**. Optional FFmpeg executable integration is not counted as passing.
 - **Boundary:** no new dependency, paid API, root, permission bypass, secret, merge, or `main` write. The pairing/media protocol remains experimental and is not production security approval.
 - **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector is available in this run.
+
+
+## M89 — 2026-10-28 — Block frame emission after viewer TCP half-close
+
+- **Source/test SHA:** `3fe059622ecfa3346f87e3fc2a6b7061314602bd`.
+- **Functional change:** introduced `isViewerDisconnected(socket)` and apply it in the periodic trust watcher, stdout loop, final result gate, and immediately at the frame-send boundary. A peer FIN/readable half-close now blocks a queued JPEG frame even if the 100 ms watcher has not run yet; the capture child is asked to stop and the request fails closed.
+- **Regression coverage:** a predicate test covers destroyed/readableEnded/writableEnded/non-writable sockets; a POSIX fake capture emits a JPEG after 25 ms while `readableEnded=true` and asserts that no frame messages are sent before the poll interval.
+- **PASS — exact-head CI:** [run 40644654563](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40644654563). Node LAN/protocol/pairing/file/clipboard: **102 PASS / 0 FAIL**. Streaming/video suite: **31 PASS / 0 FAIL / 7 SKIPPED** (optional FFmpeg/FFprobe integration not installed; skips are not counted as passes). Flutter analyze/widget suite: **153 PASS**. Windows capture lifecycle: **3 PASS / 0 FAIL**.
+- **Build/device:** Android APK and Windows bundle jobs **SKIPPED** because this is a Node capture-lab lifecycle fix; no APK/EXE was built. Physical Android↔Windows pairing, file/clipboard, screen/audio and MediaProjection/Accessibility acceptance remain **NOT TESTED**.
+- **Product/security boundary:** this hardens the experimental preview lab; it does not approve the custom media/pairing protocol for production control. No root, permission bypass, new dependency, paid API, secret, merge or `main` write.
+- **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector is available in this run; this GitHub ledger is not a substitute for the live Drive document.

@@ -72,3 +72,12 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - Android APK / Windows bundle: **SKIPPED**; no build was warranted for this source-level lifecycle fix.
 - Physical device acceptance: **NOT TESTED**; M2/M3/M4/M5/M6/M7/M8 remain open as previously recorded.
 - Live Google Docs handoff: **SYNC FAILED**. No merge or `main` write.
+
+
+## 2026-10-28 — M89 capture-lab status
+
+- Latest source/test SHA: `3fe059622ecfa3346f87e3fc2a6b7061314602bd`.
+- Viewer TCP half-close is now checked at the actual frame emission boundary as well as the idle watcher; regression prevents a JPEG from being sent after a peer FIN.
+- Exact-head CI: [40644654563](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40644654563) — Node 102/102; stream/video 31 PASS, 7 optional FFmpeg skips; Flutter 153 tests and Windows lifecycle 3/3 PASS.
+- Android APK / Windows bundle: NOT BUILT. Physical device acceptance: NOT TESTED. Experimental pairing/media security remains unapproved for production privileged control.
+- Live Google Docs Handoff: SYNC FAILED (no authorized Docs write/read connector in this run).
