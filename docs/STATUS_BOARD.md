@@ -127,3 +127,13 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - New regression cases are present. Exact-head CI **NOT VERIFIED**; no push-run ID was exposed by the available workflow-run lookup.
 - APK/Windows bundle **NOT BUILT**. Device LAN behavior **NOT TESTED**.
 - Discovery remains untrusted and does not authorize pairing, files, clipboard, screen/audio or input.
+
+
+## 2026-10-28 — M102 desktop receive write serialization
+
+- Source/test: [80f1478521f6450e22c53ac652ed4023a3305061](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/80f1478521f6450e22c53ac652ed4023a3305061), [497ccba902260bcaf64a742ed9625232338b5ec1](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/497ccba902260bcaf64a742ed9625232338b5ec1).
+- Desktop staging now serializes asynchronous chunk writes against the accepted byte count, rejects over-offer writes before disk I/O, and prevents commit after any failed write. The added regression submits chunks concurrently and checks that a second chunk cannot bypass the offer quota.
+- Exact-head CI: **NOT VERIFIED** in this runtime; push-event run listing is unavailable from the connected GitHub workflow tool. Local Dart/Flutter tests: **NOT TESTED** (no Dart/Flutter toolchain).
+- APK/Windows bundle: **NOT BUILT**; physical Android↔Windows acceptance: **NOT TESTED**.
+- M1 remains **PARTIAL**; pairing/security, screen/audio, file/clipboard and device milestones remain open. This adapter is a lab receiver, not production remote-access approval.
+- Live Google Docs Handoff: **SYNC FAILED**. No merge or `main` write.
