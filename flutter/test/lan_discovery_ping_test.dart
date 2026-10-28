@@ -136,6 +136,23 @@ void main() {
       Stream<List<int>>.value(utf8.encode('PONG\nEXTRA'))), isFalse);
   });
 
+  test('TCP probe rejects trailing bytes delivered in a later event', () async {
+    final reply = Stream<List<int>>.fromIterable([
+      utf8.encode('PONG\\n'),
+      utf8.encode('EXTRA'),
+    ]);
+    expect(await LanDiscovery.readProbeReply(reply), isFalse);
+  });
+
+  test('TCP probe requires EOF after a complete PONG line', () async {
+    final controller = StreamController<List<int>>();
+    final pending = LanDiscovery.readProbeReply(
+      controller.stream, timeout: const Duration(milliseconds: 40));
+    controller.add(utf8.encode('PONG\\n'));
+    expect(await pending, isFalse);
+    await controller.close();
+  });
+
   test('TCP probe rejects unbounded no-newline payloads promptly', () async {
     final stream = Stream<List<int>>.value(List<int>.filled(65536, 65));
     final watch = Stopwatch()..start();
