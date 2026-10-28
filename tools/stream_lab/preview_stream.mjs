@@ -95,14 +95,20 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
   // does not terminate on an unhandled rejection; the later await still throws.
   void done.catch(() => {});
   let trustRevoked=false;
+  let viewerDisconnected=false;
   const lifecycle=createChildLifecycle(child);
   const requestStop=(revoked=false)=>{
     if(revoked)trustRevoked=true;
     lifecycle.requestStop();
   };
-  // Trust must be polled even while FFmpeg emits no bytes; a stalled capture
-  // must not outlive peer revocation merely because stdout is quiet.
+  // Poll trust and socket state while FFmpeg is silent. A disconnected viewer
+  // must not leave desktop capture alive waiting for the next frame.
   const trustWatch=setInterval(()=>{
+    if(socket.destroyed) {
+      viewerDisconnected=true;
+      requestStop(false);
+      return;
+    }
     let active=false;
     try { active=isSessionActive(); } catch { /* fail closed */ }
     if(!active)requestStop(true);
@@ -125,6 +131,7 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
       parser.push(chunk);
     }
     if(!child.killed&&!stopped)await done;
+    if(viewerDisconnected||socket.destroyed)throw new Error('Viewer disconnected during capture');
     if(trustRevoked||!isSessionActive())throw new Error('Screen preview trust revoked while capture was idle');
   }finally{
     clearInterval(trustWatch);
