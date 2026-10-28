@@ -651,4 +651,4 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **CI:** **NOT VERIFIED** at handoff write time. The configured [Remote validation workflow](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/workflows/ci.yml) was inspected, but the available status/run query returned no checks for this push head. No CI PASS is claimed.
 - **Build/device:** APK and Windows bundle **NOT BUILT** because this is a parser-only regression; physical Android↔Windows LAN probing **NOT TESTED**.
 - **Security boundary:** no root, Accessibility/MediaProjection bypass, new dependency, paid API, or secret. LAN discovery and PONG remain unauthenticated reachability signals only; they cannot authorize files, clipboard, screen, audio or input.
-- **Live Google Docs handoff:** to be synchronized and read back separately after this repository batch.
+- **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector is exposed in this runtime; this repository ledger is not a substitute for the existing live Drive document.
