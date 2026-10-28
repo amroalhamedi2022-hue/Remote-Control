@@ -185,18 +185,22 @@ class DiscoveryReplyGate {
 class DiscoveryIngressGate {
   final int maxSources;
   final Duration minSourceInterval;
+  final Duration minGlobalInterval;
   final Duration retention;
   final LinkedHashMap<String, Duration> _lastAccepted = LinkedHashMap<String, Duration>();
+  Duration? _lastAnyAccepted;
 
   DiscoveryIngressGate({
     this.maxSources = 128,
     this.minSourceInterval = const Duration(seconds: 1),
+    this.minGlobalInterval = const Duration(milliseconds: 50),
     this.retention = const Duration(seconds: 30),
   }) {
     if (maxSources < 1 || maxSources > 4096) {
       throw ArgumentError.value(maxSources, 'maxSources');
     }
-    if (minSourceInterval.isNegative || retention < minSourceInterval) {
+    if (minSourceInterval.isNegative || minGlobalInterval.isNegative ||
+        retention < minSourceInterval) {
       throw ArgumentError('Invalid discovery ingress-gate durations');
     }
   }
@@ -213,16 +217,27 @@ class DiscoveryIngressGate {
         (elapsed < previous || elapsed - previous < minSourceInterval)) {
       return false;
     }
+    // A sender can spoof many private source IPs on a LAN. Per-source limits
+    // alone still permit rapid cache churn, so cap accepted peer updates globally.
+    final lastAny = _lastAnyAccepted;
+    if (lastAny != null &&
+        (elapsed < lastAny || elapsed - lastAny < minGlobalInterval)) {
+      return false;
+    }
 
     _lastAccepted.remove(sourceAddress);
     _lastAccepted[sourceAddress] = elapsed;
+    _lastAnyAccepted = elapsed;
     while (_lastAccepted.length > maxSources) {
       _lastAccepted.remove(_lastAccepted.keys.first);
     }
     return true;
   }
 
-  void clear() => _lastAccepted.clear();
+  void clear() {
+    _lastAccepted.clear();
+    _lastAnyAccepted = null;
+  }
 }
 
 class LanDiscovery extends ChangeNotifier {
