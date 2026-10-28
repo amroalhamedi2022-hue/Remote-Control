@@ -57,6 +57,7 @@ export class PreviewAssembler {
   constructor(onFrame){this.onFrame=onFrame;this.frame=null;this.lastId=-1;}
   ingest(msg){
     if(msg?.type==='FRAME_BEGIN'){
+      if(this.frame)throw Error('Previous frame incomplete');
       if(!Number.isSafeInteger(msg.id)||msg.id<=this.lastId||
          !Number.isInteger(msg.bytes)||msg.bytes<4||msg.bytes>MAX_JPEG_BYTES)throw Error('Bad frame header');
       this.frame={id:msg.id,bytes:msg.bytes,received:0,parts:[]};return;
@@ -65,6 +66,12 @@ export class PreviewAssembler {
       if(!this.frame||msg.id!==this.frame.id||msg.offset!==this.frame.received||
          typeof msg.data!=='string'||msg.data.length>4000||!(/^[A-Za-z0-9_-]+$/).test(msg.data)) throw Error('Bad frame part');
       const part=Buffer.from(msg.data,'base64url');
+      // The sender emits fixed-size chunks and only the final chunk may be short.
+      // Enforcing that contract bounds retained Buffer objects to about 202 per frame,
+      // even if an untrusted peer tries to fragment a 512 KiB frame into 1-byte parts.
+      const remaining=this.frame.bytes-this.frame.received;
+      const expectedLength=Math.min(CHUNK_BYTES,remaining);
+      if(part.length!==expectedLength)throw Error('Unexpected preview chunk size');
       if(part.length>CHUNK_BYTES||this.frame.received+part.length>this.frame.bytes)throw Error('Frame overflow');
       this.frame.parts.push(part);this.frame.received+=part.length;return;
     }

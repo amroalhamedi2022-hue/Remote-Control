@@ -26,6 +26,30 @@ test('reject malformed capture profiles, oversized JPEG',()=>{
   assert.throws(()=>captureArguments({width:701}),/Bad width/);
   assert.throws(()=>jpegMessages(Buffer.alloc(512*1024+1),0),/Invalid JPEG/);
 });
+
+test('preview assembler enforces bounded chunking and rejects replacement of an incomplete frame',()=>{
+  const large=Buffer.concat([Buffer.from([0xff,0xd8]),Buffer.alloc(CHUNK_BYTES+5,0x31),Buffer.from([0xff,0xd9])]);
+  const messages=jpegMessages(large,10);
+  const parts=messages.filter(message=>message.type==='FRAME_PART');
+  assert.equal(parts.length,2);
+  assert.equal(Buffer.from(parts[0].data,'base64url').length,CHUNK_BYTES);
+  assert.equal(Buffer.from(parts[1].data,'base64url').length,large.length-CHUNK_BYTES);
+  const received=[];
+  const assembler=new PreviewAssembler(frame=>received.push(frame));
+  messages.forEach(message=>assembler.ingest(message));
+  assert.deepEqual(received,[large]);
+
+  const fragmented=new PreviewAssembler(()=>{});
+  fragmented.ingest({type:'FRAME_BEGIN',id:1,bytes:large.length});
+  assert.throws(()=>fragmented.ingest({type:'FRAME_PART',id:1,offset:0,
+    data:Buffer.from([0xff]).toString('base64url')}),/Unexpected preview chunk size/);
+
+  const abandoned=new PreviewAssembler(()=>{});
+  abandoned.ingest({type:'FRAME_BEGIN',id:1,bytes:large.length});
+  assert.throws(()=>abandoned.ingest({type:'FRAME_BEGIN',id:2,bytes:mini.length}),
+    /Previous frame incomplete/);
+});
+
 test('FFmpeg test pattern produces actual encrypted-ready frames (local-only)',{timeout:25000},async t=>{
   if(spawnSync('ffmpeg',['-version'],{stdio:'ignore'}).status!==0){t.skip('FFmpeg not installed');return;}
   const wire=[];const socket={destroyed:false,writableLength:0};
