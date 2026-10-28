@@ -83,6 +83,18 @@ void main() {
     expect(await destination.list().toList(), isEmpty);
   });
 
+  test('oversized desktop chunk is rejected before staging write', () async {
+    final offer = LabIncomingOffer(
+      'large-chunk.bin', 1, crypto.sha256.convert([1]).toString());
+    final stage = await DesktopLabReceiveStaging.create(destination, offer);
+    await expectLater(
+      stage.write(List<int>.filled(labFileChunkBytes + 1, 1)),
+      throwsStateError,
+    );
+    await stage.abort();
+    expect(await destination.list().toList(), isEmpty);
+  });
+
   test('concurrent desktop writes serialize against the approved byte budget', () async {
     final data = [1, 2, 3];
     final offer = LabIncomingOffer(
