@@ -83,6 +83,26 @@ void main() {
     expect(await destination.list().toList(), isEmpty);
   });
 
+  test('concurrent desktop writes serialize against the approved byte budget', () async {
+    final data = [1, 2, 3];
+    final offer = LabIncomingOffer(
+      'concurrent.txt', data.length, crypto.sha256.convert(data).toString());
+    final stage = await DesktopLabReceiveStaging.create(destination, offer);
+
+    // Submit without awaiting either call: both used to inspect the same stale
+    // _written value before their asynchronous disk writes completed.
+    final first = stage.write([1, 2]);
+    final second = stage.write([3, 4]);
+    await first;
+    await expectLater(second, throwsStateError);
+    await expectLater(
+      stage.commit(name: offer.name, bytes: offer.bytes, sha256: offer.sha256),
+      throwsStateError,
+    );
+    await stage.abort();
+    expect(await destination.list().toList(), isEmpty);
+  });
+
   test('desktop commit cannot substitute approved byte count or digest', () async {
     final data = [1, 2, 3];
     final offer = _offer('bound.txt', data);
