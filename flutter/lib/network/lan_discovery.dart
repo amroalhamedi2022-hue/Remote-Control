@@ -347,31 +347,38 @@ class LanDiscovery extends ChangeNotifier {
       {Duration timeout = const Duration(seconds: 2)}) async {
     final done = Completer<bool>();
     final received = <int>[];
+    var lineEnded = false;
+    var validLine = false;
     final subscription = bytes.listen((chunk) {
       if (done.isCompleted) return;
       for (var i = 0; i < chunk.length; i++) {
-        if (received.length >= 6) {
+        // Wait for EOF after a valid line so trailing bytes in a later TCP event
+        // cannot be missed by returning success as soon as the newline arrives.
+        if (lineEnded || received.length >= 6) {
           done.complete(false);
           return;
         }
         final byte = chunk[i];
         received.add(byte);
         if (byte == 10) {
-          final isPong = received.length == 5 &&
-              received[0] == 80 && received[1] == 79 &&
-              received[2] == 78 && received[3] == 71 ||
-              received.length == 6 &&
-              received[0] == 80 && received[1] == 79 &&
-              received[2] == 78 && received[3] == 71 &&
-              received[4] == 13;
-          done.complete(isPong && i == chunk.length - 1);
-          return;
+          lineEnded = true;
+          validLine = (received.length == 5 &&
+                  received[0] == 80 && received[1] == 79 &&
+                  received[2] == 78 && received[3] == 71) ||
+              (received.length == 6 &&
+                  received[0] == 80 && received[1] == 79 &&
+                  received[2] == 78 && received[3] == 71 &&
+                  received[4] == 13);
+          if (!validLine) {
+            done.complete(false);
+            return;
+          }
         }
       }
     }, onError: (Object _) {
       if (!done.isCompleted) done.complete(false);
     }, onDone: () {
-      if (!done.isCompleted) done.complete(false);
+      if (!done.isCompleted) done.complete(lineEnded && validLine);
     });
     try {
       return await done.future.timeout(timeout, onTimeout: () => false);
