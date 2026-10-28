@@ -102,6 +102,18 @@ void main() {
     expect(cache.remember(peer('same', now.add(const Duration(seconds: 1)))), isTrue);
   });
 
+  test('LAN discovery accepts only its configured UDP source port', () {
+    expect(isExpectedDiscoverySourcePort(lanDiscoveryPort, lanDiscoveryPort), isTrue);
+    expect(isExpectedDiscoverySourcePort(lanDiscoveryPort + 1, lanDiscoveryPort), isFalse,
+        reason: 'a LAN datagram must not redirect the discovery reply to another service');
+    expect(isExpectedDiscoverySourcePort(0, lanDiscoveryPort), isFalse);
+    expect(isExpectedDiscoverySourcePort(65536, lanDiscoveryPort), isFalse);
+    expect(isExpectedDiscoverySourcePort(12345, -1), isFalse);
+    // Port zero is used only by isolated tests that ask the OS for an ephemeral bind.
+    expect(isExpectedDiscoverySourcePort(12345, 0), isTrue);
+    expect(isExpectedDiscoverySourcePort(0, 0), isFalse);
+  });
+
   test('Discovery replies are rate-limited per source and globally, with bounded memory', () {
     final gate = DiscoveryReplyGate(
       maxSources: 2,
