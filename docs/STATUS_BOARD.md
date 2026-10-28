@@ -109,3 +109,13 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - Windows Node CLI now shares the strict bounded PONG/EOF rule with Flutter. Four regressions cover fragmented valid response, later trailing bytes, missing EOF/timeout, and malformed/oversized responses.
 - **M1 remains PARTIAL:** no APK or Windows bundle built for this parser-only fix. Real Android↔Windows acceptance remains **NOT TESTED**; secure pairing and privileged control remain unapproved/not verified.
 - PR #1 stays Draft/unmergeable; no merge or `main` write. Live Drive handoff remains **SYNC FAILED** until an authorized Docs write/read connector is available.
+
+
+## 2026-10-28 — M97 — reject malformed UTF-16 SAF filenames
+
+- **Code/test head:** `fb50f03e65959db99fd9109f57bd45acbc29f8bf`; PR #1 branch `feature/build-reliability-v0_9` only.
+- `SafReceivePolicy.validFileName` rejects isolated high/low UTF-16 surrogates before SAF/filesystem encoding; valid supplementary characters such as emoji remain accepted.
+- Regression cases added to `qa/SafReceivePolicyTest.kt`. Targeted local Kotlin/JVM policy harness: **PASS**.
+- Exact-head GitHub CI: **NOT VERIFIED** (workflow result/status unavailable from the current query). No APK/Windows bundle built; physical Android/Windows file-receive acceptance: **NOT TESTED**.
+- No new dependencies, root, permission bypass, paid API, secrets, merge, or `main` write. Discovery/file-name policy does not grant trust or authorize remote control.
+- Live Drive Handoff: **SYNC FAILED** until an authorized Google Docs write/read route is available.
