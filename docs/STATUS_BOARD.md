@@ -54,3 +54,12 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - Exact-head CI: [run 40627761134](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40627761134) — Node 102/102, stream/video 27 pass and 7 optional FFmpeg skips, Flutter 153 tests pass, Windows capture lifecycle 3/3 pass.
 - M1 remains **PARTIAL**: source CI is green, but no APK/Windows bundle was built in this batch. M2/M3/M5/M7/M8 remain lab-only or not verified; physical pairing, file/clipboard, screen/audio, and permission lifecycle acceptance still required.
 - Live Google Docs handoff: **SYNC FAILED**; this repository ledger is not a replacement for the live Drive document. No merge or `main` write.
+
+## 2026-10-28 — M87 bounded preview-frame chunking
+
+- **Source/test SHA:** `5e9ea06b849ea103f513aecb9c2f5f3a7982f073`; acceptance-ledger update: `439d8e071604a81e09dc9fd931c30b1d72a39eaa`.
+- The preview receiver rejects a new frame header while the prior frame is incomplete and enforces fixed-size non-final chunks, preventing a 512 KiB frame from being represented as hundreds of thousands of tiny retained buffers.
+- **PASS — CI:** [run 40633124181](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40633124181): Node protocol suite 102/102; streaming/video 28 PASS, 0 FAIL, 7 optional FFmpeg skips; Flutter and Windows capture lifecycle checks PASS.
+- **NOT BUILT / NOT TESTED:** no APK/EXE was built for this lab parser change; physical Android↔Windows pairing, file/clipboard, screen/audio and MediaProjection/Accessibility remain unverified.
+- Live Google Docs handoff remains **SYNC FAILED** because no authorized Docs write/read connector is available in this run. No merge or `main` write.
+
