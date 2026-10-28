@@ -54,7 +54,10 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
       Directory destination, LabIncomingOffer offer) async {
     final name = validateLabFileName(offer.name);
     if (offer.bytes < 0 || offer.bytes > maxLabFileBytes ||
-        !RegExp(r'^[0-9a-f]{64}
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(offer.sha256)) {
+      throw const FormatException('Invalid desktop receive offer');
+    }
+    if (!await destination.exists() ||
         await FileSystemEntity.type(destination.path, followLinks: false) !=
             FileSystemEntityType.directory) {
       throw StateError('Receiver must choose an existing non-link folder');
@@ -100,7 +103,7 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
     if (validateLabFileName(name) != _expectedName ||
         bytes != _expectedBytes || bytes != _written || bytes < 0 ||
         sha256 != _expectedSha256 ||
-        !RegExp(r'^[0-9a-f]{64}
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(sha256)) {
       throw StateError('Desktop staging metadata mismatch');
     }
     await _assertPublishLocationSafe();
