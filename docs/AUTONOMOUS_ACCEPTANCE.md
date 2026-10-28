@@ -798,3 +798,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Device acceptance:** NOT TESTED — same-LAN discovery, port/interface changes, Android↔Windows pairing and actual transfer remain open. Discovery is still unauthenticated and cannot authorize files, clipboard, screen, audio, or input.
 - **Security:** no new dependency, paid API, root, permission bypass, or secret. PR #1 remains Draft/unmergeable; no merge or main write.
 - **Live Google Docs handoff:** SYNC FAILED until a permitted Docs write/read connector is available; this ledger is not a replacement for the live Drive document.
+
+
+## M103 final verification update — 2026-10-28
+
+- **Final code head verified:** 3356d005317263991af0dc6b65b332d845d02334 (PR #1 branch). The fixed-port admission check now compares the datagram source port against the actual bound socket port, including the OS-selected port when tests bind with port zero; zero is never accepted as an expected/source port.
+- **Additional source repair found during validation:** earlier CI runs 40746581336 and 40746983202 failed because flutter/lib/security/desktop_file_staging.dart contained a malformed duplicate tail and a truncated commit metadata guard. Commit 7003611178d397b0b949a89e7be42f416b4820c7 removed the duplicated 146-line tail; commit 3356d005317263991af0dc6b65b332d845d02334 restored the full SHA/name/byte checks and queued-write barrier. The final file contains one receiveLabFileToDesktopFolder adapter.
+- **Final CI — PASS:** https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40747424353 — Flutter analyzer/widget tests passed (log: “No issues found!” and the new LAN source-port test passed); Node protocol tests passed; Windows capture lifecycle passed.
+- **Skipped gates:** android-saf-policy-tests skipped; Android APK and Windows debug bundle jobs skipped intentionally because no build-marker/test-device request was present. No APK/EXE was produced.
+- **Device acceptance:** NOT TESTED — LAN discovery between real Android/Windows devices, pairing, file transfer, clipboard, screen/audio mirroring, and control remain open. Discovery remains untrusted and does not authorize sessions.
+- **PR state:** PR #1 remains Draft/unmergeable. No merge, main write, root use, permission bypass, paid API, new dependency, or secret exposure.
+- **Live Google Docs handoff:** SYNC FAILED in this run because no authorized Google Docs write/read connector is available. This GitHub ledger does not replace the live Drive handoff.
