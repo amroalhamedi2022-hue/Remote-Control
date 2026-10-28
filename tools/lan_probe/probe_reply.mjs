@@ -31,7 +31,7 @@ export function readExactPong(socket, timeoutMs = 1500) {
         return;
       }
       for (const byte of chunk) {
-        // PONG\\n is 5 bytes; PONG\\r\\n is 6. No extra byte is ever retained.
+        // PONG\n is 5 bytes; PONG\r\n is 6. No extra byte is ever retained.
         if (lineEnded || received.length >= 6) {
           finish(false);
           return;
