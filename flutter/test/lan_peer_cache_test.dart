@@ -92,6 +92,41 @@ void main() {
     expect(cache.wasSeenSince('192.168.1.2', requestedAt), isFalse);
   });
 
+  test('Peer cache reports only visible state changes', () {
+    final cache = LanPeerCache(maxPeers: 2);
+    expect(cache.remember(peer('same', now)), isTrue);
+    expect(cache.remember(peer('same', now)), isFalse,
+        reason: 'equal-timestamp duplicate does not change visible state');
+    expect(cache.remember(peer('same', now.subtract(const Duration(seconds: 1)))), isFalse,
+        reason: 'a stale packet must not trigger a UI update');
+    expect(cache.remember(peer('same', now.add(const Duration(seconds: 1)))), isTrue);
+  });
+
+  test('Discovery replies are rate-limited per source and globally, with bounded memory', () {
+    final gate = DiscoveryReplyGate(
+      maxSources: 2,
+      minSourceInterval: const Duration(seconds: 1),
+      minGlobalInterval: const Duration(milliseconds: 50),
+      retention: const Duration(seconds: 30),
+    );
+    expect(gate.shouldReply('192.168.1.2', Duration.zero), isTrue);
+    expect(gate.shouldReply('192.168.1.2', const Duration(milliseconds: 100)), isFalse,
+        reason: 'one source cannot trigger an announcement storm');
+    expect(gate.shouldReply('192.168.1.3', const Duration(milliseconds: 25)), isFalse,
+        reason: 'global budget also limits spoofed-source churn');
+    expect(gate.shouldReply('192.168.1.3', const Duration(milliseconds: 50)), isTrue);
+    expect(gate.shouldReply('192.168.1.2', const Duration(seconds: 1)), isTrue);
+    expect(gate.shouldReply('192.168.1.2', const Duration(milliseconds: 1001)), isFalse);
+    expect(gate.shouldReply('192.168.1.4', const Duration(milliseconds: 1100)), isTrue);
+    expect(gate.trackedSources, 2);
+    expect(gate.shouldReply('192.168.1.4', const Duration(seconds: 40)), isTrue,
+        reason: 'expired source records are pruned');
+    expect(gate.shouldReply('', const Duration(seconds: 41)), isFalse);
+    gate.clear();
+    expect(gate.trackedSources, 0);
+    expect(() => DiscoveryReplyGate(maxSources: 0), throwsArgumentError);
+  });
+
   test('Cache capacity must be positive and bounded', () {
     expect(() => LanPeerCache(maxPeers: 0), throwsArgumentError);
     expect(() => LanPeerCache(maxPeers: 4097), throwsArgumentError);
