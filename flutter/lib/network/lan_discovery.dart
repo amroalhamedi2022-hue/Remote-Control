@@ -2,6 +2,7 @@
 // Peers and names obtained here are UNTRUSTED until pairing is implemented.
 // No screen capture, input, file, or clipboard data is exchanged.
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -80,14 +81,14 @@ class LanPeerCache {
   int get length => _entries.length;
   Iterable<LanPeer> get values => _entries.values;
 
-  void remember(LanPeer peer) {
+  bool remember(LanPeer peer) {
     // An older asynchronous sighting must not replace a fresher address or
     // keep a peer alive with obsolete metadata. These are still UNTRUSTED IDs.
     final current = _entries[peer.id];
     // Equal timestamps are not proof that a sighting is newer. Two UDP
     // packets can be observed in the same clock tick; a conflicting tie must
     // not replace the already-cached address or display metadata.
-    if (current != null && !peer.lastSeen.isAfter(current.lastSeen)) return;
+    if (current != null && !peer.lastSeen.isAfter(current.lastSeen)) return false;
     if (current == null && _entries.length >= maxPeers) {
       String? oldestId;
       DateTime? oldestSeen;
@@ -100,6 +101,7 @@ class LanPeerCache {
       if (oldestId != null) _entries.remove(oldestId);
     }
     _entries[peer.id] = peer;
+    return true;
   }
 
   /// A manual probe succeeds only on a fresh advertisement from that address.
@@ -117,6 +119,66 @@ class LanPeerCache {
   void clear() => _entries.clear();
 }
 
+/// Bounded response gate for unauthenticated UDP discovery. Discovery is a hint,
+/// never trust or authorization; limiting replies prevents one LAN sender from
+/// making this process answer every repeated broadcast without bound.
+@visibleForTesting
+class DiscoveryReplyGate {
+  final int maxSources;
+  final Duration minSourceInterval;
+  final Duration minGlobalInterval;
+  final Duration retention;
+  final LinkedHashMap<String, Duration> _lastReplies = LinkedHashMap<String, Duration>();
+  Duration? _lastAnyReply;
+
+  DiscoveryReplyGate({
+    this.maxSources = 128,
+    this.minSourceInterval = const Duration(seconds: 1),
+    this.minGlobalInterval = const Duration(milliseconds: 50),
+    this.retention = const Duration(seconds: 30),
+  }) {
+    if (maxSources < 1 || maxSources > 4096) {
+      throw ArgumentError.value(maxSources, 'maxSources');
+    }
+    if (minSourceInterval.isNegative || minGlobalInterval.isNegative ||
+        retention < minSourceInterval) {
+      throw ArgumentError('Invalid discovery reply-gate durations');
+    }
+  }
+
+  int get trackedSources => _lastReplies.length;
+
+  bool shouldReply(String sourceAddress, Duration elapsed) {
+    if (sourceAddress.trim().isEmpty || elapsed.isNegative) return false;
+    _lastReplies.removeWhere((_, previous) =>
+        elapsed >= previous && elapsed - previous > retention);
+
+    final lastForSource = _lastReplies[sourceAddress];
+    if (lastForSource != null &&
+        (elapsed < lastForSource || elapsed - lastForSource < minSourceInterval)) {
+      return false;
+    }
+    final lastAny = _lastAnyReply;
+    if (lastAny != null &&
+        (elapsed < lastAny || elapsed - lastAny < minGlobalInterval)) {
+      return false;
+    }
+
+    _lastReplies.remove(sourceAddress);
+    _lastReplies[sourceAddress] = elapsed;
+    _lastAnyReply = elapsed;
+    while (_lastReplies.length > maxSources) {
+      _lastReplies.remove(_lastReplies.keys.first);
+    }
+    return true;
+  }
+
+  void clear() {
+    _lastReplies.clear();
+    _lastAnyReply = null;
+  }
+}
+
 class LanDiscovery extends ChangeNotifier {
   LanDiscovery({int discoveryPort = lanDiscoveryPort, int probePort = lanProbePort})
       : _discoveryPort = discoveryPort, _probePort = probePort;
@@ -132,6 +194,8 @@ class LanDiscovery extends ChangeNotifier {
   Timer? _announcer;
   Timer? _sweeper;
   final LanPeerCache _peers = LanPeerCache();
+  final DiscoveryReplyGate _replyGate = DiscoveryReplyGate();
+  final Stopwatch _discoveryClock = Stopwatch()..start();
   final String nodeId = List<int>.generate(16, (_) => Random.secure().nextInt(256))
       .map((x) => x.toRadixString(16).padLeft(2, '0')).join();
   bool running = false;
@@ -282,9 +346,10 @@ class LanDiscovery extends ChangeNotifier {
     final peer = LanPeer(id: id, name: name, platform: platform,
       address: packet.address.address, udpPort: packet.port,
       tcpPort: tcpPort, lastSeen: DateTime.now());
-    _peers.remember(peer);
-    notifyListeners();
-    if (kind == 'DISCOVER') {
+    final changed = _peers.remember(peer);
+    if (changed) notifyListeners();
+    if (kind == 'DISCOVER' &&
+        _replyGate.shouldReply(packet.address.address, _discoveryClock.elapsed)) {
       _send('ANNOUNCE', packet.address, packet.port);
     }
   }
@@ -467,6 +532,7 @@ class LanDiscovery extends ChangeNotifier {
     _udp = null; _probeServer = null;
     running = false;
     _peers.clear();
+    _replyGate.clear();
     await udpSubscription?.cancel();
     await serverSubscription?.cancel();
     udp?.close();
@@ -485,6 +551,7 @@ class LanDiscovery extends ChangeNotifier {
     _udp = null; _probeServer = null;
     running = false;
     _peers.clear();
+    _replyGate.clear();
     super.dispose();
   }
 }
