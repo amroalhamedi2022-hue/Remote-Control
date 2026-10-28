@@ -561,3 +561,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Build/device:** Android SAF policy, APK, and Windows bundle jobs were **SKIPPED**; no APK/EXE built. Physical Android/Windows file, clipboard, screen/audio and control acceptance remains **NOT TESTED**.
 - **Safety:** no new dependency, paid API, root, permission bypass, secret, merge or main write. This Node transport remains a lab/interoperability fixture, not a production-approved remote-control implementation.
 - **Live Google Docs handoff:** **SYNC FAILED** in this run; no authorized Docs/Drive write-and-read connector is available. This ledger does not replace the live Drive handoff.
+
+## M84 — Clipboard consent revocation is observed while the prompt is pending (2026-10-28)
+
+- **Production change:** `tools/lan_probe/clipboard_transfer.mjs` now polls the session/trust guard while clipboard consent is pending, rather than relying exclusively on an AbortSignal or the user eventually answering the prompt. A thrown trust-ledger callback fails closed. The poll is cleared on every resolution path.
+- **Regression:** `tools/lan_probe/clipboard_transfer.test.mjs` leaves consent unresolved, revokes trust through a guard that then throws, verifies prompt cancellation within 600 ms, resolves a late YES, and confirms no OS clipboard write and no success/denial acknowledgement is emitted for the revoked channel.
+- **Source + test SHA:** `ab95df86664c1eb7cff82eabe9606b71f82208f3`.
+- **CI: PASS** — [run 40615844934](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40615844934). Node protocol/clipboard/file-transfer tests, Flutter analyzer/widget tests, and Windows capture-lifecycle tests passed on the exact source/test SHA.
+- **Build jobs:** Android SAF policy tests, Android APK, and Windows debug bundle were **SKIPPED** by policy; this clipboard-consent fix did not require packaging.
+- **Device acceptance:** **NOT TESTED** — no physical Android↔Windows clipboard transfer or trust-revocation test was run. The Node module remains an interoperability/security lab, not proof of a production authenticated remote-control session.
+- **Safety:** no background clipboard reading, no auto-sync, no new dependency, no paid API, no root or Accessibility/MediaProjection bypass. No merge or `main` write.
+- **Live Google Docs handoff:** **SYNC FAILED** — no authorized Docs/Drive write-and-read connector is available in this run.
