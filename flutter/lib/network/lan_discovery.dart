@@ -179,6 +179,52 @@ class DiscoveryReplyGate {
   }
 }
 
+/// Per-source admission gate for untrusted LAN announcements. It bounds cache churn
+/// and UI notifications from one sender without treating discovery as authentication.
+@visibleForTesting
+class DiscoveryIngressGate {
+  final int maxSources;
+  final Duration minSourceInterval;
+  final Duration retention;
+  final LinkedHashMap<String, Duration> _lastAccepted = LinkedHashMap<String, Duration>();
+
+  DiscoveryIngressGate({
+    this.maxSources = 128,
+    this.minSourceInterval = const Duration(seconds: 1),
+    this.retention = const Duration(seconds: 30),
+  }) {
+    if (maxSources < 1 || maxSources > 4096) {
+      throw ArgumentError.value(maxSources, 'maxSources');
+    }
+    if (minSourceInterval.isNegative || retention < minSourceInterval) {
+      throw ArgumentError('Invalid discovery ingress-gate durations');
+    }
+  }
+
+  int get trackedSources => _lastAccepted.length;
+
+  bool shouldAccept(String sourceAddress, Duration elapsed) {
+    if (sourceAddress.trim().isEmpty || elapsed.isNegative) return false;
+    _lastAccepted.removeWhere((_, previous) =>
+        elapsed >= previous && elapsed - previous > retention);
+
+    final previous = _lastAccepted[sourceAddress];
+    if (previous != null &&
+        (elapsed < previous || elapsed - previous < minSourceInterval)) {
+      return false;
+    }
+
+    _lastAccepted.remove(sourceAddress);
+    _lastAccepted[sourceAddress] = elapsed;
+    while (_lastAccepted.length > maxSources) {
+      _lastAccepted.remove(_lastAccepted.keys.first);
+    }
+    return true;
+  }
+
+  void clear() => _lastAccepted.clear();
+}
+
 class LanDiscovery extends ChangeNotifier {
   LanDiscovery({int discoveryPort = lanDiscoveryPort, int probePort = lanProbePort})
       : _discoveryPort = discoveryPort, _probePort = probePort;
@@ -194,6 +240,7 @@ class LanDiscovery extends ChangeNotifier {
   Timer? _announcer;
   Timer? _sweeper;
   final LanPeerCache _peers = LanPeerCache();
+  final DiscoveryIngressGate _peerIngressGate = DiscoveryIngressGate();
   final DiscoveryReplyGate _replyGate = DiscoveryReplyGate();
   final Stopwatch _discoveryClock = Stopwatch()..start();
   final String nodeId = List<int>.generate(16, (_) => Random.secure().nextInt(256))
@@ -343,13 +390,19 @@ class LanDiscovery extends ChangeNotifier {
       return;
     }
     // Address comes from datagram source, never from an untrusted JSON field.
+    final elapsed = _discoveryClock.elapsed;
     final peer = LanPeer(id: id, name: name, platform: platform,
       address: packet.address.address, udpPort: packet.port,
       tcpPort: tcpPort, lastSeen: DateTime.now());
-    final changed = _peers.remember(peer);
-    if (changed) notifyListeners();
+    // Bound cache mutation/UI notification frequency per untrusted source. The reply
+    // gate remains independent so a DISCOVER packet can still receive a rate-limited
+    // response even if an ANNOUNCE from the same sender was observed first.
+    if (_peerIngressGate.shouldAccept(packet.address.address, elapsed)) {
+      final changed = _peers.remember(peer);
+      if (changed) notifyListeners();
+    }
     if (kind == 'DISCOVER' &&
-        _replyGate.shouldReply(packet.address.address, _discoveryClock.elapsed)) {
+        _replyGate.shouldReply(packet.address.address, elapsed)) {
       _send('ANNOUNCE', packet.address, packet.port);
     }
   }
@@ -532,6 +585,7 @@ class LanDiscovery extends ChangeNotifier {
     _udp = null; _probeServer = null;
     running = false;
     _peers.clear();
+    _peerIngressGate.clear();
     _replyGate.clear();
     await udpSubscription?.cancel();
     await serverSubscription?.cancel();
@@ -551,6 +605,7 @@ class LanDiscovery extends ChangeNotifier {
     _udp = null; _probeServer = null;
     running = false;
     _peers.clear();
+    _peerIngressGate.clear();
     _replyGate.clear();
     super.dispose();
   }
