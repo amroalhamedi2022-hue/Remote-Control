@@ -101,3 +101,11 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - **Build/device:** APK and Windows bundle **NOT BUILT** because this is a parser-only regression; physical Android↔Windows LAN probing **NOT TESTED**.
 - **Security boundary:** no root, Accessibility/MediaProjection bypass, new dependency, paid API, or secret. LAN discovery and PONG remain unauthenticated reachability signals only; they cannot authorize files, clipboard, screen, audio or input.
 - **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector is exposed in this runtime; this repository ledger is not a substitute for the existing live Drive document.
+
+
+## 2026-10-28 — M92 Windows probe framing parity
+
+- **PASS:** exact-head CI [40657844869](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40657844869) on `590769dd267709b966a673109fb28426a0c8d0ed`. Node protocol 106/106; Flutter analyzer clean, 156 tests pass; Windows lifecycle 3/3. Streaming/video lab 31 pass, 7 optional codec skips.
+- Windows Node CLI now shares the strict bounded PONG/EOF rule with Flutter. Four regressions cover fragmented valid response, later trailing bytes, missing EOF/timeout, and malformed/oversized responses.
+- **M1 remains PARTIAL:** no APK or Windows bundle built for this parser-only fix. Real Android↔Windows acceptance remains **NOT TESTED**; secure pairing and privileged control remain unapproved/not verified.
+- PR #1 stays Draft/unmergeable; no merge or `main` write. Live Drive handoff remains **SYNC FAILED** until an authorized Docs write/read connector is available.
