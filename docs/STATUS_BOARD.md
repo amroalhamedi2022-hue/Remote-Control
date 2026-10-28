@@ -1,6 +1,6 @@
 # Remote Control — Live engineering status
 
-Date: **2026-10-23**. Canonical repo: **https://github.com/amroalhamedi2022-hue/Remote-Control** (PUBLIC at owner's explicit direction).
+Date: **2026-10-28**. Canonical repo: **https://github.com/amroalhamedi2022-hue/Remote-Control** (PUBLIC at owner's explicit direction).
 
 ## Operating contract
 
@@ -16,7 +16,7 @@ Date: **2026-10-23**. Canonical repo: **https://github.com/amroalhamedi2022-hue/
 | Milestone | Verified evidence | Status |
 |---|---|---|
 | M0 Source migration | 77 baseline source/asset files, source + design checksums | **DONE** |
-| M1 Android and Windows debug builds | `flutter analyze`, widget tests, real signed/debug binary structures, SHA-256 manifests, GitHub Actions URL | **IN PROGRESS** — verifier added; CI results pending |
+| M1 Android and Windows debug builds | Latest source checks pass; build jobs intentionally skipped in run 40620978659 | **PARTIAL** — source validated; current-head APK/Windows bundle not built |
 | M2 Secure LAN/pairing | On-device offline trials; vetted transport; peer/key recovery tests | **LAB ONLY**, custom protocol not approved for privileged features |
 | M3 Windows host → Android viewer | Real MSI desktop capture + Pad 5 playback + measured latency | **NOT VERIFIED** |
 | M4 Remote keyboard/mouse | Opt-in host authorisation, safe input boundaries, device tests | **NOT STARTED** |
@@ -35,3 +35,13 @@ Date: **2026-10-23**. Canonical repo: **https://github.com/amroalhamedi2022-hue/
 ## Next admin action
 
 Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read the failing job log, fix the code in this chat and rerun until the build is reproducible. Preserve architectural separation and the design master asset.
+
+
+## 2026-10-28 — M85 viewer-disconnect lifecycle hardening
+
+- **Production change:** MJPEG and experimental H.264 capture now watch socket disconnects while FFmpeg is silent, stop the child process, reject the capture as disconnected, and do not emit a successful completion.
+- **Exact code-head evidence:** [CI 40620978659](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40620978659) passed on `ce109ffbbce609ad46f901973c98fff5fb856d52`: Node 102/102; stream/video 26 pass, 7 skipped; Flutter source/analyzer/widget checks pass; Windows capture lifecycle pass.
+- **Specific regressions:** silent MJPEG disconnect PASS; silent H.264 disconnect PASS.
+- **M1:** PARTIAL — source validation passes, but Android APK/Windows bundle jobs were skipped for this run. No build or device acceptance claimed.
+- **M2/M3/M5/M7/M8:** remain LAB ONLY / NOT VERIFIED as appropriate. Real Windows↔Xiaomi Pad 5 pairing, MediaProjection/Accessibility, file/clipboard, audio and screen playback still require device evidence. FFmpeg/FFprobe integration tests were not run because the runner did not have those executables.
+- **No merge, no main write, no root or permission bypass.**
