@@ -747,3 +747,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **APK/Windows bundle:** NOT BUILT; this bounded policy/state change does not require a package build. **Physical LAN/device acceptance:** NOT TESTED.
 - PR #1 remains Draft on `feature/build-reliability-v0_9`; no merge, `main` write, root, OS-policy bypass, paid API, or secret exposure.
 - **Live Google Docs handoff:** SYNC FAILED; no authorized Docs write/read connector is exposed in this runtime.
+
+
+## M100 — Bound untrusted LAN discovery cache churn (2026-10-28)
+
+- **Scope:** Remote Control PR #1 only, branch `feature/build-reliability-v0_9`. NetKit and `main` were not changed.
+- **Production:** added `DiscoveryIngressGate` to limit updates to the untrusted peer cache to one accepted advertisement per source IPv4 address per second, with 30-second expiry and a bounded 128-source ledger. The gate runs only after protocol/field validation and is independent from the existing reply gate, so a `DISCOVER` can still receive a separately rate-limited `ANNOUNCE` even if an `ANNOUNCE` from that source arrived first. Stop/dispose clears the ingress ledger.
+- **Regression:** `flutter/test/lan_peer_cache_test.dart` covers empty source, per-source throttling, monotonic-time rollback rejection, capacity bound, expiry and cleanup.
+- **Production commit:** `0f7033541d9471fe53cb724099b8a28b1615cc7f`. **Source/test head:** `7585f7ae33e159e838ee045e402360d1fa7148ee`.
+- **Exact-head CI:** **NOT VERIFIED**. The available workflow-run lookup exposes pull-request-triggered runs only and returned no run for this push commit; do not substitute M98 run `40708374794` as evidence for M100. Workflow definition: [ci.yml](https://github.com/amroalhamedi2022-hue/Remote-Control/blob/feature/build-reliability-v0_9/.github/workflows/ci.yml).
+- **Acceptance:** source diff reviewed **PASS**; new Flutter test execution and analyzer on exact head **NOT VERIFIED**; APK/Windows bundle **NOT BUILT**; real LAN flood/peer-discovery behavior **NOT TESTED**.
+- **Security boundary:** discovery IDs/names remain untrusted. This gate limits cache churn/UI notifications; it is not pairing, authentication, encryption, or authorization. No root, permission bypass, new dependency, paid API, secret, merge or `main` write.
