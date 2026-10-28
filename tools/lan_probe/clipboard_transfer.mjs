@@ -22,20 +22,32 @@ function clipboardAbortError() {
   return error;
 }
 
+function clipboardSessionActive(isSessionActive) {
+  try { return isSessionActive() === true; } catch { return false; }
+}
+
 function requireActiveClipboardSession(isSessionActive, signal) {
-  if (signal?.aborted || !isSessionActive()) throw clipboardAbortError();
+  if (signal?.aborted || !clipboardSessionActive(isSessionActive)) throw clipboardAbortError();
 }
 
 // Consent can be a pending native dialog; expiry/abort must not allow a late
 // YES to write the clipboard. Promise.race observes late rejections safely.
-async function awaitClipboardConsent(approve, signal, timeoutMs) {
+async function awaitClipboardConsent(approve, signal, timeoutMs, isSessionActive) {
   let timer;
+  let revocationPoll;
   let onAbort;
   try {
     const deadlines = [
       Promise.resolve().then(approve),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error('Clipboard consent timed out')), timeoutMs);
+      }),
+      // Session revocation may be recorded independently of AbortSignal. Poll the
+      // trust ledger while the native consent prompt is still open and fail closed.
+      new Promise((_, reject) => {
+        revocationPoll = setInterval(() => {
+          if (!clipboardSessionActive(isSessionActive)) reject(clipboardAbortError());
+        }, 100);
       }),
     ];
     if (signal) deadlines.push(new Promise((_, reject) => {
@@ -46,6 +58,7 @@ async function awaitClipboardConsent(approve, signal, timeoutMs) {
     return await Promise.race(deadlines);
   } finally {
     clearTimeout(timer);
+    clearInterval(revocationPoll);
     if (onAbort) signal.removeEventListener('abort', onAbort);
   }
 }
@@ -61,11 +74,11 @@ export async function acceptClipboardRequest(channel, request,
   requireActiveClipboardSession(isSessionActive, signal);
   let approved;
   try {
-    approved = await awaitClipboardConsent(approve, signal, consentTimeoutMs);
+    approved = await awaitClipboardConsent(approve, signal, consentTimeoutMs, isSessionActive);
   } catch (error) {
     // A timed-out local prompt can still deny a live peer. A revoked channel
     // must never receive an acknowledgement, even a denial.
-    if (!signal?.aborted && isSessionActive()) {
+    if (!signal?.aborted && clipboardSessionActive(isSessionActive)) {
       try { channel.send({type:'CLIPBOARD_DENIED'}); } catch { /* peer gone */ }
     }
     throw error;

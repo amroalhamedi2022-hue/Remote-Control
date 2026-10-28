@@ -58,6 +58,25 @@ test('revocation while consent dialog is pending never writes or acknowledges', 
       writeClipboard:async()=>{writes++;}}),{name:'AbortError'});
   assert.equal(writes,0);assert.deepEqual(sent,[]);
 });
+test('trust revocation while consent remains pending aborts promptly and ignores late YES', async () => {
+  let active=true,resolveConsent,writes=0;const sent=[];
+  const pending=acceptClipboardRequest({send:x=>sent.push(x)},
+    {type:'CLIPBOARD_PUT',text:'private'},
+    {isSessionActive:()=>{if(!active)throw new Error('trust ledger unavailable');return true;},
+      approve:()=>new Promise(resolve=>{resolveConsent=resolve;}),
+      writeClipboard:async()=>{writes++;},
+      consentTimeoutMs:2000});
+  await new Promise(resolve=>setImmediate(resolve));
+  active=false;
+  const started=Date.now();
+  await assert.rejects(pending,{name:'AbortError'});
+  assert.ok(Date.now()-started<600,'revoked trust must cancel a pending consent prompt promptly');
+  resolveConsent(true);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(writes,0);
+  assert.deepEqual(sent,[]);
+});
+
 test('revocation during OS clipboard write suppresses false success ACK', async () => {
   let active=true,writes=0;const sent=[];
   await assert.rejects(acceptClipboardRequest({send:x=>sent.push(x)},
