@@ -4,8 +4,6 @@
 // unique "Received-..." folder only after protocol SHA-256 verification.
 import 'dart:io';
 
-
-
 import 'package:crypto/crypto.dart' as crypto;
 
 import 'file_transfer_lab.dart';
@@ -86,6 +84,11 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
   Future<void> write(List<int> bytes) {
     if (_committed || _aborted || _closing || _writer == null) {
       return Future<void>.error(StateError('Receiver staging is closed'));
+    }
+    if (bytes.isEmpty || bytes.length > labFileChunkBytes) {
+      final error = StateError('Invalid desktop staging chunk');
+      _writeFailure ??= error;
+      return Future<void>.error(error);
     }
     // Copy caller-owned memory before the asynchronous queue can yield.
     final chunk = List<int>.unmodifiable(bytes);
