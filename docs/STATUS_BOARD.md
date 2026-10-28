@@ -81,3 +81,12 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - Exact-head CI: [40644654563](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40644654563) — Node 102/102; stream/video 31 PASS, 7 optional FFmpeg skips; Flutter 153 tests and Windows lifecycle 3/3 PASS.
 - Android APK / Windows bundle: NOT BUILT. Physical device acceptance: NOT TESTED. Experimental pairing/media security remains unapproved for production privileged control.
 - Live Google Docs Handoff: SYNC FAILED (no authorized Docs write/read connector in this run).
+
+
+## 2026-10-28 — M90 preview protocol integer validation
+
+- Head: `959244066a7554b4ef1900b0a45910b6dd14acf4`.
+- Preview frame part IDs/offsets and end IDs now reject JSON doubles such as `1.0` / `0.0`; regression tests cover all three fields.
+- Exact-head CI: [40647301044](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40647301044) — Node 102/102; streaming/video 31 PASS, 7 optional FFmpeg skips; Flutter analyzer clean and 154 tests passed; Windows capture lifecycle 3/3 PASS.
+- APK/Windows bundle NOT BUILT; device acceptance NOT TESTED. Real-codec optional tests remain skipped, not passed.
+- Live Google Docs Handoff: **SYNC FAILED** (no authorized Docs write/read connector in this run).
