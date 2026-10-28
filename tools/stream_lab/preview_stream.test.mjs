@@ -101,3 +101,23 @@ test('Revoked silent MJPEG child is force-terminated if it ignores SIGTERM', {ti
     assert.ok(Date.now()-started<3000,'revoked child that ignores SIGTERM must be force-terminated');
   } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
+
+test('Viewer disconnect while MJPEG capture is silent terminates the child', {timeout:5000}, async t => {
+  if(process.platform==='win32'){t.skip('POSIX silent-process fixture');return;}
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-disconnect-preview-'));
+  try {
+    const fake=path.join(dir,'ffmpeg-silent');
+    await fs.writeFile(fake, `#!/bin/sh\nexec "${process.execPath}" -e 'setTimeout(() => {}, 10000)'\n`);
+    await fs.chmod(fake,0o755);
+    const socket={destroyed:false,writableLength:0};
+    const messages=[];
+    const started=Date.now();
+    const pending=sendPreview({send:message=>messages.push(message)},socket,
+      {ffmpeg:fake,isSessionActive:()=>true});
+    await new Promise(resolve=>setTimeout(resolve,150));
+    socket.destroyed=true;
+    await assert.rejects(pending,/Viewer disconnected/);
+    assert.ok(Date.now()-started<3000,'silent capture should stop promptly after viewer disconnect');
+    assert.deepEqual(messages,[]);
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});
