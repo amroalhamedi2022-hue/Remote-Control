@@ -60,7 +60,19 @@ test('LAN-only Node address policy rejects public/CGNAT and permits private, lin
     assert.equal(isLanIpv4(ip),false,ip);
     assert.throws(()=>parseEndpoint(ip),/IPv4/);
   }
-  assert.deepEqual(parseEndpoint('127.0.0.1:43827'),{ip:'127.0.0.1',port:43827});
+  assert.throws(()=>parseEndpoint('127.0.0.1:43827'),/local LAN/);
+  assert.deepEqual(parseEndpoint('127.0.0.1:43827',43827,{allowLoopback:true}),
+    {ip:'127.0.0.1',port:43827});
+});
+
+test('loopback test flag is inert outside NODE_ENV=test', async () => {
+  await assert.rejects(
+    run(process.execPath, [path, '--allow-loopback-for-tests', '--ping=127.0.0.1:9'], {
+      timeout: 3000,
+      env: { ...process.env, NODE_ENV: 'production' },
+    }),
+    error => error.code === 1 && /Expected a local LAN IPv4 address/.test(error.stderr)
+  );
 });
 
 test('actual UDP manual-IP discovery + TCP probe exchange over loopback',async(t)=>{
