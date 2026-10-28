@@ -652,3 +652,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Build/device:** APK and Windows bundle **NOT BUILT** because this is a parser-only regression; physical Android↔Windows LAN probing **NOT TESTED**.
 - **Security boundary:** no root, Accessibility/MediaProjection bypass, new dependency, paid API, or secret. LAN discovery and PONG remain unauthenticated reachability signals only; they cannot authorize files, clipboard, screen, audio or input.
 - **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector is exposed in this runtime; this repository ledger is not a substitute for the existing live Drive document.
+
+
+## 2026-10-28 — M92 strict Windows TCP probe framing
+
+- **Exact source/test head:** `590769dd267709b966a673109fb28426a0c8d0ed` on `feature/build-reliability-v0_9`.
+- Added `tools/lan_probe/probe_reply.mjs`; the Windows Node probe now accepts only exact `PONG\n` or `PONG\r\n` followed by EOF, with a six-byte cap and bounded timeout. It rejects trailing bytes arriving in later events, malformed framing, overlong data, and a peer that never closes the response.
+- Added four parser regressions. Also fixed the existing Flutter probe-test compile failure by importing `dart:async` for `StreamController`.
+- **PASS — exact-head CI:** [run 40657844869](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40657844869): Node protocol tests 106/106; streaming/video 31 pass, 0 fail, 7 optional FFmpeg/FFprobe skips; Flutter analyzer clean and 156 tests passed; Windows capture lifecycle 3/3.
+- **NOT BUILT:** Android APK and Windows bundle were deliberately skipped for this source/parser milestone. **NOT TESTED:** physical Windows↔Android LAN probing and device pairing.
+- PONG remains unauthenticated reachability only; it does not authorize file, clipboard, screen, audio or input channels. No new dependency, paid API, root, permission bypass, secret, merge or `main` write.
+- PR #1 remains Draft/unmergeable due to its existing base conflict. Live Google Docs handoff: **SYNC FAILED** because this runtime has no authorized Docs write/read connector.
