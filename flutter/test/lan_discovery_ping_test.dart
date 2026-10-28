@@ -6,6 +6,30 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liquid_remote_control/network/lan_discovery.dart';
 
 void main() {
+  test('concurrent LAN discovery starts coalesce and stop cancels in-flight startup', () async {
+    final discovery = LanDiscovery(discoveryPort: 0, probePort: 0);
+    try {
+      final first = discovery.start();
+      final second = discovery.start();
+      expect(identical(first, second), isTrue,
+          reason: 'a single discovery instance must own one startup attempt');
+      await discovery.stop();
+      await Future.wait([first, second]);
+      expect(discovery.running, isFalse,
+          reason: 'a bind completing after stop must not resurrect discovery');
+      expect(discovery.error, isNull,
+          reason: 'intentional stop during startup is not a startup failure');
+      await discovery.start();
+      expect(discovery.running, isTrue,
+          reason: 'a fresh start after cancellation must still work');
+      await discovery.stop();
+      expect(discovery.running, isFalse);
+    } finally {
+      await discovery.stop();
+      discovery.dispose();
+    }
+  });
+
   group('LAN discovery announcement policy', () {
     const localId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const peerId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
