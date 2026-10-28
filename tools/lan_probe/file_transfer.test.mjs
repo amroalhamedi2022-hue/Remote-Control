@@ -33,7 +33,7 @@ test('reject spoofed names, paths and reserved Windows filenames',()=>{
   }
   assert.equal(safeTransferName('ملف 🫧.pdf'),'ملف 🫧.pdf');
   assert.equal(safeTransferName('family 👨‍👩‍👧‍👦.txt'),'family 👨‍👩‍👧‍👦.txt');
-  assert.equal(safeTransferName('می\\u200cروم.txt'),'می\\u200cروم.txt');
+  assert.equal(safeTransferName('می\u200cروم.txt'),'می\u200cروم.txt');
 });
 test('transfer encrypted-channel payload in bounded chunks with exact hash and no overwrite',()=>sandbox(async dir=>{
   const input=path.join(dir,'ملف 🫧.bin');
