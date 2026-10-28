@@ -712,3 +712,15 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Build decision:** APK and Windows bundle jobs were skipped intentionally; this is a discovery-cache source regression, not a package acceptance gate. Physical Android↔Windows LAN discovery/pairing, files/clipboard, screen/audio and input remain **NOT TESTED**.
 - **Security boundary:** discovery and TCP PONG remain unauthenticated reachability only, never authorization. No new dependency, paid API, root, MediaProjection/Accessibility bypass, secret, merge or `main` write.
 - **Live Google Docs Handoff: SYNC FAILED** — no authorized Docs write/read connector is exposed; this repository ledger does not replace the existing live Drive document.
+
+
+## 2026-10-28 — M97 — Reject malformed UTF-16 in received SAF file names (Remote Control PR #1)
+
+- **Source/test head before this ledger update:** `fb50f03e65959db99fd9109f57bd45acbc29f8bf` on `feature/build-reliability-v0_9`; PR #1 remains Draft against `main`, and `main` was not changed.
+- **Functional change:** `SafReceivePolicy.validFileName` now rejects isolated UTF-16 high or low surrogates before names cross SAF/filesystem encoders. Valid supplementary characters (including emoji) remain accepted. This prevents replacement-character aliasing or ambiguous filenames when a malformed Java/Kotlin string is encoded by downstream storage providers.
+- **Regression tests added:** isolated high-surrogate and low-surrogate names are rejected; the existing valid-emoji case remains.
+- **PASS — targeted local Kotlin/JVM policy harness:** valid Arabic/emoji names, existing Windows/Unicode guards, cache quota cases and the new malformed-surrogate cases passed. This is a local targeted harness, not a full repository CI run.
+- **CI: NOT VERIFIED:** the GitHub connector did not expose a workflow run/status for this push head. The commit includes `[saf-policy-test]` for the workflow's source-only SAF policy job; verify its exact-head result before claiming CI PASS.
+- **Build/device:** APK and Windows bundle not built; native SAF filename behavior on Android and actual Windows receive acceptance **NOT TESTED**.
+- **Security boundary:** no new dependency, no root, no MediaProjection/Accessibility bypass, no paid API, no secret, no merge, and no `main` write. Filename validation is not authorization or authentication.
+- **Live Google Docs handoff:** pending this batch's separate authorized write/read attempt.
