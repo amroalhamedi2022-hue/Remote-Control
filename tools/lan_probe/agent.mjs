@@ -4,6 +4,7 @@ import dgram from 'node:dgram';
 import net from 'node:net';
 import os from 'node:os';
 import { randomId, payload, parsePacket, parseEndpoint, isLanIpv4, UDP_PORT, TCP_PORT } from './protocol.mjs';
+import { readExactPong } from './probe_reply.mjs';
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => {
@@ -86,15 +87,20 @@ async function ping() {
   const {ip,port}=parseEndpoint(address,tcpPort,{allowLoopback:allowLoopbackForTests});
   const t0=performance.now();
   const conn=net.createConnection({host:ip,port});
-  conn.setTimeout(timeout);
   let done=false;
-  const finish=(ok)=>{if(done)return;done=true;conn.destroy();
+  const finish=(ok)=>{
+    if(done)return;
+    done=true;
+    conn.destroy();
     console.log(JSON.stringify({reached:ok,address:ip,rttMs:ok?+(performance.now()-t0).toFixed(1):null}));
-    process.exitCode=ok?0:2;};
-  conn.on('connect',()=>conn.write('PING\n'));
-  conn.on('data',buf=>finish(buf.toString('utf8').trim()==='PONG'));
-  conn.on('timeout',()=>finish(false));conn.on('error',()=>finish(false));conn.on('end',()=>finish(false));
+    process.exitCode=ok?0:2;
+  };
+  // Keep a listener even if the parser rejects an invalid timeout before attaching.
+  conn.on('error',()=>finish(false));
+  conn.on('connect',()=>{if(!done)conn.write('PING\\n');});
+  readExactPong(conn,timeout).then(finish,()=>finish(false));
 }
+
 if (!mode) {
   console.error('Usage: node agent.mjs --serve | --probe=192.168.1.10 | --ping=192.168.1.10');
   process.exitCode=1;
