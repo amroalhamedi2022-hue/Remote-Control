@@ -785,3 +785,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **APK/Windows bundle:** NOT BUILT; this source-only staging-lab change does not justify a package build. Physical Android/Windows acceptance: NOT TESTED.
 - **Scope/security:** this remains a transfer-lab adapter and is not production remote-access approval. No root, permission bypass, paid API, new dependency, merge, or `main` write.
 - **Live Google Docs Handoff:** SYNC FAILED; no authorized Docs write/read connector is available in this run. This repository ledger does not replace the live Drive document.
+
+
+## M103 — 2026-10-28 — Fixed-port LAN discovery ingress (PR #1)
+
+- **Scope:** feature/build-reliability-v0_9 only; no main write or merge.
+- **Production change:** LAN discovery now rejects datagrams whose UDP source port differs from the configured discovery port. This prevents a forged private-LAN packet from directing a rate-limited discovery reply to an unrelated local service port. The explicit port-zero mode remains permissive for isolated ephemeral-socket tests only; production default is the fixed discovery port.
+- **Source commit:** https://github.com/amroalhamedi2022-hue/Remote-Control/commit/31dc85ba2db774ef4a2bc4594b9fc034e04634e0
+- **Regression commit / source-test head:** https://github.com/amroalhamedi2022-hue/Remote-Control/commit/c78a84363eca27e24424149a1c6e2b9ccdac55e0. Test covers expected, mismatched, zero/out-of-range ports, invalid configuration, and ephemeral test mode.
+- **Exact-head CI:** NOT VERIFIED. The available GitHub connector exposes PR-triggered workflow runs but returned none for this push head; no CI pass is claimed. Local Flutter/Dart tests: NOT TESTED because the toolchain is not installed in this runtime.
+- **APK/Windows bundle:** NOT BUILT; this was a protocol-ingress source gate, not a device-test package.
+- **Device acceptance:** NOT TESTED — same-LAN discovery, port/interface changes, Android↔Windows pairing and actual transfer remain open. Discovery is still unauthenticated and cannot authorize files, clipboard, screen, audio, or input.
+- **Security:** no new dependency, paid API, root, permission bypass, or secret. PR #1 remains Draft/unmergeable; no merge or main write.
+- **Live Google Docs handoff:** SYNC FAILED until a permitted Docs write/read connector is available; this ledger is not a replacement for the live Drive document.
