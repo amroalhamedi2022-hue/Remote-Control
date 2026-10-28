@@ -83,7 +83,10 @@ class LanPeerCache {
     // An older asynchronous sighting must not replace a fresher address or
     // keep a peer alive with obsolete metadata. These are still UNTRUSTED IDs.
     final current = _entries[peer.id];
-    if (current != null && peer.lastSeen.isBefore(current.lastSeen)) return;
+    // Equal timestamps are not proof that a sighting is newer. Two UDP
+    // packets can be observed in the same clock tick; a conflicting tie must
+    // not replace the already-cached address or display metadata.
+    if (current != null && !peer.lastSeen.isAfter(current.lastSeen)) return;
     if (current == null && _entries.length >= maxPeers) {
       String? oldestId;
       DateTime? oldestSeen;
