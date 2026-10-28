@@ -112,7 +112,10 @@ export async function sendPreview(channel,socket,{testPattern=false,fps=4,width=
   // Poll trust and socket state while FFmpeg is silent. A disconnected viewer
   // must not leave desktop capture alive waiting for the next frame.
   const trustWatch=setInterval(()=>{
-    if(socket.destroyed) {
+    // A TCP peer may half-close its readable side (FIN) without setting
+    // socket.destroyed. Capture must stop whenever the viewer can no longer
+    // receive frames, not only after a full socket destroy.
+    if(socket.destroyed || socket.readableEnded || socket.writableEnded || socket.writable === false) {
       viewerDisconnected=true;
       requestStop(false);
       return;

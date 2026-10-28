@@ -146,6 +146,28 @@ test('Viewer disconnect while MJPEG capture is silent terminates the child', {ti
   } finally { await fs.rm(dir,{recursive:true,force:true}); }
 });
 
+test('Viewer TCP half-close while MJPEG capture is silent terminates the child', {timeout:5000}, async t => {
+  if(process.platform==='win32'){t.skip('POSIX silent-process fixture');return;}
+  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-half-close-preview-'));
+  try {
+    const fake=path.join(dir,'ffmpeg-silent');
+    await fs.writeFile(fake, `#!/bin/sh\nexec "${process.execPath}" -e 'setTimeout(() => {}, 10000)'\n`);
+    await fs.chmod(fake,0o755);
+    // Model a received FIN: readableEnded is true, while destroyed remains false.
+    const socket={destroyed:false,readableEnded:false,writableEnded:false,writable:true,writableLength:0};
+    const messages=[];
+    const started=Date.now();
+    const pending=sendPreview({send:message=>messages.push(message)},socket,
+      {ffmpeg:fake,isSessionActive:()=>true});
+    await new Promise(resolve=>setTimeout(resolve,150));
+    socket.readableEnded=true;
+    await assert.rejects(pending,/Viewer disconnected/);
+    assert.equal(socket.destroyed,false,'fixture must reproduce a half-close, not a full destroy');
+    assert.ok(Date.now()-started<3000,'silent capture should stop promptly after viewer half-close');
+    assert.deepEqual(messages,[],'a half-closed viewer must receive no frames or completion');
+  } finally { await fs.rm(dir,{recursive:true,force:true}); }
+});
+
 test('MJPEG capture reports a nonzero FFmpeg exit even after sending a frame', {timeout:5000}, async t => {
   if(process.platform==='win32'){t.skip('POSIX executable fixture');return;}
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'remote-mjpeg-nonzero-exit-'));
