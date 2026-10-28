@@ -4,6 +4,8 @@ import {clipboardByteLength,acceptClipboardRequest,MAX_CLIPBOARD_BYTES,writeWind
 
 test('Unicode clipboard size uses UTF-8 bytes, not JS code units', () => {
   assert.equal(clipboardByteLength('مرحبًا 👋'), Buffer.byteLength('مرحبًا 👋'));
+  const joinerText = 'می\u200cروم 👨‍👩‍👧‍👦';
+  assert.equal(clipboardByteLength(joinerText), Buffer.byteLength(joinerText, 'utf8'));
   assert.equal(clipboardByteLength('😀'.repeat(512)), MAX_CLIPBOARD_BYTES);
   assert.throws(() => clipboardByteLength('😀'.repeat(513)), /exceeds/);
 });
@@ -25,7 +27,7 @@ test('explicit host denial never writes clipboard', async () => {
   assert.equal(written,0);assert.deepEqual(sent,[{type:'CLIPBOARD_DENIED'}]);
 });
 test('host writes exact UTF-8 text once and acknowledges only after success', async () => {
-  const sent=[], events=[];const text='سطر أول\nsecond line 🫧';
+  const sent=[], events=[];const text='سطر أول\nsecond line 🫧 family 👨‍👩‍👧‍👦 و می\u200cروم';
   assert.equal(await acceptClipboardRequest({send:x=>{events.push('ack');sent.push(x);}},
     {type:'CLIPBOARD_PUT',text},
     {approve:async()=>{events.push('approved');return true;},
