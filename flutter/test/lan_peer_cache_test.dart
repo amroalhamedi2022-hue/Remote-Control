@@ -109,8 +109,9 @@ void main() {
     expect(isExpectedDiscoverySourcePort(0, lanDiscoveryPort), isFalse);
     expect(isExpectedDiscoverySourcePort(65536, lanDiscoveryPort), isFalse);
     expect(isExpectedDiscoverySourcePort(12345, -1), isFalse);
-    // Port zero is used only by isolated tests that ask the OS for an ephemeral bind.
-    expect(isExpectedDiscoverySourcePort(12345, 0), isTrue);
+    // An ephemeral bind is checked against its actual OS-selected port, not zero.
+    expect(isExpectedDiscoverySourcePort(12345, 12345), isTrue);
+    expect(isExpectedDiscoverySourcePort(12345, 0), isFalse);
     expect(isExpectedDiscoverySourcePort(0, 0), isFalse);
   });
 
