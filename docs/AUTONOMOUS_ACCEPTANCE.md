@@ -595,3 +595,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Build/device:** Android APK and Windows bundle jobs were **SKIPPED**; no APK/EXE was built. Physical Windows↔Android screen/audio and actual MediaProjection/Accessibility behavior remain **NOT TESTED**.
 - **Product boundary:** this is still a capture-lifecycle/interoperability lab fix, not proof that the full authenticated remote-control product is production-ready. No root, permission bypass, new dependency, paid API, secret, merge or `main` write.
 - **Live Google Docs handoff:** **SYNC FAILED** — no authorized Docs write/read connector was available in this run.
+
+## M87 — 2026-10-28 — Bound preview-frame chunking and reject interrupted frames
+
+- **Functional change:** `PreviewAssembler` now rejects a second `FRAME_BEGIN` while the previous frame is incomplete, and requires the sender's fixed `CHUNK_BYTES` size for every non-final part. Only the final part may be shorter. This caps retained part objects to roughly 202 per 512 KiB frame rather than allowing a peer to fragment a frame into hundreds of thousands of tiny buffers.
+- **Regression:** the new test `preview assembler enforces bounded chunking and rejects replacement of an incomplete frame` passed on the current source head. It verifies normal multi-part reconstruction, rejects one-byte fragmentation, and rejects frame replacement before completion.
+- **Exact source/test head:** `5e9ea06b849ea103f513aecb9c2f5f3a7982f073`.
+- **PASS — CI:** [run 40633124181](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40633124181). Node LAN/protocol/pairing/file/clipboard suite: **102 PASS / 0 FAIL**. Streaming/video suite: **28 PASS / 0 FAIL / 7 SKIPPED** (optional FFmpeg integration tests). Flutter analyzer/widget checks and Windows capture-lifecycle checks also passed.
+- **Build/device:** APK and Windows bundle jobs were **SKIPPED** because this is a source-level parser/lab hardening change; no new APK/EXE or device acceptance is claimed. Physical Windows↔Android pairing, files/clipboard, screen/audio and MediaProjection/Accessibility remain **NOT TESTED**.
+- **Boundary:** this is a capture-lab receiver hardening, not production approval for the custom transport. No new dependency, paid API, root, permission bypass, secret, merge or `main` write.
+- **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector was available in this run; this repository ledger is not a substitute for the live Drive document.
+
