@@ -701,3 +701,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **NOT TESTED:** Android/Windows package build, physical device file transfer, real Windows↔Xiaomi Pad 5 pairing, clipboard, screen/audio mirroring and input control. This is a source/compile gate only, not device acceptance or production-security approval.
 - **Branch safety:** PR #1 remains Draft; no merge, no `main` mutation, no new dependency or paid API.
 
+
+
+## 2026-10-28 — M96 — Reject equal-timestamp LAN peer replacements (PR #1)
+
+- **Source/test head:** `e7b43ae86d87462b8039071fb4e0737c2a6b1db1`.
+- **Finding:** `LanPeerCache.remember` rejected only strictly older sightings. Two packets observed within the same clock tick could have equal `lastSeen`; a conflicting sighting with the same peer ID could then replace the already-cached address/name/platform despite providing no evidence that it was fresher.
+- **Fix:** an existing peer is replaced only when the incoming local observation timestamp is strictly later. Equal-time conflicting metadata is ignored. Added a regression proving a tied timestamp cannot replace the cached address, display name or platform.
+- **PASS — exact-head CI:** [run 40688363101](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40688363101). Node protocol suite: 106 tests, 0 failures; Flutter analyzer/source/widget checks: 160 tests passed; Windows capture lifecycle checks passed; streaming/video suite: 38 tests, 0 failures. Optional real-codec FFmpeg/FFprobe integration remained skipped on this runner and is **NOT TESTED**.
+- **Build decision:** APK and Windows bundle jobs were skipped intentionally; this is a discovery-cache source regression, not a package acceptance gate. Physical Android↔Windows LAN discovery/pairing, files/clipboard, screen/audio and input remain **NOT TESTED**.
+- **Security boundary:** discovery and TCP PONG remain unauthenticated reachability only, never authorization. No new dependency, paid API, root, MediaProjection/Accessibility bypass, secret, merge or `main` write.
+- **Live Google Docs Handoff: SYNC FAILED** — no authorized Docs write/read connector is exposed; this repository ledger does not replace the existing live Drive document.
