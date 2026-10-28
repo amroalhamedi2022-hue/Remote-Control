@@ -730,7 +730,7 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Cleanup:** startup failure closes locally acquired sockets/subscriptions and only clears shared fields when they still refer to that startup attempt; stopping detaches shared references before awaiting cancellation, so a stale start cannot tear down a later generation.
 - **Testability:** optional discovery/probe ports allow deterministic ephemeral-port lifecycle tests; production defaults remain UDP 43827 and TCP 43828. Peer announcements still remain unauthenticated discovery, never authorization.
 - **Flutter source checks: PASS** on source/test SHA `76e89851f9945cd339f8f0fd275ff86f253ac088`, workflow run [40708374794](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40708374794): analyzer reported no issues and **161 Flutter tests passed**.
-- **Node protocol tests: PASS** in the same workflow run. Windows capture-lifecycle job was still queued at the last check; overall workflow conclusion is therefore **NOT FINAL / IN PROGRESS**.
+- **Node protocol tests: PASS** and **Windows capture-lifecycle: PASS (3/3 tests)** in the same workflow run. The completed workflow conclusion is **SUCCESS**; Android/Windows package-build jobs were intentionally skipped.
 - **APK / Windows bundle:** NOT BUILT; the changed startup lifecycle is covered by source tests, and a package build was not necessary for this round.
 - **Real-device acceptance:** NOT TESTED. LAN discovery, QR pairing, file/clipboard transport, screen/audio mirroring and input control still need physical Android/Windows acceptance. No root or OS permission bypass was added.
 - **PR state:** PR #1 remains Draft on `feature/build-reliability-v0_9`; no merge or `main` change.
