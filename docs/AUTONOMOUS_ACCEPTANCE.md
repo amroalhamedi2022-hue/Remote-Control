@@ -770,3 +770,18 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Audit note:** an intermediate commit [`1953380`](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/195338056031a4b8245b418f27820e14c7c1346e) accidentally wrote the commit message in place of the test file. The following commit restored the full test suite from its prior version and added the intended regressions; intermediate CI [40727442637](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40727442637) failed on that temporary state. No merge or `main` write occurred; the restored final head is the one with green CI.
 - **APK/Windows bundle:** NOT BUILT; this source-only gate did not warrant packaging. **Real LAN/device acceptance:** NOT TESTED. Discovery remains untrusted, not pairing/authentication or authorization. No root, permission bypass, new dependency, paid API, or secret.
 - **Live Google Docs handoff:** SYNC FAILED in this runtime; repository ledger is not a replacement for the live Drive document.
+
+
+## M102 — Serialize desktop receive chunks against the approved offer (2026-10-28)
+
+- **Scope:** PR #1 branch `feature/build-reliability-v0_9` only. No merge or `main` write.
+- **Finding:** concurrent calls to `DesktopLabReceiveStaging.write` could each validate against the same stale `_written` count before either asynchronous disk write completed. This could make per-call checks insufficient to enforce the approved total size or preserve caller submission order.
+- **Fix:** desktop staging now serializes writes through a future tail, snapshots caller-owned chunk bytes before yielding, fails closed after a write error, waits for queued writes before commit/abort, freezes new writes once commit starts, and rejects oversized chunks before copying them into a new buffer.
+- **Source commits:** [f77ae0d](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/f77ae0d09c5d31d96747ca387e9694d2ead847fd), [80f1478](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/80f1478521f6450e22c53ac652ed4023a3305061).
+- **Regression commits:** [2dce028](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/2dce028e8536c0c48d3c08ad33a7a6b60b47f38c), [497ccba](https://github.com/amroalhamedi2022-hue/Remote-Control/commit/497ccba902260bcaf64a742ed9625232338b5ec1).
+- **New regressions:** concurrent chunks that would exceed the approved offer cannot both reach disk; failed staging cannot commit; oversized chunks are rejected and cleanup leaves the destination unchanged.
+- **Local Dart/Flutter tests:** NOT TESTED — this runtime has no Dart/Flutter toolchain and repository network access is unavailable. No local Flutter pass is claimed.
+- **Exact-head CI:** NOT VERIFIED — the available GitHub workflow-run connector exposes PR-triggered runs but not the branch push run; no CI pass is claimed.
+- **APK/Windows bundle:** NOT BUILT; this source-only staging-lab change does not justify a package build. Physical Android/Windows acceptance: NOT TESTED.
+- **Scope/security:** this remains a transfer-lab adapter and is not production remote-access approval. No root, permission bypass, paid API, new dependency, merge, or `main` write.
+- **Live Google Docs Handoff:** SYNC FAILED; no authorized Docs write/read connector is available in this run. This repository ledger does not replace the live Drive document.
