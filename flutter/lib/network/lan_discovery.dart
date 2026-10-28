@@ -52,6 +52,18 @@ bool isValidDiscoveredPeerFields({
     isSafeDiscoveryLabel(platform, 32) &&
     tcpPort == expectedTcpPort;
 
+/// The production protocol binds discovery datagrams to one well-known UDP port.
+/// Rejecting packets from arbitrary source ports avoids reflecting replies to an
+/// unrelated LAN service. A configured port of zero is reserved for ephemeral
+/// socket tests, where a fixed remote source port cannot be assumed.
+@visibleForTesting
+bool isExpectedDiscoverySourcePort(int sourcePort, int configuredPort) {
+  if (sourcePort < 1 || sourcePort > 65535) return false;
+  if (configuredPort == 0) return true;
+  return configuredPort >= 1 && configuredPort <= 65535 &&
+      sourcePort == configuredPort;
+}
+
 class LanPeer {
   final String id;
   final String name;
@@ -388,6 +400,9 @@ class LanDiscovery extends ChangeNotifier {
   void _handlePacket(Datagram packet) {
     // Discovery is never trusted; reject Internet/VPN public source addresses.
     if (!isLocalLanIpv4(packet.address)) return;
+    // The normal LAN protocol uses a fixed bound UDP port. Do not answer a
+    // forged LAN datagram that advertises from an unrelated service port.
+    if (!isExpectedDiscoverySourcePort(packet.port, _discoveryPort)) return;
     if (packet.data.length > 1200 || packet.data.isEmpty) return;
     Object payload;
     try { payload = jsonDecode(utf8.decode(packet.data)); } catch (_) { return; }
