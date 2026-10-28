@@ -134,7 +134,21 @@ class DesktopLabReceiveStaging implements LabReceiveStaging {
     if (validateLabFileName(name) != _expectedName ||
         bytes != _expectedBytes || bytes < 0 ||
         sha256 != _expectedSha256 ||
-        !RegExp(r'^[0-9a-f]{64}    await _writer!.flush();
+        !RegExp(r'^[0-9a-f]{64}$').hasMatch(sha256)) {
+      throw StateError('Desktop staging metadata mismatch');
+    }
+    // Freeze admission before waiting for queued chunks. Any write submitted
+    // after commit begins is rejected; writes already queued finish in order.
+    _closing = true;
+    await _writeTail;
+    if (_aborted || _writer == null) {
+      throw StateError('Receiver staging was aborted before publication');
+    }
+    if (_writeFailure != null || bytes != _written) {
+      throw StateError('Desktop staging byte count does not match the approved offer');
+    }
+    await _assertPublishLocationSafe();
+    await _writer!.flush();
     await _writer!.close();
     _writer = null;
     if (await _payload.length() != bytes ||
