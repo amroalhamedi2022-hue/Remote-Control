@@ -572,3 +572,15 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Device acceptance:** **NOT TESTED** — no physical Android↔Windows clipboard transfer or trust-revocation test was run. The Node module remains an interoperability/security lab, not proof of a production authenticated remote-control session.
 - **Safety:** no background clipboard reading, no auto-sync, no new dependency, no paid API, no root or Accessibility/MediaProjection bypass. No merge or `main` write.
 - **Live Google Docs handoff:** **SYNC FAILED** — no authorized Docs/Drive write-and-read connector is available in this run.
+
+
+## 2026-10-28 M85 — Stop silent screen capture on viewer disconnect
+
+- **Production source:** MJPEG preview and experimental H.264 capture now poll both session trust and socket state. If the viewer disconnects while FFmpeg is silent, the child process is stopped promptly and the request fails with “Viewer disconnected during capture” rather than waiting for another frame or returning a false success.
+- **Regression coverage:** new POSIX silent-child tests flip `socket.destroyed` during an idle capture, assert prompt termination, and ensure no post-disconnect frame/complete message is sent.
+- **Commits:** `9e0b08079cbcc43193ce1fdbda575c0da66434e2`, `4058ebc2a04c078bd385c37c92a04c6b63d627aa`, `0de189f77134d3798c79dd160871171961f2b0e2`, `ce109ffbbce609ad46f901973c98fff5fb856d52`.
+- **PASS — exact-head CI:** [workflow run 40620978659](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40620978659) succeeded on `ce109ffbbce609ad46f901973c98fff5fb856d52`. Node LAN/pairing/protocol tests: 102 passed, 0 failed. Stream/video tests: 26 passed, 0 failed, 7 skipped. Flutter scaffold/analyzer/widget checks and Windows capture lifecycle checks passed.
+- **Specific new regressions:** “Viewer disconnect while MJPEG capture is silent terminates the child” PASS; “Viewer disconnect while H.264 capture is silent terminates the child” PASS.
+- **NOT TESTED:** seven optional real-codec FFmpeg tests were skipped because FFmpeg/FFprobe were not installed on the runner; physical Windows↔Android screen/audio playback, MediaProjection permission behavior and real viewer disconnects remain untested.
+- **Build discipline:** Android APK and Windows bundle jobs were skipped on this source-only run; no new EXE/APK or release artifact was created.
+- **Remaining:** device acceptance for LAN pairing, file/clipboard transfer, screen/audio, and actual Accessibility/MediaProjection lifecycle. No merge.
