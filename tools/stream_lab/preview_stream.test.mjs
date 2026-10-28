@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {JpegFrames, jpegMessages, PreviewAssembler, sendPreview, captureArguments} from './preview_stream.mjs';
+import {JpegFrames, jpegMessages, PreviewAssembler, sendPreview, captureArguments, CHUNK_BYTES} from './preview_stream.mjs';
 const mini = Buffer.from([0xff,0xd8,0x31,0x42,0xff,0xd9]);
 test('fragmented JPEG stream and two concatenated frames',()=>{
   const frames=[];const parser=new JpegFrames((f)=>frames.push(f));
