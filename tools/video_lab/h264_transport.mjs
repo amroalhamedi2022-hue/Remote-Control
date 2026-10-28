@@ -121,13 +121,20 @@ export async function sendH264(channel, socket, options = {}) {
   const hash = crypto.createHash('sha256');
   let pending = Buffer.alloc(0);
   let trustRevoked = false;
+  let viewerDisconnected = false;
   const lifecycle = createChildLifecycle(child);
   const requestStop = (revoked = false) => {
     if (revoked) trustRevoked = true;
     lifecycle.requestStop();
   };
-  // A quiet FFmpeg stdout must not postpone revocation until the next frame.
+  // A quiet FFmpeg stdout must not keep desktop capture alive after viewer
+  // disconnect; trust revocation remains fail-closed on the same watcher.
   const trustWatch = setInterval(() => {
+    if (socket.destroyed) {
+      viewerDisconnected = true;
+      requestStop(false);
+      return;
+    }
     let active = false;
     try { active = isSessionActive(); } catch { /* fail closed */ }
     if (!active) requestStop(true);
@@ -159,6 +166,7 @@ export async function sendH264(channel, socket, options = {}) {
         }
       }
     }
+    if (viewerDisconnected || socket.destroyed) throw new Error('Viewer disconnected during capture');
     if (trustRevoked || !isSessionActive()) throw new Error('H.264 screen trust revoked while capture was idle');
     if (pending.length) throw new Error('Truncated MPEG-TS packet');
     status = await ended;
