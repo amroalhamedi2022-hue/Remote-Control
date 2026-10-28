@@ -606,3 +606,14 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Boundary:** this is a capture-lab receiver hardening, not production approval for the custom transport. No new dependency, paid API, root, permission bypass, secret, merge or `main` write.
 - **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector was available in this run; this repository ledger is not a substitute for the live Drive document.
 
+
+
+## 2026-10-28 — M88 stop MJPEG capture on viewer TCP half-close
+
+- **Source/test SHA:** `20cb56919b3444a9c3317f86b2ca85dc9dec4882`.
+- **Functional fix:** the MJPEG capture lifecycle now treats a TCP readable-side FIN (`readableEnded`) as the end of the viewer session even when `socket.destroyed` is still false. It also stops when the local writable side has ended or is no longer writable. This prevents a silent FFmpeg capture process from remaining alive after the duplex viewer channel has ended.
+- **Regression:** the new test uses a silent child process and a socket fixture with `readableEnded=true` while `destroyed=false`; it asserts prompt termination and no frame/completion messages.
+- **PASS — exact source/test CI:** [run 40638533763](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40638533763). Flutter source/analyzer/widget checks, Node protocol/pairing/file/clipboard/streaming tests, and Windows capture-lifecycle tests passed.
+- **NOT BUILT / NOT TESTED:** Android APK and Windows EXE jobs were skipped because this is a source-level lifecycle regression. Physical Android↔Windows pairing, files/clipboard, screen/audio, and MediaProjection/Accessibility remain **NOT TESTED**. Optional FFmpeg executable integration is not counted as passing.
+- **Boundary:** no new dependency, paid API, root, permission bypass, secret, merge, or `main` write. The pairing/media protocol remains experimental and is not production security approval.
+- **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector is available in this run.

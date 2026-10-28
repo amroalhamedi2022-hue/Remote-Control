@@ -63,3 +63,12 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - **NOT BUILT / NOT TESTED:** no APK/EXE was built for this lab parser change; physical Android↔Windows pairing, file/clipboard, screen/audio and MediaProjection/Accessibility remain unverified.
 - Live Google Docs handoff remains **SYNC FAILED** because no authorized Docs write/read connector is available in this run. No merge or `main` write.
 
+
+
+## 2026-10-28 — M88 viewer half-close lifecycle
+
+- Source/test SHA: `20cb56919b3444a9c3317f86b2ca85dc9dec4882`.
+- Exact-source CI: **PASS**, run [40638533763](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40638533763): Flutter source checks, Node protocol/stream tests and Windows capture lifecycle passed.
+- Android APK / Windows bundle: **SKIPPED**; no build was warranted for this source-level lifecycle fix.
+- Physical device acceptance: **NOT TESTED**; M2/M3/M4/M5/M6/M7/M8 remain open as previously recorded.
+- Live Google Docs handoff: **SYNC FAILED**. No merge or `main` write.
