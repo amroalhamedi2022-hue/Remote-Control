@@ -148,7 +148,7 @@ void main() {
     final controller = StreamController<List<int>>();
     final pending = LanDiscovery.readProbeReply(
       controller.stream, timeout: const Duration(milliseconds: 40));
-    controller.add(utf8.encode('PONG\\n'));
+    controller.add(utf8.encode('PONG\n'));
     expect(await pending, isFalse);
     await controller.close();
   });
