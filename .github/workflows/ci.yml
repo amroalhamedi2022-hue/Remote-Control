@@ -126,6 +126,10 @@ jobs:
             android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/IdleStageLease.kt \
             qa/IdleStageLeaseTest.kt -include-runtime -d "$RUNNER_TEMP/stage-lease.jar"
           java -jar "$RUNNER_TEMP/stage-lease.jar"
+          kotlinc \
+            android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/SafTempCleanup.kt \
+            qa/SafTempCleanupTest.kt -include-runtime -d "$RUNNER_TEMP/saf-temp-cleanup.jar"
+          java -jar "$RUNNER_TEMP/saf-temp-cleanup.jar"
 
 # Explicit opt-in milestone recheck only: avoid rebuilding APK on each source push.
   # M8 passed on 036d16c2; this is NOT device acceptance.
@@ -169,6 +173,10 @@ jobs:
             android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/IdleStageLease.kt \
             qa/IdleStageLeaseTest.kt -include-runtime -d "$RUNNER_TEMP/stage-lease.jar"
           java -jar "$RUNNER_TEMP/stage-lease.jar"
+          kotlinc \
+            android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/SafTempCleanup.kt \
+            qa/SafTempCleanupTest.kt -include-runtime -d "$RUNNER_TEMP/saf-temp-cleanup.jar"
+          java -jar "$RUNNER_TEMP/saf-temp-cleanup.jar"
       - name: Compile real Android debug APK with Kotlin SAF bridge
         working-directory: app
         run: flutter build apk --debug

@@ -211,6 +211,7 @@ class MainActivity : FlutterActivity() {
         val unique = UUID.randomUUID().toString()
         var temp: Uri? = null
         var published = false
+        var publicationFailure: Throwable? = null
         try {
             val doc = DocumentsContract.createDocument(contentResolver, root,
                 "application/octet-stream", ".liquidremote-" + unique + ".part")
@@ -239,10 +240,17 @@ class MainActivity : FlutterActivity() {
                 ?: error("SAF rename unsupported")
             published = true
             return finalUri.toString()
+        } catch (failure: Throwable) {
+            publicationFailure = failure
+            throw failure
         } finally {
-            if (!published && temp != null) {
-                try { temp?.let { DocumentsContract.deleteDocument(contentResolver, it) } }
-                catch (_: Exception) { /* provider cleanup must be tested */ }
+            // Never silently swallow a provider refusal or a failed SAF cleanup.
+            if (!published) {
+                temp?.let { temporaryDocument ->
+                    SafTempCleanup.onFailure(publicationFailure) {
+                        DocumentsContract.deleteDocument(contentResolver, temporaryDocument)
+                    }
+                }
             }
         }
     }
