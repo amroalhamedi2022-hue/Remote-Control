@@ -76,7 +76,8 @@ void main() {
 
   test('desktop staging rejects bytes beyond the approved offer before writing', () async {
     final stage = await DesktopLabReceiveStaging.create(
-      destination, _offer('bounded.txt', [1, 2, 3]));
+      destination, LabIncomingOffer(
+        'bounded.txt', 3, crypto.sha256.convert([1, 2, 3]).toString()));
     await expectLater(stage.write([1, 2, 3, 4]), throwsStateError);
     await stage.abort();
     expect(await destination.list().toList(), isEmpty);
