@@ -13,7 +13,12 @@ async function vacantPort(){
   const p=srv.address().port;await new Promise(ok=>srv.close(ok));return p;
 }
 function agent(args,onOutput){
-  const child=spawn(process.execPath,[root,...args],{stdio:['pipe','pipe','pipe']});
+  // All localhost pairs here are isolated fixtures, not production LAN peers.
+  // Keep the test-only override explicit and impossible to enable by flag alone.
+  const child=spawn(process.execPath,[root,'--allow-loopback-for-tests',...args],{
+    stdio:['pipe','pipe','pipe'],
+    env:{...process.env,NODE_ENV:'test'},
+  });
   let stdout='',stderr='';
   child.stdout.on('data',b=>{const txt=b.toString();stdout+=txt;onOutput?.(child,txt,stdout);});
   child.stderr.on('data',b=>stderr+=b.toString());
