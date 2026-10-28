@@ -25,6 +25,40 @@ void main() {
     expect(assembler.accept(end(2)), orderedEquals(jpeg));
   });
 
+  test('rejects fractional JSON numbers for frame ids and offsets', () {
+    final fractionalPartId = PreviewFrameAssembler();
+    fractionalPartId.accept(begin(1, jpeg.length));
+    expect(
+      () => fractionalPartId.accept({
+        'type': 'FRAME_PART',
+        'id': 1.0,
+        'offset': 0,
+        'data': encode(jpeg),
+      }),
+      throwsA(isA<FormatException>()),
+    );
+
+    final fractionalOffset = PreviewFrameAssembler();
+    fractionalOffset.accept(begin(1, jpeg.length));
+    expect(
+      () => fractionalOffset.accept({
+        'type': 'FRAME_PART',
+        'id': 1,
+        'offset': 0.0,
+        'data': encode(jpeg),
+      }),
+      throwsA(isA<FormatException>()),
+    );
+
+    final fractionalEndId = PreviewFrameAssembler();
+    fractionalEndId.accept(begin(1, jpeg.length));
+    fractionalEndId.accept(part(1, 0, encode(jpeg)));
+    expect(
+      () => fractionalEndId.accept({'type': 'FRAME_END', 'id': 1.0}),
+      throwsA(isA<FormatException>()),
+    );
+  });
+
   test('rejects a frame exactly at the absolute assembly deadline', () {
     var now = 100;
     final assembler = PreviewFrameAssembler(nowMicros: () => now);
