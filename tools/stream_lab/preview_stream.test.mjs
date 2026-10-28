@@ -136,7 +136,7 @@ test('MJPEG capture reports a nonzero FFmpeg exit even after sending a frame', {
       sendPreview({send:message=>messages.push(message)},
         {destroyed:false,writableLength:0},
         {ffmpeg:fake,isSessionActive:()=>true}),
-      /FFmpeg failed \\(17\\)/
+      /FFmpeg failed \(17\)/
     );
     assert.equal(messages.filter(message=>message.type==='FRAME_END').length,1,
       'the synthetic frame should be observed before the encoder failure is reported');
