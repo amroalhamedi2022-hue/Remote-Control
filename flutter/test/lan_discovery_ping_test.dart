@@ -138,7 +138,7 @@ void main() {
 
   test('TCP probe rejects trailing bytes delivered in a later event', () async {
     final reply = Stream<List<int>>.fromIterable([
-      utf8.encode('PONG\\n'),
+      utf8.encode('PONG\n'),
       utf8.encode('EXTRA'),
     ]);
     expect(await LanDiscovery.readProbeReply(reply), isFalse);
