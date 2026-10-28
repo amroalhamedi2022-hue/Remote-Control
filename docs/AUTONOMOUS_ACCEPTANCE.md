@@ -628,3 +628,16 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **Build/device:** Android APK and Windows bundle jobs **SKIPPED** because this is a Node capture-lab lifecycle fix; no APK/EXE was built. Physical Android↔Windows pairing, file/clipboard, screen/audio and MediaProjection/Accessibility acceptance remain **NOT TESTED**.
 - **Product/security boundary:** this hardens the experimental preview lab; it does not approve the custom media/pairing protocol for production control. No root, permission bypass, new dependency, paid API, secret, merge or `main` write.
 - **Live Google Docs Handoff:** **SYNC FAILED** — no authorized Google Docs write/read connector is available in this run; this GitHub ledger is not a substitute for the live Drive document.
+
+
+## M90 — 2026-10-28 — Require integer JSON counters in preview-frame protocol
+
+- **Scope:** Remote Control PR #1 only; branch `feature/build-reliability-v0_9`. No merge, base retarget, or `main` write.
+- **Finding:** Dart equality allows a JSON-decoded double such as `1.0` to compare equal to integer `1`. The preview assembler previously checked frame-part ID/offset and frame-end ID by equality only, so malformed non-integer counters could pass the protocol gate.
+- **Production fix:** `flutter/lib/security/preview_frame_assembler.dart` now explicitly requires `FRAME_PART.id`, `FRAME_PART.offset`, and `FRAME_END.id` to be Dart `int` values before comparing them with the active frame state.
+- **Regression:** `flutter/test/preview_frame_assembler_test.dart` covers fractional part ID (`1.0`), fractional offset (`0.0`), and fractional end ID (`1.0`); all must throw `FormatException` and reset the partial frame.
+- **Exact source/test head:** `959244066a7554b4ef1900b0a45910b6dd14acf4`.
+- **PASS — exact-head CI:** [run 40647301044](https://github.com/amroalhamedi2022-hue/Remote-Control/actions/runs/40647301044). Node protocol tests **102 PASS / 0 FAIL**; streaming/video tests **31 PASS / 0 FAIL / 7 SKIPPED** (optional FFmpeg/FFprobe integration not installed, not counted as passes); Flutter analysis reports **No issues found** and **154 tests passed**; Windows capture lifecycle **3 PASS / 0 FAIL**.
+- **Build/device:** Android APK and Windows bundle jobs were **SKIPPED** intentionally because this is a Dart protocol-parser regression. Physical Android↔Windows pairing, file/clipboard, screen/audio, and MediaProjection/Accessibility acceptance remain **NOT TESTED**. Experimental pairing/media protocol is not production security approval.
+- **Safety:** no dependency, paid API, secret, root, permission bypass, or privileged control change.
+- **Live Google Docs handoff:** **SYNC FAILED** — no authorized Docs write/read connector is available; this repository ledger is not a substitute for the live Drive document.
