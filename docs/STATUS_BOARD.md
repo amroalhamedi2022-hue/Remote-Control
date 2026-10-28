@@ -119,3 +119,11 @@ Inspect the v0.9 pull request's three GitHub Actions jobs; if any fails, read th
 - Exact-head GitHub CI: **NOT VERIFIED** (workflow result/status unavailable from the current query). No APK/Windows bundle built; physical Android/Windows file-receive acceptance: **NOT TESTED**.
 - No new dependencies, root, permission bypass, paid API, secrets, merge, or `main` write. Discovery/file-name policy does not grant trust or authorize remote control.
 - Live Drive Handoff: **SYNC FAILED** until an authorized Google Docs write/read route is available.
+
+
+## 2026-10-28 — M100 bounded peer-cache ingress
+- Source/test head: `7585f7ae33e159e838ee045e402360d1fa7148ee`; production commit `0f7033541d9471fe53cb724099b8a28b1615cc7f`.
+- Added a per-source ingress gate before peer-cache mutation/visible UI notification, with a bounded source ledger and expiry. The separate response gate remains in place.
+- New regression cases are present. Exact-head CI **NOT VERIFIED**; no push-run ID was exposed by the available workflow-run lookup.
+- APK/Windows bundle **NOT BUILT**. Device LAN behavior **NOT TESTED**.
+- Discovery remains untrusted and does not authorize pairing, files, clipboard, screen/audio or input.
