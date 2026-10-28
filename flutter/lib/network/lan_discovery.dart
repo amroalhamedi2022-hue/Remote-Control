@@ -45,7 +45,11 @@ bool isValidDiscoveredPeerFields({
   required String localNodeId,
   int expectedTcpPort = lanProbePort,
 }) =>
-    RegExp(r'^[0-9a-f]{32}
+    RegExp(r'^[0-9a-f]{32}$').hasMatch(id) &&
+    id != localNodeId &&
+    isSafeDiscoveryLabel(name, 64) &&
+    isSafeDiscoveryLabel(platform, 32) &&
+    tcpPort == expectedTcpPort;
 
 class LanPeer {
   final String id;
