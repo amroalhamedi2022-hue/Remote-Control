@@ -97,7 +97,7 @@ async function ping() {
   };
   // Keep a listener even if the parser rejects an invalid timeout before attaching.
   conn.on('error',()=>finish(false));
-  conn.on('connect',()=>{if(!done)conn.write('PING\\n');});
+  conn.on('connect',()=>{if(!done)conn.write('PING\n');});
   readExactPong(conn,timeout).then(finish,()=>finish(false));
 }
 
