@@ -723,4 +723,4 @@ No merge, no `main` changes, no new dependency, and no paid API.
 - **CI: NOT VERIFIED:** the GitHub connector did not expose a workflow run/status for this push head. The commit includes `[saf-policy-test]` for the workflow's source-only SAF policy job; verify its exact-head result before claiming CI PASS.
 - **Build/device:** APK and Windows bundle not built; native SAF filename behavior on Android and actual Windows receive acceptance **NOT TESTED**.
 - **Security boundary:** no new dependency, no root, no MediaProjection/Accessibility bypass, no paid API, no secret, no merge, and no `main` write. Filename validation is not authorization or authentication.
-- **Live Google Docs handoff:** pending this batch's separate authorized write/read attempt.
+- **Live Google Docs handoff:** **SYNC FAILED** — no authorized Google Docs/Drive write-and-read connector is available in this runtime; this repository ledger is supplementary only.
