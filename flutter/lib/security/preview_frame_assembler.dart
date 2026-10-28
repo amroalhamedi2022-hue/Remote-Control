@@ -82,8 +82,11 @@ class PreviewFrameAssembler {
 
       case 'FRAME_PART':
         _checkActiveAndDeadline();
+        final id = message['id'];
+        final offset = message['offset'];
         final encoded = message['data'];
-        if (message['id'] != _currentId || message['offset'] != _written ||
+        if (id is! int || id != _currentId ||
+            offset is! int || offset != _written ||
             encoded is! String || encoded.isEmpty ||
             encoded.length > maxEncodedPartChars ||
             !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(encoded)) {
@@ -101,7 +104,8 @@ class PreviewFrameAssembler {
 
       case 'FRAME_END':
         _checkActiveAndDeadline();
-        if (message['id'] != _currentId || _written != _expected) {
+        final id = message['id'];
+        if (id is! int || id != _currentId || _written != _expected) {
           throw const FormatException('Incomplete preview frame');
         }
         final image = _buffer!.takeBytes();
