@@ -983,6 +983,25 @@ class _SettingsCard extends StatelessWidget {
         style:TextStyle(color:c.text,fontSize:12))),Switch(value:app.reduceMotion,onChanged:app.setReduceMotion)]),
       Text('View-only MJPEG diagnostic stream is implemented. Production H.264/WebRTC is not.',
         style:TextStyle(color:c.muted,fontSize:11)),
+      if (Platform.isAndroid) ...[
+        const SizedBox(height: 12),
+        const Text('Android H.264 capture: local diagnostic only. No peer receives pixels or control.'),
+        TextButton.icon(
+          icon: const Icon(Icons.monitor_outlined),
+          label: const Text('Test H.264 screen capture'),
+          onPressed: () async {
+            try {
+              await const MethodChannel('liquidremote/capture_probe')
+                  .invokeMethod<void>('open');
+            } on PlatformException catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Capture diagnostic unavailable: ${e.message}')));
+              }
+            }
+          },
+        ),
+      ],
       const SizedBox(height: 18),
       Text('Trusted device identities · experimental',
         style:TextStyle(color:c.text,fontWeight:FontWeight.w700)),

@@ -18,7 +18,7 @@ python3 - "$APP/android/app/src/main/AndroidManifest.xml" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); text=p.read_text()
-perms=['android.permission.INTERNET','android.permission.ACCESS_NETWORK_STATE']
+perms=['android.permission.INTERNET','android.permission.ACCESS_NETWORK_STATE','android.permission.FOREGROUND_SERVICE','android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION']
 new=''.join(f'    <uses-permission android:name="{x}" />\n' for x in perms if x not in text)
 if new:
     pos=text.index('>')+1
@@ -35,7 +35,16 @@ if 'android:allowBackup=' in tag:
     tag=re.sub(r'android:allowBackup="[^"]*"', 'android:allowBackup="false"', tag)
 else:
     tag=tag.replace('<application', '<application android:allowBackup="false"', 1)
-p.write_text(text[:m.start()]+tag+text[m.end():])
+text=text[:m.start()]+tag+text[m.end():]
+# Generated Flutter templates have a closing application tag; also support the
+# minimal self-closing application in the scaffold contract fixture.
+text=re.sub(r'(<application\b[^>]*?)/>', r'\1></application>', text, count=1)
+components='''    <activity android:name=".CaptureProbeActivity" android:exported="false" />
+    <service android:name=".CaptureProbeService" android:exported="false" android:foregroundServiceType="mediaProjection" />
+'''
+if text.count('</application>') != 1: raise SystemExit('Unexpected application structure')
+text=text.replace('</application>', components+'</application>', 1)
+p.write_text(text)
 PY
 # flutter_secure_storage >=11 requires Android minSdk 23.
 python3 - "$APP" <<'PYANDROID'

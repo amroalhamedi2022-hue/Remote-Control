@@ -43,6 +43,10 @@ fi
     assert.match(manifest,/android.permission.INTERNET/);
     assert.match(manifest,/android.permission.ACCESS_NETWORK_STATE/);
     assert.match(manifest,/android:allowBackup="false"/);
+    assert.match(manifest,/android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION/);
+    assert.match(manifest,/android:name="\.CaptureProbeService" android:exported="false" android:foregroundServiceType="mediaProjection"/);
+    assert.match(manifest,/android:name="\.CaptureProbeActivity" android:exported="false"/);
+    assert.ok(existsSync(join(tmp,'app/android/app/src/main/kotlin/com/example/liquid_remote_control/CaptureProbeService.kt')));
     assert.match(gradle,/minSdk = 23/);
     assert.ok(existsSync(join(tmp,'app/lib/security/pairing_lab.dart')));
     assert.ok(existsSync(join(tmp,'app/android/app/src/main/kotlin/com/example/liquid_remote_control/MainActivity.kt')));

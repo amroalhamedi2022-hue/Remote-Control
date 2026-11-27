@@ -27,6 +27,16 @@ if ($manifest -notmatch 'android.permission.INTERNET') {
   $manifest = [regex]::Replace($manifest, '<manifest\b[^>]*>', '$0' + $permissions, 1)
   [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))
 }
+# Add local MediaProjection diagnostic components. Both are non-exported.
+foreach ($permission in @('android.permission.FOREGROUND_SERVICE','android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION')) {
+  if (-not $manifest.Contains('android:name="' + $permission + '"')) {
+    $manifest = [regex]::Replace($manifest, '<manifest\b[^>]*>', '$0' + "`n    <uses-permission android:name=`"$permission`" />", 1)
+  }
+}
+$manifest = [regex]::Replace($manifest, '(<application\b[^>]*?)/>', '$1></application>', 1)
+if (-not $manifest.Contains('</application>')) { throw 'Unexpected application structure' }
+$components = '<activity android:name=".CaptureProbeActivity" android:exported="false" />' + "`n" + '<service android:name=".CaptureProbeService" android:exported="false" android:foregroundServiceType="mediaProjection" />'
+$manifest = $manifest.Replace('</application>', $components + "`n</application>")
 # Device-bound Keystore keys cannot be restored after reinstall; never backup pairing blobs.
 if ($manifest -match 'android:allowBackup=') {
   $manifest = [regex]::Replace($manifest, 'android:allowBackup="[^"]*"', 'android:allowBackup="false"', 1)

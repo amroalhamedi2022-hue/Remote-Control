@@ -4,6 +4,7 @@ import '../network/lan_discovery.dart';
 import '../security/pairing_lab.dart';
 import '../security/file_transfer_lab.dart';
 import '../security/clipboard_peer_policy.dart';
+import '../security/file_peer_policy.dart';
 
 enum AppSection { devices, control, files, clipboard, multiDevice, settings }
 enum InputMode { touch, mouse, keyboard }
@@ -39,7 +40,7 @@ class PrototypeState extends ChangeNotifier {
 
   Future<void> sendClipboardSelected(AskForPairConsent ask) async {
     final matches = lan.peers.where((p) => p.id == selectedPeerId).toList();
-    if (matches.length != 1) throw StateError('Select a discovered Windows receiver first');
+    if (matches.length != 1) throw StateError('Select a discovered Android or Windows receiver first');
     if (!ClipboardPeerPolicy.canSendTo(matches.single.platform)) {
       throw StateError('Clipboard receiver must be Android or Windows');
     }
@@ -57,8 +58,8 @@ class PrototypeState extends ChangeNotifier {
     if (matches.length != 1) {
       throw StateError('Select a discovered Android or Windows device first');
     }
-    if (matches.single.platform != 'Windows') {
-      throw StateError('Android file receiver is not implemented yet');
+    if (!FilePeerPolicy.canSendTo(matches.single.platform)) {
+      throw StateError('File receiver must be Android or Windows');
     }
     if (fileTransferActive) throw StateError('File transfer already active');
     final selectedSize = await file.length();
