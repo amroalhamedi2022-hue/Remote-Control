@@ -38,6 +38,19 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(engine: FlutterEngine) {
         super.configureFlutterEngine(engine)
+        MethodChannel(engine.dartExecutor.binaryMessenger,
+            "liquidremote/capture_probe").setMethodCallHandler { call, result ->
+            if (call.method != "open") {
+                result.notImplemented()
+            } else {
+                try {
+                    startActivity(Intent(this, CaptureProbeActivity::class.java))
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("CAPTURE_PROBE", e.message, null)
+                }
+            }
+        }
         cacheDir.listFiles()?.filter {
             it.name.startsWith("liquidremote-inbound-") && it.name.endsWith(".part")
         }?.forEach { it.delete() }
