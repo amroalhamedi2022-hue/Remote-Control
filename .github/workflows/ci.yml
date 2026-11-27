@@ -136,7 +136,7 @@ jobs:
   android-saf-milestone-build:
     # A single explicit commit marker enables the M34 native-SAF rollback compile check.
     # Ordinary pushes remain source-only; this is not a recurring APK build.
-    if: (github.event_name == 'workflow_dispatch' && inputs.saf_milestone_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[m34-platform-compile]'))
+    if: (github.event_name == 'workflow_dispatch' && inputs.saf_milestone_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[m34-platform-compile]')) || (github.event_name == 'pull_request' && github.event.action == 'opened' && github.head_ref == 'feature/android-first-20261127' && github.base_ref == 'feature/build-reliability-v0_9')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: flutter-source-checks
