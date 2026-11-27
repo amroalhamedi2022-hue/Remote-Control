@@ -37,13 +37,13 @@ class CaptureProbeActivity : Activity() {
             textSize = 24f
         })
         layout.addView(TextView(this).apply {
-            text = "Counts frames for up to 20 seconds. No screenshots, files, network transmission or remote input. Android will ask for permission."
+            text = "Encodes the screen locally as H.264 for up to 20 seconds, preferring hardware. Shows only codec name and counts; no video files, network transmission or remote input. Android will ask for permission."
             textSize = 16f
         })
         status = TextView(this).apply { textSize = 18f }
         layout.addView(status)
         start = Button(this).apply {
-            text = "Request screen capture"
+            text = "Test H.264 capture"
             setOnClickListener {
                 if (requesting || CaptureProbeService.running) return@setOnClickListener
                 requesting = true

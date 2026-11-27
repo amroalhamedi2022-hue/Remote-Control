@@ -985,10 +985,10 @@ class _SettingsCard extends StatelessWidget {
         style:TextStyle(color:c.muted,fontSize:11)),
       if (Platform.isAndroid) ...[
         const SizedBox(height: 12),
-        const Text('Android screen capture: local diagnostic only. No peer receives pixels or control.'),
+        const Text('Android H.264 capture: local diagnostic only. No peer receives pixels or control.'),
         TextButton.icon(
           icon: const Icon(Icons.monitor_outlined),
-          label: const Text('Test local screen capture'),
+          label: const Text('Test H.264 screen capture'),
           onPressed: () async {
             try {
               await const MethodChannel('liquidremote/capture_probe')

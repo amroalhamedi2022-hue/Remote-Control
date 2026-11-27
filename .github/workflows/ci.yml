@@ -3,7 +3,7 @@ on:
   push:
     # Temporary milestone branch gate: PR #1 has base conflicts, so GitHub
     # suppresses pull_request checks. This validates the head WITHOUT merging main.
-    branches: [main, feature/build-reliability-v0_9]
+    branches: [main, feature/build-reliability-v0_9, feature/android-first-20261127]
     # Ledger-only commits must not cancel an in-flight source/test validation.
     paths-ignore:
       - 'docs/AUTONOMOUS_ACCEPTANCE.md'
@@ -88,6 +88,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.8'
           cache: true
       - name: Flutter scaffold, static analyzer and widget tests (NO APK/EXE)
         run: bash ./scripts/bootstrap_flutter.sh
@@ -130,13 +131,17 @@ jobs:
             android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/SafTempCleanup.kt \
             qa/SafTempCleanupTest.kt -include-runtime -d "$RUNNER_TEMP/saf-temp-cleanup.jar"
           java -jar "$RUNNER_TEMP/saf-temp-cleanup.jar"
+          kotlinc \
+            android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/AvcCaptureSize.kt \
+            qa/AvcCaptureSizeTest.kt -include-runtime -d "$RUNNER_TEMP/avc-size.jar"
+          java -jar "$RUNNER_TEMP/avc-size.jar"
 
 # Explicit opt-in milestone recheck only: avoid rebuilding APK on each source push.
   # M8 passed on 036d16c2; this is NOT device acceptance.
   android-saf-milestone-build:
     # A single explicit commit marker enables the M34 native-SAF rollback compile check.
     # Ordinary pushes remain source-only; this is not a recurring APK build.
-    if: (github.event_name == 'workflow_dispatch' && inputs.saf_milestone_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[m34-platform-compile]')) || (github.event_name == 'pull_request' && github.event.action == 'opened' && github.head_ref == 'feature/android-first-20261127' && github.base_ref == 'feature/build-reliability-v0_9')
+    if: (github.event_name == 'workflow_dispatch' && inputs.saf_milestone_approved == true) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[m34-platform-compile]'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: flutter-source-checks
@@ -152,6 +157,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.8'
           cache: true
       - name: Bootstrap Flutter with versioned native Android SAF overlay
         run: bash ./scripts/bootstrap_flutter.sh
@@ -177,6 +183,10 @@ jobs:
             android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/SafTempCleanup.kt \
             qa/SafTempCleanupTest.kt -include-runtime -d "$RUNNER_TEMP/saf-temp-cleanup.jar"
           java -jar "$RUNNER_TEMP/saf-temp-cleanup.jar"
+          kotlinc \
+            android_overlay/app/src/main/kotlin/com/example/liquid_remote_control/AvcCaptureSize.kt \
+            qa/AvcCaptureSizeTest.kt -include-runtime -d "$RUNNER_TEMP/avc-size.jar"
+          java -jar "$RUNNER_TEMP/avc-size.jar"
       - name: Compile real Android debug APK with Kotlin SAF bridge
         working-directory: app
         run: flutter build apk --debug
@@ -210,6 +220,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.8'
           cache: true
       - name: Flutter scaffold, analyzer and widget tests
         run: bash ./scripts/bootstrap_flutter.sh
@@ -246,6 +257,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: '3.47.8'
           cache: true
       - name: Flutter scaffold and analyzer
         shell: pwsh

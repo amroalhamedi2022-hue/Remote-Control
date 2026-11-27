@@ -8,18 +8,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
-import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import kotlin.math.max
-import kotlin.math.roundToInt
+import android.content.res.Configuration
 
 /** Local diagnostic only: discard every frame, never expose pixels or sockets. */
 class CaptureProbeService : Service() {
@@ -33,8 +30,22 @@ class CaptureProbeService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private var projection: MediaProjection? = null
     private var display: VirtualDisplay? = null
-    private var reader: ImageReader? = null
-    private var frames = 0L
+    private var encoder: AvcCaptureEncoder? = null
+    private var orientation = Configuration.ORIENTATION_UNDEFINED
+    private val drain = object : Runnable {
+        override fun run() {
+            if (finished) return
+            val active = encoder ?: return
+            try {
+                active.drainAvailable()
+                status = "${active.width}x${active.height} AVC · ${active.acceleration}\n" +
+                    "${active.codecName}\n${active.frames} frames · ${active.keyFrames} keyframes · ${active.bytes} bytes"
+                handler.postDelayed(this, 16)
+            } catch (_: Exception) {
+                finish("Encoder drain failed")
+            }
+        }
+    }
     private var finished = false
     private val deadline = Runnable { finish("Diagnostic finished") }
     private val callback = object : MediaProjection.Callback() {
@@ -87,28 +98,15 @@ class CaptureProbeService : Service() {
             projection = media
             media.registerCallback(callback, handler)
             val metrics = resources.displayMetrics
-            val scale = 640.0 / max(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1)
-            val width = (metrics.widthPixels * scale.coerceAtMost(1.0)).roundToInt().coerceAtLeast(1)
-            val height = (metrics.heightPixels * scale.coerceAtMost(1.0)).roundToInt().coerceAtLeast(1)
-            val images = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-            reader = images
-            images.setOnImageAvailableListener({ source ->
-                if (!finished) {
-                    try {
-                        source.acquireLatestImage()?.use {
-                            frames++
-                            status = "Capturing locally: $frames frames"
-                        }
-                    } catch (e: Exception) {
-                        finish("Frame acquisition failed")
-                    }
-                }
-            }, handler)
-            display = media.createVirtualDisplay("LocalDiagnostic", width, height,
+            orientation = resources.configuration.orientation
+            val active = AvcCaptureEncoder.open(metrics.widthPixels, metrics.heightPixels)
+            encoder = active
+            display = media.createVirtualDisplay("LocalAvcDiagnostic", active.width, active.height,
                 metrics.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                images.surface, null, handler)
+                active.surface, null, handler) ?: error("Virtual display unavailable")
             running = true
-            status = "Capturing locally: 0 frames"
+            status = "Starting AVC encoder"
+            handler.post(drain)
             handler.postDelayed(deadline, 20_000)
         } catch (e: Exception) {
             finish("Capture failed: ${e.javaClass.simpleName}")
@@ -120,20 +118,29 @@ class CaptureProbeService : Service() {
         if (finished) return
         finished = true
         handler.removeCallbacks(deadline)
-        runCatching { reader?.setOnImageAvailableListener(null, null) }
+        handler.removeCallbacks(drain)
         runCatching { display?.release() }
         display = null
-        runCatching { reader?.close() }
-        reader = null
+        val active = encoder
+        encoder = null
+        val summary = if (active == null) "no encoder" else
+            "${active.frames} AVC frames · ${active.keyFrames} keyframes · ${active.bytes} bytes · ${active.acceleration}"
+        active?.close()
         val media = projection
         projection = null
         runCatching { media?.unregisterCallback(callback) }
         runCatching { media?.stop() }
-        status = "$reason — $frames frames observed"
+        status = "$reason — $summary"
         running = false
         @Suppress("DEPRECATION")
         stopForeground(true)
         stopSelf()
+    }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (encoder != null && newConfig.orientation != orientation) {
+            finish("Orientation changed; request a new capture")
+        }
     }
     override fun onDestroy() {
         finish("Capture stopped")
